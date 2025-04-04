@@ -24,21 +24,21 @@ jobs:
         run: ./gradlew build
 
       - name: Archive artifacts (Floodgate Bungee)
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         if: success()
         with:
           name: Floodgate Bungee
           path: bungee/build/libs/connect-bungee.jar
 
       - name: Archive artifacts (Floodgate Spigot)
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         if: success()
         with:
           name: Floodgate Spigot
           path: spigot/build/libs/connect-spigot.jar
 
       - name: Archive artifacts (Floodgate Velocity)
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         if: success()
         with:
           name: Floodgate Velocity
