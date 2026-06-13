@@ -216,7 +216,7 @@ public class WatcherRegister {
 
         @Override
         public void onOpen(WatchBootstrap bootstrap) {
-            if (!started.get()) {
+            if (shouldIgnoreTerminalEvent()) {
                 return;
             }
             healthy.set(true);

@@ -172,7 +172,6 @@ class WatcherRegisterTest {
         register.start();
         ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
         verify(fixture.watchClient).watch(watcher.capture());
-
         watcher.getValue().onOpen(WatchBootstrap.fromLists(
                 List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
                 List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
