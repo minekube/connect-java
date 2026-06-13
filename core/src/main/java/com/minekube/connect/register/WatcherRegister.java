@@ -70,6 +70,7 @@ public class WatcherRegister {
     private volatile boolean legacyWatchEnabled;
     private ExponentialBackOff backOffPolicy;
     private final AtomicBoolean started = new AtomicBoolean();
+    private final AtomicBoolean healthy = new AtomicBoolean();
 
     // Lazily created in start() so a stop()/start() cycle reuses cleanly,
     // and so the daemon thread isn't allocated if start() is never called.
@@ -97,12 +98,17 @@ public class WatcherRegister {
         backOffPolicy.reset();
     }
 
+    public boolean isHealthy() {
+        return healthy.get();
+    }
+
     public void stop() {
         // Gate the whole teardown so a concurrent stop() races safely.
         // A stop() before start() is a no-op (started is already false).
         if (!started.compareAndSet(true, false)) {
             return;
         }
+        healthy.set(false);
         logger.info("Stopped watching for sessions");
         legacyWatchEnabled = false;
         if (retryFuture != null) {
@@ -159,6 +165,7 @@ public class WatcherRegister {
         if (!started.get() || !legacyWatchEnabled) {
             return;
         }
+        healthy.set(false);
         if (ws != null) {
             if (watcher != null) {
                 watcher.ignoreTerminalEvents();
@@ -209,6 +216,10 @@ public class WatcherRegister {
 
         @Override
         public void onOpen(WatchBootstrap bootstrap) {
+            if (!started.get()) {
+                return;
+            }
+            healthy.set(true);
             logger.translatedInfo("connect.watch.started");
             if (bootstrap.hasLibp2p()) {
                 if (bootstrap.supportsWatchlessLibp2p()) {
@@ -270,6 +281,7 @@ public class WatcherRegister {
             if (shouldIgnoreTerminalEvent()) {
                 return;
             }
+            healthy.set(false);
             logger.error("Connection error with WatchService: " +
                             t + (
                             t.getCause() == null ? ""
@@ -285,6 +297,7 @@ public class WatcherRegister {
             if (shouldIgnoreTerminalEvent()) {
                 return;
             }
+            healthy.set(false);
             cancelResetBackOffTimer();
             retry();
         }

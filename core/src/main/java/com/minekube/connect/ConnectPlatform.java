@@ -41,6 +41,7 @@ import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.inject.CommonPlatformInjector;
 import com.minekube.connect.module.ConfigLoadedModule;
 import com.minekube.connect.module.PostInitializeModule;
+import com.minekube.connect.register.WatchHealthServer;
 import com.minekube.connect.register.WatcherRegister;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
@@ -141,6 +142,7 @@ public class ConnectPlatform {
             guice.getInstance(Libp2pEndpoint.class).stop();
         } catch (ConfigurationException ignored) {
         }
+        guice.getInstance(WatchHealthServer.class).stop();
         guice.getInstance(WatcherRegister.class).stop();
         guice.getInstance(Tunneler.class).close();
         guice.getInstance(CommonPlatformInjector.class).shutdown();
