@@ -70,6 +70,7 @@ rootProject.name = "connect-parent"
 
 include(":api")
 include(":core")
+include(":p2p")
 include(":bungee")
 include(":spigot")
 include(":velocity")
