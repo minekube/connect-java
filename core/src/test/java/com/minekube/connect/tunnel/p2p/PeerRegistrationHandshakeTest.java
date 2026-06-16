@@ -38,8 +38,9 @@ class PeerRegistrationHandshakeTest {
                 Arrays.asList("session", "status"),
                 PeerCapacity.newBuilder().setMaxSessions(100).setActiveSessions(3).build());
 
-        PeerRegisterInit init = handshake.init(Arrays.asList(
-                "/ip4/127.0.0.1/tcp/1234/p2p/" + identity.peerId()));
+        String relayAddr = "/dns4/relay.example/tcp/4001/p2p/relay/p2p-circuit/p2p/" + identity.peerId();
+        String directAddr = "/ip4/127.0.0.1/tcp/1234/p2p/" + identity.peerId();
+        PeerRegisterInit init = handshake.init(Arrays.asList(relayAddr, directAddr));
 
         assertEquals("endpoint", init.getEndpoint());
         assertEquals("token", init.getToken());
@@ -69,6 +70,7 @@ class PeerRegistrationHandshakeTest {
         assertEquals("local", record.getRegion());
         assertEquals(Arrays.asList("session", "status"), record.getCapabilitiesList());
         assertEquals(init.getObservedAddrsList(), record.getAddrsList());
+        assertEquals(Collections.singletonList(directAddr), record.getDirectAddrsList());
         assertArrayEquals(challenge.getNonce().toByteArray(), record.getNonce().toByteArray());
         assertEquals(7, record.getSequence());
         assertEquals(1_000, record.getIssuedAtUnixMs());

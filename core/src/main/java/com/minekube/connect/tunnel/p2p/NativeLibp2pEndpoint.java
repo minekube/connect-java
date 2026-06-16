@@ -313,10 +313,10 @@ public final class NativeLibp2pEndpoint {
         if (!nativeConfig.advertiseAddrs().isEmpty()) {
             return nativeConfig.advertiseAddrs();
         }
-        List<String> addrs = new ArrayList<>(host.listenAddresses().stream()
+        List<String> addrs = new ArrayList<>(reservedRelayAddrs);
+        addrs.addAll(host.listenAddresses().stream()
                 .map(addr -> addr.withP2P(host.getPeerId()).toString())
                 .collect(Collectors.toList()));
-        addrs.addAll(reservedRelayAddrs);
         return addrs;
     }
 

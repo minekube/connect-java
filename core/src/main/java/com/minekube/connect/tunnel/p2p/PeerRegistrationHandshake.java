@@ -27,6 +27,7 @@ import com.google.protobuf.ByteString;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 import minekube.connect.v1alpha1.ConnectLibp2P.EndpointPeerRecord;
 import minekube.connect.v1alpha1.ConnectLibp2P.OfflineMode;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerCapacity;
@@ -95,7 +96,7 @@ final class PeerRegistrationHandshake {
                 .setPublisherPeerId(challenge.getPublisherPeerId())
                 .setRegion(challenge.getRegion())
                 .addAllAddrs(addrs)
-                .addAllDirectAddrs(addrs)
+                .addAllDirectAddrs(directAddrs(addrs))
                 .addAllCapabilities(capabilities)
                 .setCapacity(capacity)
                 .setOfflineMode(offlineMode)
@@ -109,5 +110,11 @@ final class PeerRegistrationHandshake {
                 .setRecord(record)
                 .setSignature(ByteString.copyFrom(identity.sign(PeerRecordSigningPayload.bytes(record))))
                 .build();
+    }
+
+    private static List<String> directAddrs(List<String> addrs) {
+        return addrs.stream()
+                .filter(addr -> !addr.contains("/p2p-circuit"))
+                .collect(Collectors.toList());
     }
 }
