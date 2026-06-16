@@ -9,6 +9,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class NativeLibp2pEndpointConfigTest {
+    private static final String MOXY_PEER = "12D3KooWNXa3WQenRYKVJCHxcadnp3JPcxRALCqk97qpMiqAG1tt";
 
     @Test
     void disabledWhenRegisterAddressIsMissing() {
@@ -40,6 +41,15 @@ class NativeLibp2pEndpointConfigTest {
                 NativeLibp2pEndpoint.relayCircuitAddr(
                         "/ip4/127.0.0.1/tcp/4001/p2p/relay1",
                         "endpoint1"));
+    }
+
+    @Test
+    void extractsConfiguredMoxyPeerIds() {
+        NativeLibp2pEndpointConfig config = NativeLibp2pEndpointConfig.fromEnvironment(Map.of(
+                "CONNECT_LIBP2P_NATIVE_MOXY_ADDR", "/dns4/connect-proxy-staging.fly.dev/tcp/4001/p2p/" + MOXY_PEER));
+
+        assertEquals(1, config.moxyPeerIds().size());
+        assertEquals(MOXY_PEER, config.moxyPeerIds().get(0));
     }
 
     @Test

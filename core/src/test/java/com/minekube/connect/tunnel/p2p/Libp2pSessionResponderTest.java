@@ -6,16 +6,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.google.rpc.Code;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.watch.SessionProposal;
 import io.libp2p.core.Stream;
+import io.libp2p.core.PeerId;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufInputStream;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.io.ByteArrayOutputStream;
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicReference;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionAccepted;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionAuthentication;
@@ -27,6 +30,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 class Libp2pSessionResponderTest {
+    private static final String ALLOWED_PEER = "12D3KooWNXa3WQenRYKVJCHxcadnp3JPcxRALCqk97qpMiqAG1tt";
+    private static final String OTHER_PEER = "12D3KooWEzZpASrUwA3s8CM3UCDCCYjQzfh91ZyJnxRqaZ9xTi31";
 
     @Test
     void sendsAcceptedWhenLocalSessionOpensSameStreamTunnel() throws Exception {
@@ -122,6 +127,25 @@ class Libp2pSessionResponderTest {
         SessionResponse response = writtenResponse(stream);
         assertTrue(response.hasRejected(), response.toString());
         assertEquals(Code.DEADLINE_EXCEEDED_VALUE, response.getRejected().getReason().getCode());
+    }
+
+    @Test
+    void rejectsOfferFromUnauthorizedMoxyPeer() throws Exception {
+        Stream stream = mock(Stream.class);
+        when(stream.remotePeerId()).thenReturn(PeerId.fromBase58(OTHER_PEER));
+        Libp2pSessionResponder responder = new Libp2pSessionResponder(
+                "endpoint",
+                () -> 1_000,
+                Collections.singleton(ALLOWED_PEER),
+                (proposal, tunneler) -> {
+                    throw new AssertionError("starter should not be called");
+                });
+
+        responder.handleOffer(stream, offer());
+
+        SessionResponse response = writtenResponse(stream);
+        assertTrue(response.hasRejected(), response.toString());
+        assertEquals(Code.PERMISSION_DENIED_VALUE, response.getRejected().getReason().getCode());
     }
 
     private static SessionOffer offer() {

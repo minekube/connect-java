@@ -87,7 +87,12 @@ final class NativeStatusReporter {
         try {
             reportOnce(System.currentTimeMillis());
         } catch (RuntimeException e) {
-            logger.error("Failed to report native Connect libp2p status", e);
+            if (NativeLibp2pErrors.isTransientConnectError(e)) {
+                logger.warn("Native Connect libp2p status report failed; retrying: "
+                        + NativeLibp2pErrors.summary(e));
+            } else {
+                logger.error("Failed to report native Connect libp2p status", e);
+            }
         }
     }
 

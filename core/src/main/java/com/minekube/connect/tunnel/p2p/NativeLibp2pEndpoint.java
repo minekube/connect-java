@@ -159,6 +159,7 @@ public final class NativeLibp2pEndpoint {
         Libp2pSessionResponder responder = new Libp2pSessionResponder(
                 connectConfig.getEndpoint(),
                 System::currentTimeMillis,
+                nativeConfig.moxyPeerIds(),
                 (proposal, tunneler) ->
                         new LocalSession(
                                 logger,
@@ -262,7 +263,12 @@ public final class NativeLibp2pEndpoint {
             try {
                 registerAndWatch(offlineMode);
             } catch (RuntimeException e) {
-                logger.error("Failed to refresh native Connect libp2p registration", e);
+                if (NativeLibp2pErrors.isTransientConnectError(e)) {
+                    logger.warn("Native Connect libp2p registration refresh failed; retrying: "
+                            + NativeLibp2pErrors.summary(e));
+                } else {
+                    logger.error("Failed to refresh native Connect libp2p registration", e);
+                }
                 scheduleRegisterRetry(offlineMode, 5);
             }
         }, delaySeconds, TimeUnit.SECONDS);
@@ -288,6 +294,9 @@ public final class NativeLibp2pEndpoint {
         registration.client().closedFuture().whenComplete((ignored, error) -> {
             if (error == null) {
                 logger.info("Native Connect libp2p registration stream closed; reconnecting");
+            } else if (NativeLibp2pErrors.isTransientConnectError(error)) {
+                logger.warn("Native Connect libp2p registration stream closed; reconnecting: "
+                        + NativeLibp2pErrors.summary(error));
             } else {
                 logger.error("Native Connect libp2p registration stream failed; reconnecting", error);
             }

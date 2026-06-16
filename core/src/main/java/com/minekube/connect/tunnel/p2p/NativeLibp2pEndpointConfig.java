@@ -23,6 +23,7 @@
 
 package com.minekube.connect.tunnel.p2p;
 
+import io.libp2p.core.multiformats.Multiaddr;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -86,6 +87,12 @@ final class NativeLibp2pEndpointConfig {
 
     List<String> relayAddrs() {
         return relayAddrs;
+    }
+
+    List<String> moxyPeerIds() {
+        return registerAddrs.stream()
+                .map(address -> Multiaddr.fromString(address).getPeerId().toBase58())
+                .collect(Collectors.toList());
     }
 
     private static List<String> split(String value) {

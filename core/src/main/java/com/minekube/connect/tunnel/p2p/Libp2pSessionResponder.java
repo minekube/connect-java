@@ -29,13 +29,18 @@ import com.google.rpc.Code;
 import com.google.rpc.Status;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.watch.SessionProposal;
+import io.libp2p.core.PeerId;
 import io.libp2p.core.Stream;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.LongSupplier;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionAccepted;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionOffer;
@@ -47,30 +52,41 @@ final class Libp2pSessionResponder {
 
     private final String expectedEndpoint;
     private final LongSupplier clock;
+    private final Set<String> allowedMoxyPeerIds;
     private final Starter starter;
 
-	Libp2pSessionResponder(Starter starter) {
-		this(null, System::currentTimeMillis, starter);
-	}
+    Libp2pSessionResponder(Starter starter) {
+        this(null, System::currentTimeMillis, Collections.emptySet(), starter);
+    }
 
-	Libp2pSessionResponder(String expectedEndpoint, LongSupplier clock, Starter starter) {
-		this.expectedEndpoint = expectedEndpoint;
-		this.clock = Objects.requireNonNull(clock, "clock");
-		this.starter = Objects.requireNonNull(starter, "starter");
-	}
+    Libp2pSessionResponder(String expectedEndpoint, LongSupplier clock, Starter starter) {
+        this(expectedEndpoint, clock, Collections.emptySet(), starter);
+    }
 
-	void install(Stream stream) {
-		P2PFrameDecoder<SessionOffer> decoder = new P2PFrameDecoder<>(
-				SessionOffer.parser(),
-				P2PFrameCodec.MAX_CONTROL_FRAME_SIZE);
-		stream.pushHandler(decoder);
-		stream.pushHandler(new ControlHandler(stream, decoder));
-	}
+    Libp2pSessionResponder(
+            String expectedEndpoint,
+            LongSupplier clock,
+            Collection<String> allowedMoxyPeerIds,
+            Starter starter) {
+        this.expectedEndpoint = expectedEndpoint;
+        this.clock = Objects.requireNonNull(clock, "clock");
+        this.allowedMoxyPeerIds = Collections.unmodifiableSet(new HashSet<>(
+                Objects.requireNonNull(allowedMoxyPeerIds, "allowedMoxyPeerIds")));
+        this.starter = Objects.requireNonNull(starter, "starter");
+    }
 
-	void handleOffer(Stream stream, SessionOffer offer) {
+    void install(Stream stream) {
+        P2PFrameDecoder<SessionOffer> decoder = new P2PFrameDecoder<>(
+                SessionOffer.parser(),
+                P2PFrameCodec.MAX_CONTROL_FRAME_SIZE);
+        stream.pushHandler(decoder);
+        stream.pushHandler(new ControlHandler(stream, decoder));
+    }
+
+    void handleOffer(Stream stream, SessionOffer offer) {
         Objects.requireNonNull(stream, "stream");
         Objects.requireNonNull(offer, "offer");
-        Status rejection = validateOffer(offer);
+        Status rejection = validateOffer(stream, offer);
         if (rejection != null) {
             writeResponse(stream, SessionResponse.newBuilder()
                     .setSessionId(offer.getSessionId())
@@ -103,7 +119,16 @@ final class Libp2pSessionResponder {
         }
     }
 
-    private Status validateOffer(SessionOffer offer) {
+    private Status validateOffer(Stream stream, SessionOffer offer) {
+        if (!allowedMoxyPeerIds.isEmpty()) {
+            PeerId remotePeer = stream.remotePeerId();
+            if (remotePeer == null || !allowedMoxyPeerIds.contains(remotePeer.toBase58())) {
+                return Status.newBuilder()
+                        .setCode(Code.PERMISSION_DENIED_VALUE)
+                        .setMessage("unauthorized native libp2p moxy peer")
+                        .build();
+            }
+        }
         if (expectedEndpoint != null && !expectedEndpoint.equals(offer.getEndpoint())) {
             return Status.newBuilder()
                     .setCode(Code.INVALID_ARGUMENT_VALUE)
