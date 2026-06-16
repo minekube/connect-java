@@ -36,6 +36,7 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Objects;
+import java.util.function.LongSupplier;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionAccepted;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionOffer;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionRejected;
@@ -44,9 +45,17 @@ import minekube.connect.v1alpha1.ConnectLibp2P.SessionResponse;
 final class Libp2pSessionResponder {
     static final String PROTOCOL_ID = "/minekube/connect/session/1.0.0";
 
+    private final String expectedEndpoint;
+    private final LongSupplier clock;
     private final Starter starter;
 
 	Libp2pSessionResponder(Starter starter) {
+		this(null, System::currentTimeMillis, starter);
+	}
+
+	Libp2pSessionResponder(String expectedEndpoint, LongSupplier clock, Starter starter) {
+		this.expectedEndpoint = expectedEndpoint;
+		this.clock = Objects.requireNonNull(clock, "clock");
 		this.starter = Objects.requireNonNull(starter, "starter");
 	}
 
@@ -61,6 +70,15 @@ final class Libp2pSessionResponder {
 	void handleOffer(Stream stream, SessionOffer offer) {
         Objects.requireNonNull(stream, "stream");
         Objects.requireNonNull(offer, "offer");
+        Status rejection = validateOffer(offer);
+        if (rejection != null) {
+            writeResponse(stream, SessionResponse.newBuilder()
+                    .setSessionId(offer.getSessionId())
+                    .setRejected(SessionRejected.newBuilder().setReason(rejection))
+                    .build());
+            stream.close();
+            return;
+        }
         SessionProposal proposal = new SessionProposal(
                 NativeSessionMapper.toWatchSession(offer),
                 reason -> {
@@ -83,6 +101,22 @@ final class Libp2pSessionResponder {
                     .setMessage(e.getMessage() == null ? e.toString() : e.getMessage())
                     .build());
         }
+    }
+
+    private Status validateOffer(SessionOffer offer) {
+        if (expectedEndpoint != null && !expectedEndpoint.equals(offer.getEndpoint())) {
+            return Status.newBuilder()
+                    .setCode(Code.INVALID_ARGUMENT_VALUE)
+                    .setMessage("session offer endpoint mismatch")
+                    .build();
+        }
+        if (offer.getDeadlineUnixMs() > 0 && offer.getDeadlineUnixMs() < clock.getAsLong()) {
+            return Status.newBuilder()
+                    .setCode(Code.DEADLINE_EXCEEDED_VALUE)
+                    .setMessage("session offer expired")
+                    .build();
+        }
+        return null;
     }
 
     private static void writeResponse(Stream stream, SessionResponse response) {

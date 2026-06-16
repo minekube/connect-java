@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import com.google.rpc.Code;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.watch.SessionProposal;
 import io.libp2p.core.Stream;
@@ -95,10 +96,39 @@ class Libp2pSessionResponderTest {
         assertEquals("session-1", proposalRef.get().getSession().getId());
     }
 
+    @Test
+    void rejectsOfferForWrongEndpoint() throws Exception {
+        Stream stream = mock(Stream.class);
+        Libp2pSessionResponder responder = new Libp2pSessionResponder("endpoint", () -> 1_000, (proposal, tunneler) -> {
+            throw new AssertionError("starter should not be called");
+        });
+
+        responder.handleOffer(stream, offer().toBuilder().setEndpoint("other").build());
+
+        SessionResponse response = writtenResponse(stream);
+        assertTrue(response.hasRejected(), response.toString());
+        assertEquals(Code.INVALID_ARGUMENT_VALUE, response.getRejected().getReason().getCode());
+    }
+
+    @Test
+    void rejectsExpiredOffer() throws Exception {
+        Stream stream = mock(Stream.class);
+        Libp2pSessionResponder responder = new Libp2pSessionResponder("endpoint", () -> 2_000, (proposal, tunneler) -> {
+            throw new AssertionError("starter should not be called");
+        });
+
+        responder.handleOffer(stream, offer().toBuilder().setDeadlineUnixMs(1_999).build());
+
+        SessionResponse response = writtenResponse(stream);
+        assertTrue(response.hasRejected(), response.toString());
+        assertEquals(Code.DEADLINE_EXCEEDED_VALUE, response.getRejected().getReason().getCode());
+    }
+
     private static SessionOffer offer() {
         return SessionOffer.newBuilder()
                 .setSessionId("session-1")
                 .setEndpoint("endpoint")
+                .setDeadlineUnixMs(System.currentTimeMillis() + 60_000)
                 .setPlayer(SessionPlayer.newBuilder()
                         .setAddr("127.0.0.1")
                         .setProfile(SessionGameProfile.newBuilder()
@@ -106,6 +136,15 @@ class Libp2pSessionResponderTest {
                                 .setName("Player")))
                 .setAuth(SessionAuthentication.newBuilder().setPassthrough(false))
                 .build();
+    }
+
+    private static SessionResponse writtenResponse(Stream stream) throws Exception {
+        ArgumentCaptor<Object> outbound = ArgumentCaptor.forClass(Object.class);
+        verify(stream).writeAndFlush(outbound.capture());
+        return P2PFrameCodec.read(
+                new ByteBufInputStream((ByteBuf) outbound.getValue()),
+                SessionResponse.parser(),
+                P2PFrameCodec.MAX_CONTROL_FRAME_SIZE);
     }
 
     private static final class NoopHandler implements com.minekube.connect.tunnel.TunnelConn.Handler {

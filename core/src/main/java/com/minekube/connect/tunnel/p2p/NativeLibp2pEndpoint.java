@@ -41,10 +41,12 @@ import io.libp2p.core.multiformats.Multiaddr;
 import io.libp2p.core.multistream.StrictProtocolBinding;
 import io.libp2p.protocol.ProtocolHandler;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -69,6 +71,7 @@ public final class NativeLibp2pEndpoint {
     private final ConnectLogger logger;
     private final PlatformInjector platformInjector;
     private final SimpleConnectApi api;
+    private final String endpointInstanceId = newEndpointInstanceId();
     private final AtomicLong sequence = new AtomicLong();
 
     private NativeLibp2pEndpointConfig nativeConfig;
@@ -77,6 +80,7 @@ public final class NativeLibp2pEndpoint {
     private ScheduledExecutorService registrationExecutor;
     private ScheduledExecutorService statusExecutor;
     private ActiveRegistration activeRegistration;
+    private List<String> reservedRelayAddrs = Collections.emptyList();
     private boolean started;
 
     @Inject
@@ -107,11 +111,13 @@ public final class NativeLibp2pEndpoint {
             identity = EndpointPeerIdentity.loadOrCreate(dataDirectory.resolve("native-libp2p.key"));
             host = Libp2pTunnelTransport.createHost(
                     identity.privateKey(),
-                    nativeConfig.listenAddrs().toArray(String[]::new));
+                    nativeConfig.listenAddrs().toArray(String[]::new),
+                    nativeConfig.relayAddrs());
             installRegisterProtocol(host);
             NativeStatusReporter.installStatusProtocol(host);
             installSessionResponder(host);
             await(host.start(), START_TIMEOUT_SECONDS, "start native libp2p endpoint host");
+            reservedRelayAddrs = reserveRelayAddrs();
             started = true;
             PlatformUtils.AuthType authType = platformUtils.authType();
             OfflineMode offlineMode = offlineMode(authType);
@@ -135,6 +141,7 @@ public final class NativeLibp2pEndpoint {
             activeRegistration.close();
             activeRegistration = null;
         }
+        reservedRelayAddrs = Collections.emptyList();
         if (statusExecutor != null) {
             statusExecutor.shutdownNow();
             statusExecutor = null;
@@ -149,13 +156,16 @@ public final class NativeLibp2pEndpoint {
     }
 
     private void installSessionResponder(Host host) {
-        Libp2pSessionResponder responder = new Libp2pSessionResponder((proposal, tunneler) ->
-                new LocalSession(
-                        logger,
-                        api,
-                        tunneler,
-                        platformInjector.getServerSocketAddress(),
-                        proposal).connect());
+        Libp2pSessionResponder responder = new Libp2pSessionResponder(
+                connectConfig.getEndpoint(),
+                System::currentTimeMillis,
+                (proposal, tunneler) ->
+                        new LocalSession(
+                                logger,
+                                api,
+                                tunneler,
+                                platformInjector.getServerSocketAddress(),
+                                proposal).connect());
         host.addProtocolHandler(new StrictProtocolBinding<Void>(
                 Libp2pSessionResponder.PROTOCOL_ID,
                 new ProtocolHandler<Void>(Long.MAX_VALUE, Long.MAX_VALUE) {
@@ -200,7 +210,7 @@ public final class NativeLibp2pEndpoint {
                         identity,
                         connectConfig.getEndpoint(),
                         connectToken,
-                        identity.peerId(),
+                        endpointInstanceId,
                         connectConfig.getSuperEndpoints() == null
                                 ? Collections.emptyList()
                                 : connectConfig.getSuperEndpoints(),
@@ -303,9 +313,32 @@ public final class NativeLibp2pEndpoint {
         if (!nativeConfig.advertiseAddrs().isEmpty()) {
             return nativeConfig.advertiseAddrs();
         }
-        return host.listenAddresses().stream()
+        List<String> addrs = new ArrayList<>(host.listenAddresses().stream()
                 .map(addr -> addr.withP2P(host.getPeerId()).toString())
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
+        addrs.addAll(reservedRelayAddrs);
+        return addrs;
+    }
+
+    private List<String> reserveRelayAddrs() {
+        List<String> addrs = new ArrayList<>();
+        for (String relayAddr : nativeConfig.relayAddrs()) {
+            await(
+                    host.getNetwork().listen(Multiaddr.fromString(relayAddr + "/p2p-circuit")),
+                    CONNECT_TIMEOUT_SECONDS,
+                    "reserve native libp2p relay " + relayAddr);
+            addrs.add(relayCircuitAddr(relayAddr, identity.peerId()));
+        }
+        return addrs;
+    }
+
+    static String relayCircuitAddr(String relayAddr, String endpointPeerId) {
+        String separator = relayAddr.endsWith("/") ? "" : "/";
+        return relayAddr + separator + "p2p-circuit/p2p/" + endpointPeerId;
+    }
+
+    static String newEndpointInstanceId() {
+        return UUID.randomUUID().toString();
     }
 
     private OfflineMode offlineMode(PlatformUtils.AuthType authType) {
@@ -341,6 +374,7 @@ public final class NativeLibp2pEndpoint {
         }
         NativeStatusReporter reporter = new NativeStatusReporter(
                 host,
+                endpointInstanceId,
                 identity.peerId(),
                 nativeConfig.registerAddrs(),
                 result,
@@ -354,8 +388,8 @@ public final class NativeLibp2pEndpoint {
         });
         statusExecutor.scheduleWithFixedDelay(
                 reporter::reportSafely,
-                30,
-                30,
+                NativeStatusReporter.REPORT_INTERVAL_SECONDS,
+                NativeStatusReporter.REPORT_INTERVAL_SECONDS,
                 TimeUnit.SECONDS);
     }
 

@@ -33,18 +33,22 @@ final class NativeLibp2pEndpointConfig {
     static final String MOXY_ADDR_ENV = "CONNECT_LIBP2P_NATIVE_MOXY_ADDR";
     static final String LISTEN_ADDR_ENV = "CONNECT_LIBP2P_NATIVE_LISTEN_ADDR";
     static final String ADVERTISE_ADDRS_ENV = "CONNECT_LIBP2P_NATIVE_ADVERTISE_ADDRS";
+    static final String RELAY_ADDRS_ENV = "CONNECT_LIBP2P_NATIVE_RELAY_ADDRS";
 
     private final List<String> registerAddrs;
     private final List<String> listenAddrs;
     private final List<String> advertiseAddrs;
+    private final List<String> relayAddrs;
 
     private NativeLibp2pEndpointConfig(
             List<String> registerAddrs,
             List<String> listenAddrs,
-            List<String> advertiseAddrs) {
+            List<String> advertiseAddrs,
+            List<String> relayAddrs) {
         this.registerAddrs = registerAddrs;
         this.listenAddrs = listenAddrs;
         this.advertiseAddrs = advertiseAddrs;
+        this.relayAddrs = relayAddrs;
     }
 
     static NativeLibp2pEndpointConfig fromEnvironment(Map<String, String> env) {
@@ -56,7 +60,8 @@ final class NativeLibp2pEndpointConfig {
         return new NativeLibp2pEndpointConfig(
                 registerAddrs,
                 listenAddrs,
-                split(env.get(ADVERTISE_ADDRS_ENV)));
+                split(env.get(ADVERTISE_ADDRS_ENV)),
+                split(env.get(RELAY_ADDRS_ENV)));
     }
 
     static NativeLibp2pEndpointConfig fromSystemEnvironment() {
@@ -77,6 +82,10 @@ final class NativeLibp2pEndpointConfig {
 
     List<String> advertiseAddrs() {
         return advertiseAddrs;
+    }
+
+    List<String> relayAddrs() {
+        return relayAddrs;
     }
 
     private static List<String> split(String value) {

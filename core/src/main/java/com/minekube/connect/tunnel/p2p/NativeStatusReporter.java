@@ -52,12 +52,14 @@ final class NativeStatusReporter {
     static final String GENERIC_HOST = "__default__";
     static final int JAVA_PORT = 25565;
     static final int DEFAULT_MAX_PLAYERS = 512;
-    static final long STATUS_TTL_MS = 60_000;
+    static final long STATUS_TTL_MS = 15_000;
+    static final long REPORT_INTERVAL_SECONDS = 5;
 
     private static final long CONNECT_TIMEOUT_SECONDS = 15;
     private static final long STREAM_TIMEOUT_SECONDS = 5;
 
     private final Host host;
+    private final String endpointInstanceId;
     private final String endpointPeerId;
     private final List<String> moxyAddrs;
     private final PeerRegisterResult registration;
@@ -66,12 +68,14 @@ final class NativeStatusReporter {
 
     NativeStatusReporter(
             Host host,
+            String endpointInstanceId,
             String endpointPeerId,
             List<String> moxyAddrs,
             PeerRegisterResult registration,
             PlatformUtils platformUtils,
             ConnectLogger logger) {
         this.host = Objects.requireNonNull(host, "host");
+        this.endpointInstanceId = Objects.requireNonNull(endpointInstanceId, "endpointInstanceId");
         this.endpointPeerId = Objects.requireNonNull(endpointPeerId, "endpointPeerId");
         this.moxyAddrs = Objects.requireNonNull(moxyAddrs, "moxyAddrs");
         this.registration = Objects.requireNonNull(registration, "registration");
@@ -133,7 +137,7 @@ final class NativeStatusReporter {
         return StatusReport.newBuilder()
                 .setEndpointId(registration.getEndpointId())
                 .setEndpointHash(registration.getEndpointHash())
-                .setEndpointInstanceId(endpointPeerId)
+                .setEndpointInstanceId(endpointInstanceId)
                 .setEndpointPeerId(endpointPeerId)
                 .setObservedAtUnixMs(nowUnixMs)
                 .addStatuses(EndpointStatus.newBuilder()

@@ -40,8 +40,12 @@ import io.libp2p.core.dsl.HostBuilder;
 import io.libp2p.core.mux.StreamMuxerProtocol;
 import io.libp2p.core.multiformats.Multiaddr;
 import io.libp2p.core.multistream.StrictProtocolBinding;
+import io.libp2p.protocol.circuit.CircuitHopProtocol;
+import io.libp2p.protocol.circuit.CircuitStopProtocol;
+import io.libp2p.protocol.circuit.RelayTransport;
 import io.libp2p.protocol.ProtocolHandler;
 import io.libp2p.security.noise.NoiseXXSecureChannel;
+import io.libp2p.transport.ConnectionUpgrader;
 import io.libp2p.transport.quic.QuicConfig;
 import io.libp2p.transport.quic.QuicTransport;
 import io.libp2p.transport.tcp.TcpTransport;
@@ -51,12 +55,18 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport.Type;
 
 public final class Libp2pTunnelTransport implements TunnelClientTransport {
@@ -89,23 +99,71 @@ public final class Libp2pTunnelTransport implements TunnelClientTransport {
     }
 
     static Host createHost(PrivKey privateKey, String... listenAddrs) {
+        return createHost(privateKey, listenAddrs, Collections.emptyList());
+    }
+
+    static Host createHost(PrivKey privateKey, String[] listenAddrs, List<String> relayAddrs) {
+        return createHost(privateKey, listenAddrs, relayAddrs, false);
+    }
+
+    static Host createRelayServiceHost(PrivKey privateKey, String... listenAddrs) {
+        return createHost(privateKey, listenAddrs, Collections.emptyList(), true);
+    }
+
+    private static Host createHost(
+            PrivKey privateKey,
+            String[] listenAddrs,
+            List<String> relayAddrs,
+            boolean relayService) {
+        RelayBindings relay = relayBindings(privateKey, relayAddrs, relayService);
         HostBuilder builder = new HostBuilder(HostBuilder.DefaultMode.None)
-                .transport(TcpTransport::new)
                 .secureChannel(NoiseXXSecureChannel::new)
                 .muxer(StreamMuxerProtocol::getYamux)
                 .secureTransport((priv, protocols) ->
                         QuicTransport.Ed25519(priv, protocols, new QuicConfig()));
+        if (relay == null) {
+            builder.transport(TcpTransport::new);
+        } else {
+            builder.transport(TcpTransport::new, relay::transport);
+            builder.protocol(relay.hopBinding, relay.stopBinding);
+        }
         if (listenAddrs != null && listenAddrs.length > 0) {
             builder.listen(listenAddrs);
         }
-        if (privateKey == null) {
-            return builder
-                    .keyType(KeyType.ED25519)
-                    .build();
+        Host built = privateKey == null
+                ? builder
+                        .keyType(KeyType.ED25519)
+                        .build()
+                : builder
+                        .builderModifier(builderJ -> builderJ.getIdentity().setFactory(() -> privateKey))
+                        .build();
+        if (relay != null) {
+            relay.attachHost(built);
         }
-        return builder
-                .builderModifier(builderJ -> builderJ.getIdentity().setFactory(() -> privateKey))
-                .build();
+        return built;
+    }
+
+    private static RelayBindings relayBindings(PrivKey privateKey, List<String> relayAddrs, boolean relayService) {
+        if (!relayService && (relayAddrs == null || relayAddrs.isEmpty())) {
+            return null;
+        }
+        CircuitStopProtocol.Binding stopBinding = new CircuitStopProtocol.Binding(new CircuitStopProtocol());
+        CircuitHopProtocol.RelayManager relayManager = relayService
+                ? CircuitHopProtocol.RelayManager.limitTo(
+                        privateKey,
+                        PeerId.fromPubKey(privateKey.publicKey()),
+                        1024)
+                : new DenyRelayManager();
+        CircuitHopProtocol.Binding hopBinding = new CircuitHopProtocol.Binding(relayManager, stopBinding);
+        List<RelayTransport.CandidateRelay> candidates = relayAddrs == null
+                ? Collections.emptyList()
+                : relayAddrs.stream()
+                        .map(Multiaddr::fromString)
+                        .map(addr -> new RelayTransport.CandidateRelay(
+                                requirePeerId(addr, addr.toString()),
+                                Collections.singletonList(addr)))
+                        .collect(Collectors.toList());
+        return new RelayBindings(hopBinding, stopBinding, candidates);
     }
 
     @Override
@@ -206,6 +264,64 @@ public final class Libp2pTunnelTransport implements TunnelClientTransport {
 
     private static boolean isHealthy(Connection connection) {
         return connection != null && !connection.closeFuture().isDone();
+    }
+
+    private static final class RelayBindings {
+        private final CircuitHopProtocol.Binding hopBinding;
+        private final CircuitStopProtocol.Binding stopBinding;
+        private final List<RelayTransport.CandidateRelay> candidates;
+        private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "connect-native-libp2p-relay");
+            thread.setDaemon(true);
+            return thread;
+        });
+        private RelayTransport transport;
+
+        private RelayBindings(
+                CircuitHopProtocol.Binding hopBinding,
+                CircuitStopProtocol.Binding stopBinding,
+                List<RelayTransport.CandidateRelay> candidates) {
+            this.hopBinding = hopBinding;
+            this.stopBinding = stopBinding;
+            this.candidates = candidates;
+        }
+
+        private RelayTransport transport(ConnectionUpgrader upgrader) {
+            RelayTransport transport = new RelayTransport(
+                    hopBinding,
+                    stopBinding,
+                    upgrader,
+                    ignored -> candidates,
+                    executor);
+            transport.setRelayCount(candidates.size());
+            this.transport = transport;
+            return transport;
+        }
+
+        private void attachHost(Host host) {
+            if (transport != null) {
+                transport.setHost(host);
+            } else {
+                hopBinding.setHost(host);
+            }
+        }
+    }
+
+    private static final class DenyRelayManager implements CircuitHopProtocol.RelayManager {
+        @Override
+        public boolean hasReservation(PeerId peerId) {
+            return false;
+        }
+
+        @Override
+        public Optional<CircuitHopProtocol.Reservation> createReservation(PeerId peerId, Multiaddr multiaddr) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<CircuitHopProtocol.Reservation> allowConnection(PeerId source, PeerId destination) {
+            return Optional.empty();
+        }
     }
 
     private static <T> T await(CompletableFuture<T> future, long timeoutSeconds, String action) {

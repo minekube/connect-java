@@ -1,7 +1,6 @@
 package com.minekube.connect.tunnel.p2p;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -24,6 +23,7 @@ class NativeStatusReporterTest {
 
         NativeStatusReporter reporter = new NativeStatusReporter(
                 mock(Host.class),
+                "instance-1",
                 "12D3Endpoint",
                 Collections.singletonList("/ip4/127.0.0.1/tcp/4001/p2p/12D3Moxy"),
                 PeerRegisterResult.newBuilder()
@@ -38,7 +38,7 @@ class NativeStatusReporterTest {
 
         assertEquals("endpoint-id", report.getEndpointId());
         assertEquals("endpoint-hash", report.getEndpointHash());
-        assertEquals("12D3Endpoint", report.getEndpointInstanceId());
+        assertEquals("instance-1", report.getEndpointInstanceId());
         assertEquals("12D3Endpoint", report.getEndpointPeerId());
         assertEquals(1_000, report.getObservedAtUnixMs());
         assertEquals(1, report.getStatusesCount());
@@ -50,6 +50,8 @@ class NativeStatusReporterTest {
         assertEquals(4, report.getStatuses(0).getPlayersOnline());
         assertEquals(512, report.getStatuses(0).getPlayersMax());
         assertEquals("{\"text\":\"Paper\"}", report.getStatuses(0).getDescriptionJson());
-        assertTrue(report.getStatuses(0).getExpiresAtUnixMs() > report.getObservedAtUnixMs());
+        assertEquals(15_000, NativeStatusReporter.STATUS_TTL_MS);
+        assertEquals(16_000, report.getStatuses(0).getExpiresAtUnixMs());
+        assertEquals(5, NativeStatusReporter.REPORT_INTERVAL_SECONDS);
     }
 }
