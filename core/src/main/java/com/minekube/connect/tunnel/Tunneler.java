@@ -56,7 +56,11 @@ public class Tunneler implements Closeable {
 
     public void prepare(Session session) {
         for (SelectedTransport selected : select(session)) {
-            selected.transport.prepare(selected.address);
+            try {
+                selected.transport.prepare(selected.address);
+            } catch (RuntimeException ignored) {
+                // Warmup must not prevent the regular tunnel fallback chain.
+            }
         }
     }
 

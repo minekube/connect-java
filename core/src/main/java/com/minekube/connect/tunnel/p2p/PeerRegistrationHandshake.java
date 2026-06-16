@@ -27,7 +27,7 @@ import com.google.protobuf.ByteString;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.Collectors;
+import java.util.function.Supplier;
 import minekube.connect.v1alpha1.ConnectLibp2P.EndpointPeerRecord;
 import minekube.connect.v1alpha1.ConnectLibp2P.OfflineMode;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerCapacity;
@@ -43,7 +43,7 @@ final class PeerRegistrationHandshake {
     private final List<String> parentEndpoints;
     private final OfflineMode offlineMode;
     private final List<String> capabilities;
-    private final PeerCapacity capacity;
+    private final Supplier<PeerCapacity> capacitySupplier;
 
     PeerRegistrationHandshake(
             EndpointPeerIdentity identity,
@@ -54,6 +54,18 @@ final class PeerRegistrationHandshake {
             OfflineMode offlineMode,
             List<String> capabilities,
             PeerCapacity capacity) {
+        this(identity, endpoint, token, endpointInstanceId, parentEndpoints, offlineMode, capabilities, () -> capacity);
+    }
+
+    PeerRegistrationHandshake(
+            EndpointPeerIdentity identity,
+            String endpoint,
+            String token,
+            String endpointInstanceId,
+            List<String> parentEndpoints,
+            OfflineMode offlineMode,
+            List<String> capabilities,
+            Supplier<PeerCapacity> capacitySupplier) {
         this.identity = Objects.requireNonNull(identity, "identity");
         this.endpoint = Objects.requireNonNull(endpoint, "endpoint");
         this.token = Objects.requireNonNull(token, "token");
@@ -61,7 +73,7 @@ final class PeerRegistrationHandshake {
         this.parentEndpoints = new ArrayList<>(Objects.requireNonNull(parentEndpoints, "parentEndpoints"));
         this.offlineMode = Objects.requireNonNull(offlineMode, "offlineMode");
         this.capabilities = new ArrayList<>(Objects.requireNonNull(capabilities, "capabilities"));
-        this.capacity = Objects.requireNonNull(capacity, "capacity");
+        this.capacitySupplier = Objects.requireNonNull(capacitySupplier, "capacitySupplier");
     }
 
     PeerRegisterInit init(List<String> observedAddrs) {
@@ -76,7 +88,7 @@ final class PeerRegistrationHandshake {
                 .setOfflineMode(offlineMode)
                 .addAllCapabilities(capabilities)
                 .addAllObservedAddrs(observedAddrs)
-                .setCapacity(capacity)
+                .setCapacity(capacity())
                 .setIssuedAtUnixMs(now)
                 .setExpiresAtUnixMs(now + 45_000)
                 .build();
@@ -96,9 +108,8 @@ final class PeerRegistrationHandshake {
                 .setPublisherPeerId(challenge.getPublisherPeerId())
                 .setRegion(challenge.getRegion())
                 .addAllAddrs(addrs)
-                .addAllDirectAddrs(directAddrs(addrs))
                 .addAllCapabilities(capabilities)
-                .setCapacity(capacity)
+                .setCapacity(capacity())
                 .setOfflineMode(offlineMode)
                 .setSequence(sequence)
                 .setIssuedAtUnixMs(nowUnixMs)
@@ -112,9 +123,7 @@ final class PeerRegistrationHandshake {
                 .build();
     }
 
-    private static List<String> directAddrs(List<String> addrs) {
-        return addrs.stream()
-                .filter(addr -> !addr.contains("/p2p-circuit"))
-                .collect(Collectors.toList());
+    private PeerCapacity capacity() {
+        return Objects.requireNonNull(capacitySupplier.get(), "capacity");
     }
 }

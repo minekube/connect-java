@@ -35,8 +35,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterChallenge;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterResult;
@@ -171,6 +173,7 @@ final class PeerRegistrationClient {
         private final List<String> observedAddrs;
         private final AtomicLong sequence;
         private final CompletableFuture<PeerRegisterResult> result;
+        private volatile ScheduledFuture<?> ackTimeout;
 
         private ResultHandler(
                 Stream stream,
@@ -187,6 +190,7 @@ final class PeerRegistrationClient {
 
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, PeerRegisterResult msg) {
+            cancelAckTimeout();
             result.complete(msg);
             scheduleRenew();
         }
@@ -194,28 +198,64 @@ final class PeerRegistrationClient {
         private void scheduleRenew() {
             renewExecutor.schedule(() -> {
                 if (!stream.closeFuture().isDone()) {
-                    writeFrame(stream, handshake.commit(
-                            challenge,
-                            observedAddrs,
-                            sequence.incrementAndGet(),
-                            System.currentTimeMillis()));
+                    try {
+                        writeFrame(stream, handshake.commit(
+                                challenge,
+                                observedAddrs,
+                                sequence.incrementAndGet(),
+                                System.currentTimeMillis()));
+                        scheduleAckTimeout();
+                    } catch (RuntimeException e) {
+                        failRegistration(e);
+                    }
                 }
             }, renewDelayMillis(challenge), TimeUnit.MILLISECONDS);
         }
 
+        private void scheduleAckTimeout() {
+            cancelAckTimeout();
+            ackTimeout = renewExecutor.schedule(
+                    () -> failRegistration(new TimeoutException("native registration renew ack timed out")),
+                    renewAckTimeoutMillis(challenge),
+                    TimeUnit.MILLISECONDS);
+        }
+
+        private void cancelAckTimeout() {
+            ScheduledFuture<?> timeout = ackTimeout;
+            if (timeout != null) {
+                timeout.cancel(false);
+                ackTimeout = null;
+            }
+        }
+
+        private void failRegistration(Throwable cause) {
+            cancelAckTimeout();
+            result.completeExceptionally(cause);
+            closed.completeExceptionally(cause);
+            stream.close();
+            renewExecutor.shutdownNow();
+        }
+
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-            result.completeExceptionally(cause);
-            renewExecutor.shutdownNow();
-            closed.completeExceptionally(cause);
+            failRegistration(cause);
             ctx.close();
         }
 
         @Override
         public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+            cancelAckTimeout();
             renewExecutor.shutdownNow();
             closed.complete(null);
             super.channelInactive(ctx);
         }
+    }
+
+    static long renewAckTimeoutMillis(PeerRegisterChallenge challenge) {
+        long renewDelay = renewDelayMillis(challenge);
+        if (challenge.getKvTtlMs() > 0) {
+            return Math.max(1_000, Math.min(renewDelay, challenge.getKvTtlMs() / 2));
+        }
+        return Math.max(1_000, renewDelay);
     }
 }

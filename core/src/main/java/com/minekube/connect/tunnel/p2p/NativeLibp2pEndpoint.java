@@ -217,10 +217,7 @@ public final class NativeLibp2pEndpoint {
                                 : connectConfig.getSuperEndpoints(),
                         offlineMode,
                         Arrays.asList("session", "status"),
-                        PeerCapacity.newBuilder()
-                                .setMaxSessions(512)
-                                .setActiveSessions(platformUtils.getPlayerCount())
-                                .build());
+                        this::currentCapacity);
                 client = new PeerRegistrationClient(handshake);
                 PeerRegisterResult result = await(client.install(
                                 stream,
@@ -319,14 +316,14 @@ public final class NativeLibp2pEndpoint {
     }
 
     private List<String> observedAddrs() {
-        if (!nativeConfig.advertiseAddrs().isEmpty()) {
-            return nativeConfig.advertiseAddrs();
-        }
-        List<String> addrs = new ArrayList<>(reservedRelayAddrs);
-        addrs.addAll(host.listenAddresses().stream()
-                .map(addr -> addr.withP2P(host.getPeerId()).toString())
-                .collect(Collectors.toList()));
-        return addrs;
+        return new ArrayList<>(reservedRelayAddrs);
+    }
+
+    private PeerCapacity currentCapacity() {
+        return PeerCapacity.newBuilder()
+                .setMaxSessions(512)
+                .setActiveSessions(Math.max(0, platformUtils.getPlayerCount()))
+                .build();
     }
 
     private List<String> reserveRelayAddrs() {

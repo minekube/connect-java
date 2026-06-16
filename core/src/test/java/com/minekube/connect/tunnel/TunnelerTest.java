@@ -4,6 +4,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -138,6 +139,37 @@ class TunnelerTest {
     }
 
     @Test
+    void prepareDoesNotPreventWebsocketFallbackWhenLibp2pWarmupFails() {
+        RecordingTransport websocket = new RecordingTransport(Type.TYPE_WEBSOCKET);
+        RecordingTransport libp2p = new RecordingTransport(Type.TYPE_LIBP2P);
+        libp2p.prepareFailure = new IllegalStateException("stale native peer");
+        libp2p.tunnelFailure = new IllegalStateException("stale native peer");
+        TunnelConn expected = new TunnelConn() {
+            @Override
+            public void write(byte[] data) {
+            }
+
+            @Override
+            public void close(Throwable t) {
+            }
+        };
+        websocket.next = expected;
+        Tunneler tunneler = new Tunneler(new HashSet<>(Arrays.asList(websocket, libp2p)));
+        Session session = session(
+                "session-prepare-fallback",
+                "ws://connect.example/fallback",
+                transport(Type.TYPE_LIBP2P, "/ip4/127.0.0.1/tcp/1/p2p/test")
+        );
+
+        assertDoesNotThrow(() -> tunneler.prepare(session));
+        TunnelConn actual = tunneler.tunnel(session, new CapturingHandler());
+
+        assertSame(expected, actual);
+        assertArrayEquals(new String[] {"ws://connect.example/fallback", "session-prepare-fallback"},
+                websocket.args);
+    }
+
+    @Test
     void receivesBinaryFrameFromTunnelService() throws Exception {
         byte[] sent = new byte[] {1, 2, 3, 4, 5};
 
@@ -267,6 +299,8 @@ class TunnelerTest {
         private String[] args;
         private String[] prepared;
         private TunnelConn.Handler handler;
+        private RuntimeException prepareFailure;
+        private RuntimeException tunnelFailure;
         private boolean closed;
 
         private RecordingTransport(Type type) {
@@ -280,11 +314,17 @@ class TunnelerTest {
 
         @Override
         public void prepare(String address) {
+            if (prepareFailure != null) {
+                throw prepareFailure;
+            }
             this.prepared = new String[] {address};
         }
 
         @Override
         public TunnelConn tunnel(String address, String sessionId, TunnelConn.Handler handler) {
+            if (tunnelFailure != null) {
+                throw tunnelFailure;
+            }
             this.args = new String[] {address, sessionId};
             this.handler = handler;
             return next;

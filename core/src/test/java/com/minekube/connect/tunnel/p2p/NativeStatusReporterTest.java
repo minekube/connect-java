@@ -2,11 +2,13 @@ package com.minekube.connect.tunnel.p2p;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.platform.util.PlatformUtils;
 import io.libp2p.core.Host;
+import io.libp2p.core.Stream;
 import java.util.Collections;
 import minekube.connect.v1alpha1.ConnectLibp2P.StatusReport;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterResult;
@@ -53,5 +55,30 @@ class NativeStatusReporterTest {
         assertEquals(15_000, NativeStatusReporter.STATUS_TTL_MS);
         assertEquals(16_000, report.getStatuses(0).getExpiresAtUnixMs());
         assertEquals(5, NativeStatusReporter.REPORT_INTERVAL_SECONDS);
+    }
+
+    @Test
+    void closesStatusStreamAfterOneShotReport() {
+        PlatformUtils platformUtils = mock(PlatformUtils.class);
+        when(platformUtils.minecraftVersion()).thenReturn("1.21.11");
+        when(platformUtils.serverImplementationName()).thenReturn("Paper");
+        Stream stream = mock(Stream.class);
+        NativeStatusReporter reporter = new NativeStatusReporter(
+                mock(Host.class),
+                "instance-1",
+                "12D3Endpoint",
+                Collections.singletonList("/ip4/127.0.0.1/tcp/4001/p2p/12D3Moxy"),
+                PeerRegisterResult.newBuilder()
+                        .setEndpointId("endpoint-id")
+                        .setEndpointHash("endpoint-hash")
+                        .setKvRevision(10)
+                        .build(),
+                platformUtils,
+                mock(ConnectLogger.class),
+                ignored -> stream);
+
+        reporter.reportOnce(1_000);
+
+        verify(stream).close();
     }
 }

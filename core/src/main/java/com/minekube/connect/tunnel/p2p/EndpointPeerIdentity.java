@@ -30,8 +30,14 @@ import io.libp2p.core.crypto.PrivKey;
 import io.libp2p.core.crypto.PubKey;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.Base64;
+import java.util.EnumSet;
+import java.util.Set;
 import kotlin.Pair;
 
 final class EndpointPeerIdentity {
@@ -57,8 +63,39 @@ final class EndpointPeerIdentity {
         }
         Pair<PrivKey, PubKey> keyPair = KeyKt.generateKeyPair(KeyType.ED25519);
         PrivKey privateKey = keyPair.getFirst();
-        Files.write(keyFile, KeyKt.marshalPrivateKey(privateKey));
+        writePrivateKey(keyFile, KeyKt.marshalPrivateKey(privateKey));
         return new EndpointPeerIdentity(privateKey);
+    }
+
+    private static void writePrivateKey(Path keyFile, byte[] data) throws IOException {
+        Path parent = keyFile.getParent();
+        if (parent == null) {
+            parent = keyFile.toAbsolutePath().getParent();
+        }
+        Path temp = Files.createTempFile(parent, keyFile.getFileName().toString(), ".tmp");
+        try {
+            setOwnerOnlyPermissions(temp);
+            Files.write(temp, data, StandardOpenOption.TRUNCATE_EXISTING);
+            try {
+                Files.move(temp, keyFile, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException ignored) {
+                Files.move(temp, keyFile);
+            }
+            setOwnerOnlyPermissions(keyFile);
+        } finally {
+            Files.deleteIfExists(temp);
+        }
+    }
+
+    private static void setOwnerOnlyPermissions(Path file) throws IOException {
+        try {
+            Set<PosixFilePermission> permissions = EnumSet.of(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE);
+            Files.setPosixFilePermissions(file, permissions);
+        } catch (UnsupportedOperationException ignored) {
+            // Non-POSIX filesystems, notably Windows, do not expose Unix mode bits.
+        }
     }
 
     String peerId() {

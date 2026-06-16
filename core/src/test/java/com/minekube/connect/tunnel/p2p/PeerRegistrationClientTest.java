@@ -3,8 +3,10 @@ package com.minekube.connect.tunnel.p2p;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.google.protobuf.ByteString;
 import io.libp2p.core.Stream;
@@ -153,6 +155,51 @@ class PeerRegistrationClientTest {
         assertEquals(1_000, PeerRegistrationClient.renewDelayMillis(PeerRegisterChallenge.newBuilder()
                 .setRenewIntervalMs(50)
                 .build()));
+    }
+
+    @Test
+    void closesRegistrationWhenRenewAckTimesOut() throws Exception {
+        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("native-peer.key"));
+        PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
+                identity,
+                "endpoint",
+                "token",
+                "instance",
+                Collections.emptyList(),
+                OfflineMode.OFFLINE_MODE_ALLOWED,
+                Arrays.asList("session", "status"),
+                PeerCapacity.newBuilder().setMaxSessions(100).build());
+        Stream stream = mock(Stream.class);
+        when(stream.closeFuture()).thenReturn(new CompletableFuture<>());
+        PeerRegistrationClient client = new PeerRegistrationClient(handshake);
+
+        client.install(
+                stream,
+                Collections.singletonList("/ip4/127.0.0.1/tcp/1234/p2p/" + identity.peerId()),
+                9,
+                1_000);
+
+        ArgumentCaptor<ChannelHandler> handlers = ArgumentCaptor.forClass(ChannelHandler.class);
+        verify(stream, times(2)).pushHandler(handlers.capture());
+        EmbeddedChannel channel = new EmbeddedChannel(handlers.getAllValues().toArray(ChannelHandler[]::new));
+        channel.writeInbound(frame(PeerRegisterChallenge.newBuilder()
+                .setEndpointId("endpoint-id")
+                .setEndpointHash("endpoint-hash")
+                .setPublisherId("publisher")
+                .setPublisherPeerId("publisher-peer")
+                .setRegion("local")
+                .setKvTtlMs(2)
+                .setRenewIntervalMs(1)
+                .setNonce(ByteString.copyFromUtf8("nonce"))
+                .build()));
+        channel.writeInbound(frame(PeerRegisterResult.newBuilder()
+                .setEndpointId("endpoint-id")
+                .setEndpointHash("endpoint-hash")
+                .setKvRevision(42)
+                .build()));
+
+        verify(stream, timeout(3_000)).close();
+        assertTrue(client.closedFuture().isCompletedExceptionally());
     }
 
     private static ByteBuf frame(com.google.protobuf.MessageLite message) throws Exception {

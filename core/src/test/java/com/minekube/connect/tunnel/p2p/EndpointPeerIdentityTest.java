@@ -9,7 +9,9 @@ import io.libp2p.core.crypto.KeyKt;
 import io.libp2p.core.crypto.PubKey;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.Base64;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -37,5 +39,18 @@ class EndpointPeerIdentityTest {
         byte[] signature = loaded.sign(payload);
         assertTrue(decodedPublicKey.verify(payload, signature));
         assertArrayEquals(KeyKt.marshalPrivateKey(created.privateKey()), Files.readAllBytes(keyFile));
+    }
+
+    @Test
+    void writesPrivateKeyWithOwnerOnlyPermissionsWhenPosixIsAvailable() throws Exception {
+        Path keyFile = tempDir.resolve("native-peer.key");
+
+        EndpointPeerIdentity.loadOrCreate(keyFile);
+
+        if (!Files.getFileStore(keyFile).supportsFileAttributeView("posix")) {
+            return;
+        }
+        Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(keyFile);
+        assertEquals(Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE), permissions);
     }
 }

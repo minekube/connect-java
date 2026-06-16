@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.concurrent.atomic.AtomicInteger;
 import minekube.connect.v1alpha1.ConnectLibp2P.EndpointPeerRecord;
 import minekube.connect.v1alpha1.ConnectLibp2P.OfflineMode;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerCapacity;
@@ -39,8 +40,7 @@ class PeerRegistrationHandshakeTest {
                 PeerCapacity.newBuilder().setMaxSessions(100).setActiveSessions(3).build());
 
         String relayAddr = "/dns4/relay.example/tcp/4001/p2p/relay/p2p-circuit/p2p/" + identity.peerId();
-        String directAddr = "/ip4/127.0.0.1/tcp/1234/p2p/" + identity.peerId();
-        PeerRegisterInit init = handshake.init(Arrays.asList(relayAddr, directAddr));
+        PeerRegisterInit init = handshake.init(Collections.singletonList(relayAddr));
 
         assertEquals("endpoint", init.getEndpoint());
         assertEquals("token", init.getToken());
@@ -70,7 +70,7 @@ class PeerRegistrationHandshakeTest {
         assertEquals("local", record.getRegion());
         assertEquals(Arrays.asList("session", "status"), record.getCapabilitiesList());
         assertEquals(init.getObservedAddrsList(), record.getAddrsList());
-        assertEquals(Collections.singletonList(directAddr), record.getDirectAddrsList());
+        assertEquals(Collections.emptyList(), record.getDirectAddrsList());
         assertArrayEquals(challenge.getNonce().toByteArray(), record.getNonce().toByteArray());
         assertEquals(7, record.getSequence());
         assertEquals(1_000, record.getIssuedAtUnixMs());
@@ -81,5 +81,41 @@ class PeerRegistrationHandshakeTest {
         assertTrue(publicKey.verify(
                 PeerRecordSigningPayload.bytes(record),
                 commit.getSignature().toByteArray()));
+    }
+
+    @Test
+    void commitUsesFreshCapacityFromSupplier() throws Exception {
+        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("native-peer.key"));
+        AtomicInteger activeSessions = new AtomicInteger(1);
+        PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
+                identity,
+                "endpoint",
+                "token",
+                "instance",
+                Collections.emptyList(),
+                OfflineMode.OFFLINE_MODE_ALLOWED,
+                Arrays.asList("session", "status"),
+                () -> PeerCapacity.newBuilder()
+                        .setMaxSessions(100)
+                        .setActiveSessions(activeSessions.get())
+                        .build());
+        PeerRegisterChallenge challenge = PeerRegisterChallenge.newBuilder()
+                .setEndpointId("endpoint-id")
+                .setEndpointHash("endpoint-hash")
+                .setPublisherId("publisher")
+                .setPublisherPeerId("publisher-peer")
+                .setRegion("local")
+                .setKvTtlMs(45_000)
+                .setNonce(ByteString.copyFromUtf8("nonce"))
+                .build();
+
+        PeerRegisterCommit first = handshake.commit(challenge, Collections.singletonList(
+                "/dns4/relay.example/tcp/4001/p2p/relay/p2p-circuit/p2p/" + identity.peerId()), 1, 1_000);
+        activeSessions.set(7);
+        PeerRegisterCommit second = handshake.commit(challenge, Collections.singletonList(
+                "/dns4/relay.example/tcp/4001/p2p/relay/p2p-circuit/p2p/" + identity.peerId()), 2, 2_000);
+
+        assertEquals(1, first.getRecord().getCapacity().getActiveSessions());
+        assertEquals(7, second.getRecord().getCapacity().getActiveSessions());
     }
 }

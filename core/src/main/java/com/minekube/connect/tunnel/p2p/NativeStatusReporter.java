@@ -65,6 +65,7 @@ final class NativeStatusReporter {
     private final PeerRegisterResult registration;
     private final PlatformUtils platformUtils;
     private final ConnectLogger logger;
+    private final StatusStreamOpener streamOpener;
 
     NativeStatusReporter(
             Host host,
@@ -74,6 +75,18 @@ final class NativeStatusReporter {
             PeerRegisterResult registration,
             PlatformUtils platformUtils,
             ConnectLogger logger) {
+        this(host, endpointInstanceId, endpointPeerId, moxyAddrs, registration, platformUtils, logger, null);
+    }
+
+    NativeStatusReporter(
+            Host host,
+            String endpointInstanceId,
+            String endpointPeerId,
+            List<String> moxyAddrs,
+            PeerRegisterResult registration,
+            PlatformUtils platformUtils,
+            ConnectLogger logger,
+            StatusStreamOpener streamOpener) {
         this.host = Objects.requireNonNull(host, "host");
         this.endpointInstanceId = Objects.requireNonNull(endpointInstanceId, "endpointInstanceId");
         this.endpointPeerId = Objects.requireNonNull(endpointPeerId, "endpointPeerId");
@@ -81,6 +94,7 @@ final class NativeStatusReporter {
         this.registration = Objects.requireNonNull(registration, "registration");
         this.platformUtils = Objects.requireNonNull(platformUtils, "platformUtils");
         this.logger = Objects.requireNonNull(logger, "logger");
+        this.streamOpener = streamOpener == null ? this::openStatusStream : streamOpener;
     }
 
     void reportSafely() {
@@ -117,12 +131,17 @@ final class NativeStatusReporter {
         RuntimeException lastError = null;
         StatusReport report = buildReport(nowUnixMs);
         for (String address : moxyAddrs) {
+            Stream stream = null;
             try {
-                Stream stream = openStatusStream(address);
+                stream = streamOpener.open(address);
                 writeFrame(stream, report);
                 return;
             } catch (RuntimeException e) {
                 lastError = e;
+            } finally {
+                if (stream != null) {
+                    stream.close();
+                }
             }
         }
         throw lastError == null
@@ -200,5 +219,9 @@ final class NativeStatusReporter {
         } catch (Exception e) {
             throw new IllegalStateException("failed to " + action, e);
         }
+    }
+
+    interface StatusStreamOpener {
+        Stream open(String address);
     }
 }
