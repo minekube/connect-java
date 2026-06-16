@@ -140,7 +140,7 @@ final class NativeStatusReporter {
                 lastError = e;
             } finally {
                 if (stream != null) {
-                    stream.close();
+                    stream.closeWrite();
                 }
             }
         }

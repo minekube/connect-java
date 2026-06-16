@@ -58,7 +58,7 @@ class NativeStatusReporterTest {
     }
 
     @Test
-    void closesStatusStreamAfterOneShotReport() {
+    void closesStatusStreamWriteSideAfterOneShotReport() {
         PlatformUtils platformUtils = mock(PlatformUtils.class);
         when(platformUtils.minecraftVersion()).thenReturn("1.21.11");
         when(platformUtils.serverImplementationName()).thenReturn("Paper");
@@ -79,6 +79,6 @@ class NativeStatusReporterTest {
 
         reporter.reportOnce(1_000);
 
-        verify(stream).close();
+        verify(stream).closeWrite();
     }
 }
