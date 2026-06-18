@@ -37,6 +37,9 @@ When installing the Connect plugin the following platform settings are supported
 
 - PaperMC/Spigot
     - If running in Online mode you must set to `enforce-secure-profile: false` in [server.properties](https://minecraft.fandom.com/wiki/Server.properties)
+    - For Paper/Spigot endpoints, set `settings.connection-throttle: -1` in `bukkit.yml`.
+      Connect may retry the backend handshake while detecting the server's forwarding mode, and
+      Paper's default connection throttle can reject that retry as `Connection throttled!`.
     - ✔️️ No forwarding + Online mode
     - ✔️ No forwarding + Offline mode
     - ✔️ Velocity forwarding + Online/Offline mode
