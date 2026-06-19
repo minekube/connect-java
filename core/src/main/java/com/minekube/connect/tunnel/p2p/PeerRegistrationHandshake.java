@@ -96,6 +96,10 @@ final class PeerRegistrationHandshake {
 
     PeerRegisterCommit commit(PeerRegisterChallenge challenge, List<String> addrs, long sequence, long nowUnixMs) {
         long ttlMs = challenge.getKvTtlMs() > 0 ? challenge.getKvTtlMs() : 45_000;
+        List<String> recordAddrs = challengedRelayCircuitAddrs(challenge);
+        if (recordAddrs.isEmpty()) {
+            recordAddrs = addrs;
+        }
         EndpointPeerRecord record = EndpointPeerRecord.newBuilder()
                 .setVersion(1)
                 .setEndpoint(endpoint)
@@ -107,7 +111,7 @@ final class PeerRegistrationHandshake {
                 .setPublisherId(challenge.getPublisherId())
                 .setPublisherPeerId(challenge.getPublisherPeerId())
                 .setRegion(challenge.getRegion())
-                .addAllAddrs(addrs)
+                .addAllAddrs(recordAddrs)
                 .addAllCapabilities(capabilities)
                 .setCapacity(capacity())
                 .setOfflineMode(offlineMode)
@@ -125,5 +129,15 @@ final class PeerRegistrationHandshake {
 
     private PeerCapacity capacity() {
         return Objects.requireNonNull(capacitySupplier.get(), "capacity");
+    }
+
+    private List<String> challengedRelayCircuitAddrs(PeerRegisterChallenge challenge) {
+        List<String> relayAddrs = challenge.getRelayAddrsList();
+        List<String> out = new ArrayList<>(relayAddrs.size());
+        for (String relayAddr : relayAddrs) {
+            String separator = relayAddr.endsWith("/") ? "" : "/";
+            out.add(relayAddr + separator + "p2p-circuit/p2p/" + identity.peerId());
+        }
+        return out;
     }
 }

@@ -27,9 +27,11 @@ Environment variables:
   default is `/ip4/127.0.0.1/tcp/0`.
 - `CONNECT_LIBP2P_ADVERTISE_ADDRS`: optional explicit endpoint addresses
   to publish instead of the local listen addresses.
-- `CONNECT_LIBP2P_RELAY_ADDRS`: optional relay multiaddrs. The endpoint
-  reserves each relay and advertises `/p2p-circuit/p2p/<endpoint-peer-id>`
-  addresses for the Connect edge to dial.
+- `CONNECT_LIBP2P_RELAY_ADDRS`: optional relay bootstrap multiaddrs. The
+  endpoint reserves each relay through these addresses. During registration,
+  the Connect edge can challenge the endpoint to sign equivalent
+  `/p2p-circuit/p2p/<endpoint-peer-id>` addresses that are better for other
+  edge proxies to dial, such as private per-machine relay addresses.
 
 ## Working setups
 
