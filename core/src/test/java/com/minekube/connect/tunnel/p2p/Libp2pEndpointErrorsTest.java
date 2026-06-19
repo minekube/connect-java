@@ -20,9 +20,22 @@ class Libp2pEndpointErrorsTest {
     }
 
     @Test
+    void treatsInvalidRemotePeerAsTransientAnycastMismatch() {
+        Throwable error = new IllegalStateException(
+                "failed to connect libp2p Connect edge peer 12D3KooExpected",
+                new ExecutionException(new RuntimeException(
+                        "io.libp2p.security.InvalidRemotePubKey: remote peer ID does not match expected peer")));
+
+        assertTrue(Libp2pEndpointErrors.isTransientConnectError(error));
+        assertTrue(Libp2pEndpointErrors.isEdgePeerMismatch(error));
+        assertTrue(Libp2pEndpointErrors.summary(error).contains("InvalidRemotePubKey"));
+    }
+
+    @Test
     void keepsUnexpectedProtocolErrorsNonTransient() {
         Throwable error = new IllegalStateException("encode libp2p registration frame");
 
         assertFalse(Libp2pEndpointErrors.isTransientConnectError(error));
+        assertFalse(Libp2pEndpointErrors.isEdgePeerMismatch(error));
     }
 }

@@ -203,7 +203,9 @@ public final class Libp2pEndpoint {
 
     private ActiveRegistration registerOnce(OfflineMode offlineMode) {
         RuntimeException lastError = null;
-        for (String address : libp2pConfig.registerAddrs()) {
+        List<String> registerAddrs = libp2pConfig.registerAddrs();
+        for (int i = 0; i < registerAddrs.size(); i++) {
+            String address = registerAddrs.get(i);
             PeerRegistrationClient client = null;
             try {
                 Stream stream = openRegisterStream(address);
@@ -231,12 +233,40 @@ public final class Libp2pEndpoint {
                 if (client != null) {
                     client.close();
                 }
+                logRegisterAttemptFailure(address, i + 1, registerAddrs.size(), e);
                 lastError = e;
             }
         }
         throw lastError == null
                 ? new IllegalStateException("no libp2p Connect edge register addresses configured")
                 : lastError;
+    }
+
+    private void logRegisterAttemptFailure(String address, int attempt, int total, RuntimeException error) {
+        String summary = Libp2pEndpointErrors.summary(error);
+        String expectedPeer = edgePeerId(address);
+        String message = "Connect libp2p registration attempt failed"
+                + " attempt=" + attempt + "/" + total
+                + " expectedEdgePeer=" + expectedPeer
+                + " address=" + address
+                + " error=" + summary;
+        if (Libp2pEndpointErrors.isEdgePeerMismatch(error)) {
+            message += " hint=fly-anycast-reached-different-edge-peer";
+        }
+        if (Libp2pEndpointErrors.isTransientConnectError(error)) {
+            logger.warn(message);
+        } else {
+            logger.error(message, error);
+        }
+    }
+
+    private static String edgePeerId(String address) {
+        try {
+            PeerId peerId = Multiaddr.fromString(address).getPeerId();
+            return peerId == null ? "unknown" : peerId.toBase58();
+        } catch (RuntimeException e) {
+            return "invalid";
+        }
     }
 
     private void startRegistrationLoop(OfflineMode offlineMode) {

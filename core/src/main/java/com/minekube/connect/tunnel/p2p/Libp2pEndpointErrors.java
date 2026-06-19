@@ -14,10 +14,23 @@ final class Libp2pEndpointErrors {
             String name = current.getClass().getName();
             String message = current.getMessage();
             if (name.contains("ConnectionClosedException")
+                    || name.contains("InvalidRemotePubKey")
                     || name.contains("NonCompleteException")
                     || contains(message, "ConnectionClosedException")
+                    || contains(message, "InvalidRemotePubKey")
                     || contains(message, "Channel closed")
                     || contains(message, "connection reset")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static boolean isEdgePeerMismatch(Throwable error) {
+        for (Throwable current = error; current != null; current = current.getCause()) {
+            String name = current.getClass().getName();
+            String message = current.getMessage();
+            if (name.contains("InvalidRemotePubKey") || contains(message, "InvalidRemotePubKey")) {
                 return true;
             }
         }
