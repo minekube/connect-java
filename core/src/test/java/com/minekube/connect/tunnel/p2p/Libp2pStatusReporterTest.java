@@ -1,7 +1,9 @@
 package com.minekube.connect.tunnel.p2p;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -11,6 +13,7 @@ import io.libp2p.core.Host;
 import io.libp2p.core.Stream;
 import java.util.concurrent.CompletableFuture;
 import java.util.Collections;
+import kotlin.Unit;
 import minekube.connect.v1alpha1.ConnectLibp2P.StatusReport;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterResult;
 import org.junit.jupiter.api.Test;
@@ -59,12 +62,12 @@ class Libp2pStatusReporterTest {
     }
 
     @Test
-    void closesStatusStreamWriteSideAndWaitsForRemoteCloseAfterOneShotReport() {
+    void closesStatusStreamWriteSideAfterOneShotReport() {
         PlatformUtils platformUtils = mock(PlatformUtils.class);
         when(platformUtils.minecraftVersion()).thenReturn("1.21.11");
         when(platformUtils.serverImplementationName()).thenReturn("Paper");
         Stream stream = mock(Stream.class);
-        when(stream.closeFuture()).thenReturn(CompletableFuture.completedFuture(null));
+        when(stream.closeWrite()).thenReturn(CompletableFuture.completedFuture(Unit.INSTANCE));
         Libp2pStatusReporter reporter = new Libp2pStatusReporter(
                 mock(Host.class),
                 "instance-1",
@@ -82,6 +85,34 @@ class Libp2pStatusReporterTest {
         reporter.reportOnce(1_000);
 
         verify(stream).closeWrite();
-        verify(stream).closeFuture();
+        verify(stream, never()).closeFuture();
+    }
+
+    @Test
+    void doesNotFailReportWhenRemoteDoesNotCloseStatusStream() {
+        PlatformUtils platformUtils = mock(PlatformUtils.class);
+        when(platformUtils.minecraftVersion()).thenReturn("1.21.11");
+        when(platformUtils.serverImplementationName()).thenReturn("Paper");
+        Stream stream = mock(Stream.class);
+        when(stream.closeWrite()).thenReturn(CompletableFuture.completedFuture(Unit.INSTANCE));
+        when(stream.closeFuture()).thenReturn(new CompletableFuture<>());
+        Libp2pStatusReporter reporter = new Libp2pStatusReporter(
+                mock(Host.class),
+                "instance-1",
+                "12D3Endpoint",
+                Collections.singletonList("/ip4/127.0.0.1/tcp/4001/p2p/12D3ConnectEdge"),
+                PeerRegisterResult.newBuilder()
+                        .setEndpointId("endpoint-id")
+                        .setEndpointHash("endpoint-hash")
+                        .setKvRevision(10)
+                        .build(),
+                platformUtils,
+                mock(ConnectLogger.class),
+                ignored -> stream);
+
+        assertDoesNotThrow(() -> reporter.reportOnce(1_000));
+
+        verify(stream).closeWrite();
+        verify(stream, never()).closeFuture();
     }
 }

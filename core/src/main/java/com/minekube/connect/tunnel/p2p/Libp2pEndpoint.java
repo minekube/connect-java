@@ -63,6 +63,7 @@ public final class Libp2pEndpoint {
     private static final long START_TIMEOUT_SECONDS = 10;
     private static final long CONNECT_TIMEOUT_SECONDS = 15;
     private static final long STREAM_TIMEOUT_SECONDS = 5;
+    private static final int REGISTER_ATTEMPTS_PER_ADDRESS = 4;
 
     private final Path dataDirectory;
     private final ConnectConfig connectConfig;
@@ -203,9 +204,11 @@ public final class Libp2pEndpoint {
 
     private ActiveRegistration registerOnce(OfflineMode offlineMode) {
         RuntimeException lastError = null;
-        List<String> registerAddrs = libp2pConfig.registerAddrs();
-        for (int i = 0; i < registerAddrs.size(); i++) {
-            String address = registerAddrs.get(i);
+        List<String> attemptAddrs = registerAttemptAddresses(
+                libp2pConfig.registerAddrs(),
+                REGISTER_ATTEMPTS_PER_ADDRESS);
+        for (int i = 0; i < attemptAddrs.size(); i++) {
+            String address = attemptAddrs.get(i);
             PeerRegistrationClient client = null;
             try {
                 Stream stream = openRegisterStream(address);
@@ -233,13 +236,27 @@ public final class Libp2pEndpoint {
                 if (client != null) {
                     client.close();
                 }
-                logRegisterAttemptFailure(address, i + 1, registerAddrs.size(), e);
+                logRegisterAttemptFailure(address, i + 1, attemptAddrs.size(), e);
                 lastError = e;
             }
         }
         throw lastError == null
                 ? new IllegalStateException("no libp2p Connect edge register addresses configured")
                 : lastError;
+    }
+
+    static List<String> registerAttemptAddresses(List<String> registerAddrs, int attemptsPerAddress) {
+        if (registerAddrs == null || registerAddrs.isEmpty()) {
+            return Collections.emptyList();
+        }
+        if (attemptsPerAddress <= 1) {
+            return registerAddrs;
+        }
+        List<String> attempts = new ArrayList<>(registerAddrs.size() * attemptsPerAddress);
+        for (int round = 0; round < attemptsPerAddress; round++) {
+            attempts.addAll(registerAddrs);
+        }
+        return attempts;
     }
 
     private void logRegisterAttemptFailure(String address, int attempt, int total, RuntimeException error) {

@@ -50,4 +50,14 @@ class Libp2pEndpointTest {
 
         assertEquals("failed to reserve any configured libp2p relay", error.getMessage());
     }
+
+    @Test
+    void repeatsRegisterAddressesForAnycastBootstrapRetries() {
+        assertEquals(
+                List.of("edge-a", "edge-a", "edge-a", "edge-a"),
+                Libp2pEndpoint.registerAttemptAddresses(List.of("edge-a"), 4));
+        assertEquals(
+                List.of("edge-a", "edge-b", "edge-a", "edge-b", "edge-a", "edge-b"),
+                Libp2pEndpoint.registerAttemptAddresses(List.of("edge-a", "edge-b"), 3));
+    }
 }

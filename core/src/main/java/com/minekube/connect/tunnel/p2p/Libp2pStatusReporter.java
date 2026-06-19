@@ -140,8 +140,7 @@ final class Libp2pStatusReporter {
                 lastError = e;
             } finally {
                 if (stream != null) {
-                    stream.closeWrite();
-                    await(stream.closeFuture(), STREAM_TIMEOUT_SECONDS, "wait for libp2p status stream close");
+                    await(stream.closeWrite(), STREAM_TIMEOUT_SECONDS, "half-close libp2p status stream");
                 }
             }
         }
