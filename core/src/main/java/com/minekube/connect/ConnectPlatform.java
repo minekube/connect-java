@@ -43,7 +43,7 @@ import com.minekube.connect.module.ConfigLoadedModule;
 import com.minekube.connect.module.PostInitializeModule;
 import com.minekube.connect.register.WatcherRegister;
 import com.minekube.connect.tunnel.Tunneler;
-import com.minekube.connect.tunnel.p2p.NativeLibp2pEndpoint;
+import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 import com.minekube.connect.util.Metrics;
 import com.minekube.connect.util.UpdateChecker;
 import java.io.IOException;
@@ -138,7 +138,7 @@ public class ConnectPlatform {
 
     public boolean disable() {
         try {
-            guice.getInstance(NativeLibp2pEndpoint.class).stop();
+            guice.getInstance(Libp2pEndpoint.class).stop();
         } catch (ConfigurationException ignored) {
         }
         guice.getInstance(WatcherRegister.class).stop();

@@ -35,8 +35,8 @@ import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport;
 
-final class NativeSessionMapper {
-    private NativeSessionMapper() {
+final class Libp2pSessionMapper {
+    private Libp2pSessionMapper() {
     }
 
     static Session toWatchSession(SessionOffer offer) {

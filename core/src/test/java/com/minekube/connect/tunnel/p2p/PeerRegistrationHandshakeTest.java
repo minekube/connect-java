@@ -28,7 +28,7 @@ class PeerRegistrationHandshakeTest {
 
     @Test
     void buildsInitAndSignedCommitFromChallenge() throws Exception {
-        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("native-peer.key"));
+        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
         PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
                 identity,
                 "endpoint",
@@ -85,7 +85,7 @@ class PeerRegistrationHandshakeTest {
 
     @Test
     void commitUsesFreshCapacityFromSupplier() throws Exception {
-        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("native-peer.key"));
+        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
         AtomicInteger activeSessions = new AtomicInteger(1);
         PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
                 identity,

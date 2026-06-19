@@ -13,23 +13,23 @@ low latency edge proxies network nearest to you.
 
 Please refer to https://connect.minekube.com for more documentation.
 
-## Native libp2p endpoint mode
+## Connect libp2p endpoint mode
 
-The native Connect libp2p endpoint path is enabled by configuring the Moxy peer
+The Connect libp2p endpoint path is enabled by configuring the Connect edge peer
 address. It keeps the normal WatchService path available as fallback while the
 endpoint also registers a stable libp2p peer for proxy-initiated session streams.
 
 Environment variables:
 
-- `CONNECT_LIBP2P_NATIVE_MOXY_ADDR`: comma-separated Moxy libp2p multiaddrs,
-  each including `/p2p/<moxy-peer-id>`. Setting this enables native mode.
-- `CONNECT_LIBP2P_NATIVE_LISTEN_ADDR`: optional endpoint listen multiaddrs. The
+- `CONNECT_LIBP2P_EDGE_ADDR`: comma-separated Connect edge libp2p multiaddrs,
+  each including `/p2p/<connect-edge-peer-id>`. Setting this enables libp2p mode.
+- `CONNECT_LIBP2P_LISTEN_ADDR`: optional endpoint listen multiaddrs. The
   default is `/ip4/127.0.0.1/tcp/0`.
-- `CONNECT_LIBP2P_NATIVE_ADVERTISE_ADDRS`: optional explicit endpoint addresses
+- `CONNECT_LIBP2P_ADVERTISE_ADDRS`: optional explicit endpoint addresses
   to publish instead of the local listen addresses.
-- `CONNECT_LIBP2P_NATIVE_RELAY_ADDRS`: optional relay multiaddrs. The endpoint
+- `CONNECT_LIBP2P_RELAY_ADDRS`: optional relay multiaddrs. The endpoint
   reserves each relay and advertises `/p2p-circuit/p2p/<endpoint-peer-id>`
-  addresses for Moxy to dial.
+  addresses for the Connect edge to dial.
 
 ## Working setups
 

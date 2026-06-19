@@ -11,10 +11,10 @@ import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport.Type;
 import org.junit.jupiter.api.Test;
 
-class NativeSessionMapperTest {
+class Libp2pSessionMapperTest {
 
     @Test
-    void mapsNativeOfferToExistingWatchSessionShape() {
+    void mapsLibp2pOfferToExistingWatchSessionShape() {
         SessionOffer offer = SessionOffer.newBuilder()
                 .setSessionId("session-1")
                 .setEndpoint("endpoint")
@@ -30,7 +30,7 @@ class NativeSessionMapperTest {
                                         .setSignature("sig"))))
                 .build();
 
-        Session session = NativeSessionMapper.toWatchSession(offer);
+        Session session = Libp2pSessionMapper.toWatchSession(offer);
 
         assertEquals("session-1", session.getId());
         assertEquals("", session.getTunnelServiceAddr());

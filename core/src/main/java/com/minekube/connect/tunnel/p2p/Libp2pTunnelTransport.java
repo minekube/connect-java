@@ -271,7 +271,7 @@ public final class Libp2pTunnelTransport implements TunnelClientTransport {
         private final CircuitStopProtocol.Binding stopBinding;
         private final List<RelayTransport.CandidateRelay> candidates;
         private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "connect-native-libp2p-relay");
+            Thread thread = new Thread(runnable, "connect-libp2p-relay");
             thread.setDaemon(true);
             return thread;
         });

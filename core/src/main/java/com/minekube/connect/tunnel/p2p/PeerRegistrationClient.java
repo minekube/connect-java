@@ -52,7 +52,7 @@ final class PeerRegistrationClient {
     PeerRegistrationClient(PeerRegistrationHandshake handshake) {
         this.handshake = Objects.requireNonNull(handshake, "handshake");
         this.renewExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "connect-native-libp2p-registration-renew");
+            Thread thread = new Thread(runnable, "connect-libp2p-registration-renew");
             thread.setDaemon(true);
             return thread;
         });
@@ -113,7 +113,7 @@ final class PeerRegistrationClient {
             P2PFrameCodec.write(out, message);
             stream.writeAndFlush(Unpooled.wrappedBuffer(out.toByteArray()));
         } catch (IOException e) {
-            throw new IllegalStateException("encode native registration frame", e);
+            throw new IllegalStateException("encode libp2p registration frame", e);
         }
     }
 
@@ -215,7 +215,7 @@ final class PeerRegistrationClient {
         private void scheduleAckTimeout() {
             cancelAckTimeout();
             ackTimeout = renewExecutor.schedule(
-                    () -> failRegistration(new TimeoutException("native registration renew ack timed out")),
+                    () -> failRegistration(new TimeoutException("libp2p registration renew ack timed out")),
                     renewAckTimeoutMillis(challenge),
                     TimeUnit.MILLISECONDS);
         }

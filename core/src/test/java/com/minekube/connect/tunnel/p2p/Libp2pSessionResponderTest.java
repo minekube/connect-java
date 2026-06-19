@@ -130,7 +130,7 @@ class Libp2pSessionResponderTest {
     }
 
     @Test
-    void rejectsOfferFromUnauthorizedMoxyPeer() throws Exception {
+    void rejectsOfferFromUnauthorizedConnectEdgePeer() throws Exception {
         Stream stream = mock(Stream.class);
         when(stream.remotePeerId()).thenReturn(PeerId.fromBase58(OTHER_PEER));
         Libp2pSessionResponder responder = new Libp2pSessionResponder(

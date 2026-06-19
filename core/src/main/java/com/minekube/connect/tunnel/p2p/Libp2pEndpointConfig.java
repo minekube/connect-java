@@ -30,18 +30,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-final class NativeLibp2pEndpointConfig {
-    static final String MOXY_ADDR_ENV = "CONNECT_LIBP2P_NATIVE_MOXY_ADDR";
-    static final String LISTEN_ADDR_ENV = "CONNECT_LIBP2P_NATIVE_LISTEN_ADDR";
-    static final String ADVERTISE_ADDRS_ENV = "CONNECT_LIBP2P_NATIVE_ADVERTISE_ADDRS";
-    static final String RELAY_ADDRS_ENV = "CONNECT_LIBP2P_NATIVE_RELAY_ADDRS";
+final class Libp2pEndpointConfig {
+    static final String EDGE_ADDR_ENV = "CONNECT_LIBP2P_EDGE_ADDR";
+    static final String LISTEN_ADDR_ENV = "CONNECT_LIBP2P_LISTEN_ADDR";
+    static final String ADVERTISE_ADDRS_ENV = "CONNECT_LIBP2P_ADVERTISE_ADDRS";
+    static final String RELAY_ADDRS_ENV = "CONNECT_LIBP2P_RELAY_ADDRS";
 
     private final List<String> registerAddrs;
     private final List<String> listenAddrs;
     private final List<String> advertiseAddrs;
     private final List<String> relayAddrs;
 
-    private NativeLibp2pEndpointConfig(
+    private Libp2pEndpointConfig(
             List<String> registerAddrs,
             List<String> listenAddrs,
             List<String> advertiseAddrs,
@@ -52,20 +52,20 @@ final class NativeLibp2pEndpointConfig {
         this.relayAddrs = relayAddrs;
     }
 
-    static NativeLibp2pEndpointConfig fromEnvironment(Map<String, String> env) {
-        List<String> registerAddrs = split(env.get(MOXY_ADDR_ENV));
+    static Libp2pEndpointConfig fromEnvironment(Map<String, String> env) {
+        List<String> registerAddrs = split(env.get(EDGE_ADDR_ENV));
         List<String> listenAddrs = split(env.get(LISTEN_ADDR_ENV));
         if (listenAddrs.isEmpty()) {
             listenAddrs = Collections.singletonList("/ip4/127.0.0.1/tcp/0");
         }
-        return new NativeLibp2pEndpointConfig(
+        return new Libp2pEndpointConfig(
                 registerAddrs,
                 listenAddrs,
                 split(env.get(ADVERTISE_ADDRS_ENV)),
                 split(env.get(RELAY_ADDRS_ENV)));
     }
 
-    static NativeLibp2pEndpointConfig fromSystemEnvironment() {
+    static Libp2pEndpointConfig fromSystemEnvironment() {
         return fromEnvironment(System.getenv());
     }
 
@@ -89,7 +89,7 @@ final class NativeLibp2pEndpointConfig {
         return relayAddrs;
     }
 
-    List<String> moxyPeerIds() {
+    List<String> edgePeerIds() {
         return registerAddrs.stream()
                 .map(address -> Multiaddr.fromString(address).getPeerId().toBase58())
                 .collect(Collectors.toList());

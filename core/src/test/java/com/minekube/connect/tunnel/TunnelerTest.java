@@ -142,8 +142,8 @@ class TunnelerTest {
     void prepareDoesNotPreventWebsocketFallbackWhenLibp2pWarmupFails() {
         RecordingTransport websocket = new RecordingTransport(Type.TYPE_WEBSOCKET);
         RecordingTransport libp2p = new RecordingTransport(Type.TYPE_LIBP2P);
-        libp2p.prepareFailure = new IllegalStateException("stale native peer");
-        libp2p.tunnelFailure = new IllegalStateException("stale native peer");
+        libp2p.prepareFailure = new IllegalStateException("stale libp2p peer");
+        libp2p.tunnelFailure = new IllegalStateException("stale libp2p peer");
         TunnelConn expected = new TunnelConn() {
             @Override
             public void write(byte[] data) {

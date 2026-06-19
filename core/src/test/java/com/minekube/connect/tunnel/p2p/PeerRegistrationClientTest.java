@@ -37,7 +37,7 @@ class PeerRegistrationClientTest {
 
     @Test
     void exchangesInitCommitAndResultOnOneStream() throws Exception {
-        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("native-peer.key"));
+        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
         PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
                 identity,
                 "endpoint",
@@ -100,7 +100,7 @@ class PeerRegistrationClientTest {
 
     @Test
     void completesClosedFutureWhenRegistrationStreamCloses() throws Exception {
-        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("native-peer.key"));
+        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
         PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
                 identity,
                 "endpoint",
@@ -159,7 +159,7 @@ class PeerRegistrationClientTest {
 
     @Test
     void closesRegistrationWhenRenewAckTimesOut() throws Exception {
-        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("native-peer.key"));
+        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
         PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
                 identity,
                 "endpoint",

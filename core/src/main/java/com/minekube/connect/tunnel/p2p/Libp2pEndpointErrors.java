@@ -2,8 +2,8 @@ package com.minekube.connect.tunnel.p2p;
 
 import java.util.concurrent.TimeoutException;
 
-final class NativeLibp2pErrors {
-    private NativeLibp2pErrors() {
+final class Libp2pEndpointErrors {
+    private Libp2pEndpointErrors() {
     }
 
     static boolean isTransientConnectError(Throwable error) {

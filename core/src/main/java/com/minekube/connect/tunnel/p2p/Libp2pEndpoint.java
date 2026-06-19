@@ -58,7 +58,7 @@ import minekube.connect.v1alpha1.ConnectLibp2P.OfflineMode;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerCapacity;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterResult;
 
-public final class NativeLibp2pEndpoint {
+public final class Libp2pEndpoint {
     static final String REGISTER_PROTOCOL_ID = "/minekube/connect/register/1.0.0";
     private static final long START_TIMEOUT_SECONDS = 10;
     private static final long CONNECT_TIMEOUT_SECONDS = 15;
@@ -74,7 +74,7 @@ public final class NativeLibp2pEndpoint {
     private final String endpointInstanceId = newEndpointInstanceId();
     private final AtomicLong sequence = new AtomicLong();
 
-    private NativeLibp2pEndpointConfig nativeConfig;
+    private Libp2pEndpointConfig libp2pConfig;
     private Host host;
     private EndpointPeerIdentity identity;
     private ScheduledExecutorService registrationExecutor;
@@ -84,7 +84,7 @@ public final class NativeLibp2pEndpoint {
     private boolean started;
 
     @Inject
-    public NativeLibp2pEndpoint(
+    public Libp2pEndpoint(
             @Named("dataDirectory") Path dataDirectory,
             ConnectConfig connectConfig,
             @Named("connectToken") String connectToken,
@@ -103,32 +103,32 @@ public final class NativeLibp2pEndpoint {
 
     @Inject
     public synchronized void start() {
-        nativeConfig = NativeLibp2pEndpointConfig.fromSystemEnvironment();
-        if (!nativeConfig.enabled()) {
+        libp2pConfig = Libp2pEndpointConfig.fromSystemEnvironment();
+        if (!libp2pConfig.enabled()) {
             return;
         }
         try {
-            identity = EndpointPeerIdentity.loadOrCreate(dataDirectory.resolve("native-libp2p.key"));
+            identity = EndpointPeerIdentity.loadOrCreate(dataDirectory.resolve("libp2p-identity.key"));
             host = Libp2pTunnelTransport.createHost(
                     identity.privateKey(),
-                    nativeConfig.listenAddrs().toArray(String[]::new),
-                    nativeConfig.relayAddrs());
+                    libp2pConfig.listenAddrs().toArray(String[]::new),
+                    libp2pConfig.relayAddrs());
             installRegisterProtocol(host);
-            NativeStatusReporter.installStatusProtocol(host);
+            Libp2pStatusReporter.installStatusProtocol(host);
             installSessionResponder(host);
-            await(host.start(), START_TIMEOUT_SECONDS, "start native libp2p endpoint host");
+            await(host.start(), START_TIMEOUT_SECONDS, "start libp2p endpoint host");
             reservedRelayAddrs = reserveRelayAddrs();
             started = true;
             PlatformUtils.AuthType authType = platformUtils.authType();
             OfflineMode offlineMode = offlineMode(authType);
-            logger.info("Native Connect libp2p offline mode: "
+            logger.info("Connect libp2p offline mode: "
                     + offlineMode
                     + " (allowOfflineModePlayers=" + connectConfig.getAllowOfflineModePlayers()
                     + ", authType=" + authType + ")");
             startRegistrationLoop(offlineMode);
         } catch (Exception e) {
             stop();
-            logger.error("Failed to start native Connect libp2p endpoint", e);
+            logger.error("Failed to start Connect libp2p endpoint", e);
         }
     }
 
@@ -152,14 +152,14 @@ public final class NativeLibp2pEndpoint {
         Host stopping = host;
         host = null;
         started = false;
-        await(stopping.stop(), START_TIMEOUT_SECONDS, "stop native libp2p endpoint host");
+        await(stopping.stop(), START_TIMEOUT_SECONDS, "stop libp2p endpoint host");
     }
 
     private void installSessionResponder(Host host) {
         Libp2pSessionResponder responder = new Libp2pSessionResponder(
                 connectConfig.getEndpoint(),
                 System::currentTimeMillis,
-                nativeConfig.moxyPeerIds(),
+                libp2pConfig.edgePeerIds(),
                 (proposal, tunneler) ->
                         new LocalSession(
                                 logger,
@@ -203,7 +203,7 @@ public final class NativeLibp2pEndpoint {
 
     private ActiveRegistration registerOnce(OfflineMode offlineMode) {
         RuntimeException lastError = null;
-        for (String address : nativeConfig.registerAddrs()) {
+        for (String address : libp2pConfig.registerAddrs()) {
             PeerRegistrationClient client = null;
             try {
                 Stream stream = openRegisterStream(address);
@@ -225,7 +225,7 @@ public final class NativeLibp2pEndpoint {
                                 sequence.incrementAndGet(),
                                 System.currentTimeMillis()),
                         CONNECT_TIMEOUT_SECONDS,
-                        "register native libp2p endpoint");
+                        "register libp2p endpoint");
                 return new ActiveRegistration(client, result);
             } catch (RuntimeException e) {
                 if (client != null) {
@@ -235,13 +235,13 @@ public final class NativeLibp2pEndpoint {
             }
         }
         throw lastError == null
-                ? new IllegalStateException("no native libp2p moxy register addresses configured")
+                ? new IllegalStateException("no libp2p Connect edge register addresses configured")
                 : lastError;
     }
 
     private void startRegistrationLoop(OfflineMode offlineMode) {
         registrationExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "connect-native-libp2p-registration");
+            Thread thread = new Thread(runnable, "connect-libp2p-registration");
             thread.setDaemon(true);
             return thread;
         });
@@ -260,11 +260,11 @@ public final class NativeLibp2pEndpoint {
             try {
                 registerAndWatch(offlineMode);
             } catch (RuntimeException e) {
-                if (NativeLibp2pErrors.isTransientConnectError(e)) {
-                    logger.warn("Native Connect libp2p registration refresh failed; retrying: "
-                            + NativeLibp2pErrors.summary(e));
+                if (Libp2pEndpointErrors.isTransientConnectError(e)) {
+                    logger.warn("Connect libp2p registration refresh failed; retrying: "
+                            + Libp2pEndpointErrors.summary(e));
                 } else {
-                    logger.error("Failed to refresh native Connect libp2p registration", e);
+                    logger.error("Failed to refresh Connect libp2p registration", e);
                 }
                 scheduleRegisterRetry(offlineMode, 5);
             }
@@ -281,7 +281,7 @@ public final class NativeLibp2pEndpoint {
             }
             previous = activeRegistration;
             activeRegistration = registration;
-            logger.info("Native Connect libp2p endpoint registered: "
+            logger.info("Connect libp2p endpoint registered: "
                     + registration.result().getEndpointId() + " (" + identity.peerId() + ")");
             startStatusReporter(registration.result());
         }
@@ -290,12 +290,12 @@ public final class NativeLibp2pEndpoint {
         }
         registration.client().closedFuture().whenComplete((ignored, error) -> {
             if (error == null) {
-                logger.info("Native Connect libp2p registration stream closed; reconnecting");
-            } else if (NativeLibp2pErrors.isTransientConnectError(error)) {
-                logger.warn("Native Connect libp2p registration stream closed; reconnecting: "
-                        + NativeLibp2pErrors.summary(error));
+                logger.info("Connect libp2p registration stream closed; reconnecting");
+            } else if (Libp2pEndpointErrors.isTransientConnectError(error)) {
+                logger.warn("Connect libp2p registration stream closed; reconnecting: "
+                        + Libp2pEndpointErrors.summary(error));
             } else {
-                logger.error("Native Connect libp2p registration stream failed; reconnecting", error);
+                logger.error("Connect libp2p registration stream failed; reconnecting", error);
             }
             scheduleRegisterRetry(offlineMode, 1);
         });
@@ -304,14 +304,14 @@ public final class NativeLibp2pEndpoint {
     private Stream openRegisterStream(String address) {
         Multiaddr multiaddr = Multiaddr.fromString(address);
         PeerId peerId = Objects.requireNonNull(multiaddr.getPeerId(),
-                "native libp2p moxy address must include /p2p/<peer-id>");
+                "libp2p Connect edge address must include /p2p/<peer-id>");
         Connection connection = await(
                 host.getNetwork().connect(peerId, multiaddr),
                 CONNECT_TIMEOUT_SECONDS,
-                "connect native libp2p moxy peer " + peerId);
+                "connect libp2p Connect edge peer " + peerId);
         StreamPromise<Object> promise = host.newStream(Arrays.asList(REGISTER_PROTOCOL_ID), connection);
-        Stream stream = await(promise.getStream(), STREAM_TIMEOUT_SECONDS, "open native register stream");
-        await(stream.getProtocol(), STREAM_TIMEOUT_SECONDS, "negotiate native register protocol");
+        Stream stream = await(promise.getStream(), STREAM_TIMEOUT_SECONDS, "open libp2p register stream");
+        await(stream.getProtocol(), STREAM_TIMEOUT_SECONDS, "negotiate libp2p register protocol");
         return stream;
     }
 
@@ -328,11 +328,11 @@ public final class NativeLibp2pEndpoint {
 
     private List<String> reserveRelayAddrs() {
         List<String> addrs = new ArrayList<>();
-        for (String relayAddr : nativeConfig.relayAddrs()) {
+        for (String relayAddr : libp2pConfig.relayAddrs()) {
             await(
                     host.getNetwork().listen(Multiaddr.fromString(relayAddr + "/p2p-circuit")),
                     CONNECT_TIMEOUT_SECONDS,
-                    "reserve native libp2p relay " + relayAddr);
+                    "reserve libp2p relay " + relayAddr);
             addrs.add(relayCircuitAddr(relayAddr, identity.peerId()));
         }
         return addrs;
@@ -378,24 +378,24 @@ public final class NativeLibp2pEndpoint {
             statusExecutor.shutdownNow();
             statusExecutor = null;
         }
-        NativeStatusReporter reporter = new NativeStatusReporter(
+        Libp2pStatusReporter reporter = new Libp2pStatusReporter(
                 host,
                 endpointInstanceId,
                 identity.peerId(),
-                nativeConfig.registerAddrs(),
+                libp2pConfig.registerAddrs(),
                 result,
                 platformUtils,
                 logger);
         reporter.reportSafely();
         statusExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "connect-native-libp2p-status-report");
+            Thread thread = new Thread(runnable, "connect-libp2p-status-report");
             thread.setDaemon(true);
             return thread;
         });
         statusExecutor.scheduleWithFixedDelay(
                 reporter::reportSafely,
-                NativeStatusReporter.REPORT_INTERVAL_SECONDS,
-                NativeStatusReporter.REPORT_INTERVAL_SECONDS,
+                Libp2pStatusReporter.REPORT_INTERVAL_SECONDS,
+                Libp2pStatusReporter.REPORT_INTERVAL_SECONDS,
                 TimeUnit.SECONDS);
     }
 

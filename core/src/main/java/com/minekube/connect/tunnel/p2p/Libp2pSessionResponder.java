@@ -52,7 +52,7 @@ final class Libp2pSessionResponder {
 
     private final String expectedEndpoint;
     private final LongSupplier clock;
-    private final Set<String> allowedMoxyPeerIds;
+    private final Set<String> allowedEdgePeerIds;
     private final Starter starter;
 
     Libp2pSessionResponder(Starter starter) {
@@ -66,12 +66,12 @@ final class Libp2pSessionResponder {
     Libp2pSessionResponder(
             String expectedEndpoint,
             LongSupplier clock,
-            Collection<String> allowedMoxyPeerIds,
+            Collection<String> allowedEdgePeerIds,
             Starter starter) {
         this.expectedEndpoint = expectedEndpoint;
         this.clock = Objects.requireNonNull(clock, "clock");
-        this.allowedMoxyPeerIds = Collections.unmodifiableSet(new HashSet<>(
-                Objects.requireNonNull(allowedMoxyPeerIds, "allowedMoxyPeerIds")));
+        this.allowedEdgePeerIds = Collections.unmodifiableSet(new HashSet<>(
+                Objects.requireNonNull(allowedEdgePeerIds, "allowedEdgePeerIds")));
         this.starter = Objects.requireNonNull(starter, "starter");
     }
 
@@ -96,7 +96,7 @@ final class Libp2pSessionResponder {
             return;
         }
         SessionProposal proposal = new SessionProposal(
-                NativeSessionMapper.toWatchSession(offer),
+                Libp2pSessionMapper.toWatchSession(offer),
                 reason -> {
                     writeResponse(stream, SessionResponse.newBuilder()
                             .setSessionId(offer.getSessionId())
@@ -120,12 +120,12 @@ final class Libp2pSessionResponder {
     }
 
     private Status validateOffer(Stream stream, SessionOffer offer) {
-        if (!allowedMoxyPeerIds.isEmpty()) {
+        if (!allowedEdgePeerIds.isEmpty()) {
             PeerId remotePeer = stream.remotePeerId();
-            if (remotePeer == null || !allowedMoxyPeerIds.contains(remotePeer.toBase58())) {
+            if (remotePeer == null || !allowedEdgePeerIds.contains(remotePeer.toBase58())) {
                 return Status.newBuilder()
                         .setCode(Code.PERMISSION_DENIED_VALUE)
-                        .setMessage("unauthorized native libp2p moxy peer")
+                        .setMessage("unauthorized libp2p Connect edge peer")
                         .build();
             }
         }
@@ -150,7 +150,7 @@ final class Libp2pSessionResponder {
             P2PFrameCodec.write(out, response);
             stream.writeAndFlush(Unpooled.wrappedBuffer(out.toByteArray()));
         } catch (IOException e) {
-            throw new IllegalStateException("encode native session response", e);
+            throw new IllegalStateException("encode libp2p session response", e);
         }
     }
 

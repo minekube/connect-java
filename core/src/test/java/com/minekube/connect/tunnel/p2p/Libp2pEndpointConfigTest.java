@@ -8,23 +8,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-class NativeLibp2pEndpointConfigTest {
+class Libp2pEndpointConfigTest {
     private static final String MOXY_PEER = "12D3KooWNXa3WQenRYKVJCHxcadnp3JPcxRALCqk97qpMiqAG1tt";
 
     @Test
     void disabledWhenRegisterAddressIsMissing() {
-        NativeLibp2pEndpointConfig config = NativeLibp2pEndpointConfig.fromEnvironment(Map.of());
+        Libp2pEndpointConfig config = Libp2pEndpointConfig.fromEnvironment(Map.of());
 
         assertFalse(config.enabled());
     }
 
     @Test
     void parsesRegisterListenAndAdvertiseAddresses() {
-        NativeLibp2pEndpointConfig config = NativeLibp2pEndpointConfig.fromEnvironment(Map.of(
-                "CONNECT_LIBP2P_NATIVE_MOXY_ADDR", " /ip4/127.0.0.1/tcp/1/p2p/a , /ip4/127.0.0.1/tcp/2/p2p/b ",
-                "CONNECT_LIBP2P_NATIVE_LISTEN_ADDR", "/ip4/127.0.0.1/tcp/0",
-                "CONNECT_LIBP2P_NATIVE_ADVERTISE_ADDRS", "/ip4/127.0.0.1/tcp/1234/p2p/c",
-                "CONNECT_LIBP2P_NATIVE_RELAY_ADDRS", " /ip4/127.0.0.1/tcp/4001/p2p/relay1 , /ip4/127.0.0.1/tcp/4002/p2p/relay2 "));
+        Libp2pEndpointConfig config = Libp2pEndpointConfig.fromEnvironment(Map.of(
+                "CONNECT_LIBP2P_EDGE_ADDR", " /ip4/127.0.0.1/tcp/1/p2p/a , /ip4/127.0.0.1/tcp/2/p2p/b ",
+                "CONNECT_LIBP2P_LISTEN_ADDR", "/ip4/127.0.0.1/tcp/0",
+                "CONNECT_LIBP2P_ADVERTISE_ADDRS", "/ip4/127.0.0.1/tcp/1234/p2p/c",
+                "CONNECT_LIBP2P_RELAY_ADDRS", " /ip4/127.0.0.1/tcp/4001/p2p/relay1 , /ip4/127.0.0.1/tcp/4002/p2p/relay2 "));
 
         assertTrue(config.enabled());
         assertEquals(2, config.registerAddrs().size());
@@ -38,24 +38,24 @@ class NativeLibp2pEndpointConfigTest {
     void derivesEndpointRelayCircuitAddresses() {
         assertEquals(
                 "/ip4/127.0.0.1/tcp/4001/p2p/relay1/p2p-circuit/p2p/endpoint1",
-                NativeLibp2pEndpoint.relayCircuitAddr(
+                Libp2pEndpoint.relayCircuitAddr(
                         "/ip4/127.0.0.1/tcp/4001/p2p/relay1",
                         "endpoint1"));
     }
 
     @Test
-    void extractsConfiguredMoxyPeerIds() {
-        NativeLibp2pEndpointConfig config = NativeLibp2pEndpointConfig.fromEnvironment(Map.of(
-                "CONNECT_LIBP2P_NATIVE_MOXY_ADDR", "/dns4/connect-proxy-staging.fly.dev/tcp/4001/p2p/" + MOXY_PEER));
+    void extractsConfiguredConnectEdgePeerIds() {
+        Libp2pEndpointConfig config = Libp2pEndpointConfig.fromEnvironment(Map.of(
+                "CONNECT_LIBP2P_EDGE_ADDR", "/dns4/connect-proxy-staging.fly.dev/tcp/4001/p2p/" + MOXY_PEER));
 
-        assertEquals(1, config.moxyPeerIds().size());
-        assertEquals(MOXY_PEER, config.moxyPeerIds().get(0));
+        assertEquals(1, config.edgePeerIds().size());
+        assertEquals(MOXY_PEER, config.edgePeerIds().get(0));
     }
 
     @Test
     void generatesDistinctEndpointInstanceIds() {
         assertNotEquals(
-                NativeLibp2pEndpoint.newEndpointInstanceId(),
-                NativeLibp2pEndpoint.newEndpointInstanceId());
+                Libp2pEndpoint.newEndpointInstanceId(),
+                Libp2pEndpoint.newEndpointInstanceId());
     }
 }

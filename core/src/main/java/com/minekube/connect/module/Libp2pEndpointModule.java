@@ -24,12 +24,12 @@
 package com.minekube.connect.module;
 
 import com.google.inject.AbstractModule;
-import com.minekube.connect.tunnel.p2p.NativeLibp2pEndpoint;
+import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 
-public final class NativeLibp2pEndpointModule extends AbstractModule {
+public final class Libp2pEndpointModule extends AbstractModule {
 
     @Override
     protected void configure() {
-        bind(NativeLibp2pEndpoint.class).asEagerSingleton();
+        bind(Libp2pEndpoint.class).asEagerSingleton();
     }
 }

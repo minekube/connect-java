@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 class P2PTunnelHeaderTest {
 
     @Test
-    void encodesMoxyCompatibleHeader() {
+    void encodesConnectEdgeCompatibleHeader() {
         byte[] got = P2PTunnelHeader.encode("abc");
         byte[] want = new byte[] {
                 0, 20,

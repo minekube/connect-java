@@ -58,7 +58,7 @@ import org.junit.jupiter.api.Test;
 class Libp2pTunnelTransportTest {
 
     @Test
-    void sendsMoxyCompatibleHeaderAndReceivesBytes() throws Exception {
+    void sendsConnectEdgeCompatibleHeaderAndReceivesBytes() throws Exception {
         Responder responder = startResponder();
         try {
             Libp2pTunnelTransport transport = new Libp2pTunnelTransport(tcpOnlyHost());

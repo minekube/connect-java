@@ -6,23 +6,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.Test;
 
-class NativeLibp2pErrorsTest {
+class Libp2pEndpointErrorsTest {
 
     @Test
     void treatsClosedChannelDuringReconnectAsTransient() {
         Throwable error = new IllegalStateException(
-                "failed to connect native libp2p moxy peer 12D3Koo",
+                "failed to connect libp2p Connect edge peer 12D3Koo",
                 new ExecutionException(new RuntimeException(
                         "io.libp2p.core.ConnectionClosedException: Channel closed [id: 0x1]")));
 
-        assertTrue(NativeLibp2pErrors.isTransientConnectError(error));
-        assertTrue(NativeLibp2pErrors.summary(error).contains("ConnectionClosedException"));
+        assertTrue(Libp2pEndpointErrors.isTransientConnectError(error));
+        assertTrue(Libp2pEndpointErrors.summary(error).contains("ConnectionClosedException"));
     }
 
     @Test
     void keepsUnexpectedProtocolErrorsNonTransient() {
-        Throwable error = new IllegalStateException("encode native registration frame");
+        Throwable error = new IllegalStateException("encode libp2p registration frame");
 
-        assertFalse(NativeLibp2pErrors.isTransientConnectError(error));
+        assertFalse(Libp2pEndpointErrors.isTransientConnectError(error));
     }
 }

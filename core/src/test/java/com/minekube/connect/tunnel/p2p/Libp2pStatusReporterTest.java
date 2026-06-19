@@ -9,12 +9,13 @@ import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.platform.util.PlatformUtils;
 import io.libp2p.core.Host;
 import io.libp2p.core.Stream;
+import java.util.concurrent.CompletableFuture;
 import java.util.Collections;
 import minekube.connect.v1alpha1.ConnectLibp2P.StatusReport;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterResult;
 import org.junit.jupiter.api.Test;
 
-class NativeStatusReporterTest {
+class Libp2pStatusReporterTest {
 
     @Test
     void buildsGenericJavaStatusReport() {
@@ -23,11 +24,11 @@ class NativeStatusReporterTest {
         when(platformUtils.serverImplementationName()).thenReturn("Paper");
         when(platformUtils.getPlayerCount()).thenReturn(4);
 
-        NativeStatusReporter reporter = new NativeStatusReporter(
+        Libp2pStatusReporter reporter = new Libp2pStatusReporter(
                 mock(Host.class),
                 "instance-1",
                 "12D3Endpoint",
-                Collections.singletonList("/ip4/127.0.0.1/tcp/4001/p2p/12D3Moxy"),
+                Collections.singletonList("/ip4/127.0.0.1/tcp/4001/p2p/12D3ConnectEdge"),
                 PeerRegisterResult.newBuilder()
                         .setEndpointId("endpoint-id")
                         .setEndpointHash("endpoint-hash")
@@ -45,29 +46,30 @@ class NativeStatusReporterTest {
         assertEquals(1_000, report.getObservedAtUnixMs());
         assertEquals(1, report.getStatusesCount());
         assertEquals("java", report.getStatuses(0).getEdition());
-        assertEquals(NativeStatusReporter.GENERIC_HOST, report.getStatuses(0).getRequestedHost());
+        assertEquals(Libp2pStatusReporter.GENERIC_HOST, report.getStatuses(0).getRequestedHost());
         assertEquals(25565, report.getStatuses(0).getRequestedPort());
         assertEquals(0, report.getStatuses(0).getProtocol());
         assertEquals("1.21.11", report.getStatuses(0).getVersionName());
         assertEquals(4, report.getStatuses(0).getPlayersOnline());
         assertEquals(512, report.getStatuses(0).getPlayersMax());
         assertEquals("{\"text\":\"Paper\"}", report.getStatuses(0).getDescriptionJson());
-        assertEquals(15_000, NativeStatusReporter.STATUS_TTL_MS);
+        assertEquals(15_000, Libp2pStatusReporter.STATUS_TTL_MS);
         assertEquals(16_000, report.getStatuses(0).getExpiresAtUnixMs());
-        assertEquals(5, NativeStatusReporter.REPORT_INTERVAL_SECONDS);
+        assertEquals(5, Libp2pStatusReporter.REPORT_INTERVAL_SECONDS);
     }
 
     @Test
-    void closesStatusStreamWriteSideAfterOneShotReport() {
+    void closesStatusStreamWriteSideAndWaitsForRemoteCloseAfterOneShotReport() {
         PlatformUtils platformUtils = mock(PlatformUtils.class);
         when(platformUtils.minecraftVersion()).thenReturn("1.21.11");
         when(platformUtils.serverImplementationName()).thenReturn("Paper");
         Stream stream = mock(Stream.class);
-        NativeStatusReporter reporter = new NativeStatusReporter(
+        when(stream.closeFuture()).thenReturn(CompletableFuture.completedFuture(null));
+        Libp2pStatusReporter reporter = new Libp2pStatusReporter(
                 mock(Host.class),
                 "instance-1",
                 "12D3Endpoint",
-                Collections.singletonList("/ip4/127.0.0.1/tcp/4001/p2p/12D3Moxy"),
+                Collections.singletonList("/ip4/127.0.0.1/tcp/4001/p2p/12D3ConnectEdge"),
                 PeerRegisterResult.newBuilder()
                         .setEndpointId("endpoint-id")
                         .setEndpointHash("endpoint-hash")
@@ -80,5 +82,6 @@ class NativeStatusReporterTest {
         reporter.reportOnce(1_000);
 
         verify(stream).closeWrite();
+        verify(stream).closeFuture();
     }
 }

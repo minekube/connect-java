@@ -22,7 +22,7 @@ class EndpointPeerIdentityTest {
 
     @Test
     void persistsPrivateKeyAndPublishesMarshalPublicKey() throws Exception {
-        Path keyFile = tempDir.resolve("native-peer.key");
+        Path keyFile = tempDir.resolve("libp2p-identity.key");
 
         EndpointPeerIdentity created = EndpointPeerIdentity.loadOrCreate(keyFile);
         EndpointPeerIdentity loaded = EndpointPeerIdentity.loadOrCreate(keyFile);
@@ -35,7 +35,7 @@ class EndpointPeerIdentityTest {
                 Base64.getDecoder().decode(created.publicKeyBase64()));
         assertEquals(created.peerId(), PeerId.fromPubKey(decodedPublicKey).toString());
 
-        byte[] payload = "connect-native-registration".getBytes();
+        byte[] payload = "connect-libp2p-registration".getBytes();
         byte[] signature = loaded.sign(payload);
         assertTrue(decodedPublicKey.verify(payload, signature));
         assertArrayEquals(KeyKt.marshalPrivateKey(created.privateKey()), Files.readAllBytes(keyFile));
@@ -43,7 +43,7 @@ class EndpointPeerIdentityTest {
 
     @Test
     void writesPrivateKeyWithOwnerOnlyPermissionsWhenPosixIsAvailable() throws Exception {
-        Path keyFile = tempDir.resolve("native-peer.key");
+        Path keyFile = tempDir.resolve("libp2p-identity.key");
 
         EndpointPeerIdentity.loadOrCreate(keyFile);
 

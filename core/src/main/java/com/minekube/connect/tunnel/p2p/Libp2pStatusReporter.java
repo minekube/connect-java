@@ -47,7 +47,7 @@ import minekube.connect.v1alpha1.ConnectLibp2P.EndpointStatus;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterResult;
 import minekube.connect.v1alpha1.ConnectLibp2P.StatusReport;
 
-final class NativeStatusReporter {
+final class Libp2pStatusReporter {
     static final String PROTOCOL_ID = "/minekube/connect/status/1.0.0";
     static final String GENERIC_HOST = "__default__";
     static final int JAVA_PORT = 25565;
@@ -61,28 +61,28 @@ final class NativeStatusReporter {
     private final Host host;
     private final String endpointInstanceId;
     private final String endpointPeerId;
-    private final List<String> moxyAddrs;
+    private final List<String> edgeAddrs;
     private final PeerRegisterResult registration;
     private final PlatformUtils platformUtils;
     private final ConnectLogger logger;
     private final StatusStreamOpener streamOpener;
 
-    NativeStatusReporter(
+    Libp2pStatusReporter(
             Host host,
             String endpointInstanceId,
             String endpointPeerId,
-            List<String> moxyAddrs,
+            List<String> edgeAddrs,
             PeerRegisterResult registration,
             PlatformUtils platformUtils,
             ConnectLogger logger) {
-        this(host, endpointInstanceId, endpointPeerId, moxyAddrs, registration, platformUtils, logger, null);
+        this(host, endpointInstanceId, endpointPeerId, edgeAddrs, registration, platformUtils, logger, null);
     }
 
-    NativeStatusReporter(
+    Libp2pStatusReporter(
             Host host,
             String endpointInstanceId,
             String endpointPeerId,
-            List<String> moxyAddrs,
+            List<String> edgeAddrs,
             PeerRegisterResult registration,
             PlatformUtils platformUtils,
             ConnectLogger logger,
@@ -90,7 +90,7 @@ final class NativeStatusReporter {
         this.host = Objects.requireNonNull(host, "host");
         this.endpointInstanceId = Objects.requireNonNull(endpointInstanceId, "endpointInstanceId");
         this.endpointPeerId = Objects.requireNonNull(endpointPeerId, "endpointPeerId");
-        this.moxyAddrs = Objects.requireNonNull(moxyAddrs, "moxyAddrs");
+        this.edgeAddrs = Objects.requireNonNull(edgeAddrs, "edgeAddrs");
         this.registration = Objects.requireNonNull(registration, "registration");
         this.platformUtils = Objects.requireNonNull(platformUtils, "platformUtils");
         this.logger = Objects.requireNonNull(logger, "logger");
@@ -101,11 +101,11 @@ final class NativeStatusReporter {
         try {
             reportOnce(System.currentTimeMillis());
         } catch (RuntimeException e) {
-            if (NativeLibp2pErrors.isTransientConnectError(e)) {
-                logger.warn("Native Connect libp2p status report failed; retrying: "
-                        + NativeLibp2pErrors.summary(e));
+            if (Libp2pEndpointErrors.isTransientConnectError(e)) {
+                logger.warn("Connect libp2p status report failed; retrying: "
+                        + Libp2pEndpointErrors.summary(e));
             } else {
-                logger.error("Failed to report native Connect libp2p status", e);
+                logger.error("Failed to report Connect libp2p status", e);
             }
         }
     }
@@ -130,7 +130,7 @@ final class NativeStatusReporter {
     void reportOnce(long nowUnixMs) {
         RuntimeException lastError = null;
         StatusReport report = buildReport(nowUnixMs);
-        for (String address : moxyAddrs) {
+        for (String address : edgeAddrs) {
             Stream stream = null;
             try {
                 stream = streamOpener.open(address);
@@ -141,11 +141,12 @@ final class NativeStatusReporter {
             } finally {
                 if (stream != null) {
                     stream.closeWrite();
+                    await(stream.closeFuture(), STREAM_TIMEOUT_SECONDS, "wait for libp2p status stream close");
                 }
             }
         }
         throw lastError == null
-                ? new IllegalStateException("no native libp2p moxy status addresses configured")
+                ? new IllegalStateException("no libp2p Connect edge status addresses configured")
                 : lastError;
     }
 
@@ -181,14 +182,14 @@ final class NativeStatusReporter {
     private Stream openStatusStream(String address) {
         Multiaddr multiaddr = Multiaddr.fromString(address);
         PeerId peerId = Objects.requireNonNull(multiaddr.getPeerId(),
-                "native libp2p moxy address must include /p2p/<peer-id>");
+                "libp2p Connect edge address must include /p2p/<peer-id>");
         Connection connection = await(
                 host.getNetwork().connect(peerId, multiaddr),
                 CONNECT_TIMEOUT_SECONDS,
-                "connect native libp2p moxy peer " + peerId);
+                "connect libp2p Connect edge peer " + peerId);
         StreamPromise<Object> promise = host.newStream(Arrays.asList(PROTOCOL_ID), connection);
-        Stream stream = await(promise.getStream(), STREAM_TIMEOUT_SECONDS, "open native status stream");
-        await(stream.getProtocol(), STREAM_TIMEOUT_SECONDS, "negotiate native status protocol");
+        Stream stream = await(promise.getStream(), STREAM_TIMEOUT_SECONDS, "open libp2p status stream");
+        await(stream.getProtocol(), STREAM_TIMEOUT_SECONDS, "negotiate libp2p status protocol");
         return stream;
     }
 
@@ -198,7 +199,7 @@ final class NativeStatusReporter {
             P2PFrameCodec.write(out, message);
             stream.writeAndFlush(Unpooled.wrappedBuffer(out.toByteArray()));
         } catch (IOException e) {
-            throw new IllegalStateException("encode native status report", e);
+            throw new IllegalStateException("encode libp2p status report", e);
         }
     }
 
