@@ -357,20 +357,67 @@ public final class Libp2pEndpoint {
     }
 
     private List<String> reserveRelayAddrs() {
-        List<String> addrs = new ArrayList<>();
-        for (String relayAddr : libp2pConfig.relayAddrs()) {
-            await(
-                    host.getNetwork().listen(Multiaddr.fromString(relayAddr + "/p2p-circuit")),
-                    CONNECT_TIMEOUT_SECONDS,
-                    "reserve libp2p relay " + relayAddr);
-            addrs.add(relayCircuitAddr(relayAddr, identity.peerId()));
+        return reserveRelayAddrs(
+                libp2pConfig.relayAddrs(),
+                identity.peerId(),
+                relayAddr -> await(
+                        host.getNetwork().listen(Multiaddr.fromString(relayAddr + "/p2p-circuit")),
+                        CONNECT_TIMEOUT_SECONDS,
+                        "reserve libp2p relay " + relayAddr),
+                logger);
+    }
+
+    static List<String> reserveRelayAddrs(
+            List<String> relayAddrs,
+            String endpointPeerId,
+            RelayReservation reservation,
+            ConnectLogger logger) {
+        List<String> reserved = new ArrayList<>();
+        RuntimeException lastError = null;
+        for (int i = 0; i < relayAddrs.size(); i++) {
+            String relayAddr = relayAddrs.get(i);
+            try {
+                reservation.reserve(relayAddr);
+                reserved.add(relayCircuitAddr(relayAddr, endpointPeerId));
+            } catch (RuntimeException e) {
+                lastError = e;
+                logRelayReservationFailure(logger, relayAddr, i + 1, relayAddrs.size(), e);
+            }
         }
-        return addrs;
+        if (reserved.isEmpty() && lastError != null) {
+            throw new IllegalStateException("failed to reserve any configured libp2p relay", lastError);
+        }
+        return reserved;
+    }
+
+    private static void logRelayReservationFailure(
+            ConnectLogger logger,
+            String relayAddr,
+            int attempt,
+            int total,
+            RuntimeException error) {
+        String message = "Connect libp2p relay reservation failed"
+                + " attempt=" + attempt + "/" + total
+                + " expectedEdgePeer=" + edgePeerId(relayAddr)
+                + " address=" + relayAddr
+                + " error=" + Libp2pEndpointErrors.summary(error);
+        if (Libp2pEndpointErrors.isEdgePeerMismatch(error)) {
+            message += " hint=fly-anycast-reached-different-edge-peer";
+        }
+        if (Libp2pEndpointErrors.isTransientConnectError(error)) {
+            logger.warn(message);
+        } else {
+            logger.error(message, error);
+        }
     }
 
     static String relayCircuitAddr(String relayAddr, String endpointPeerId) {
         String separator = relayAddr.endsWith("/") ? "" : "/";
         return relayAddr + separator + "p2p-circuit/p2p/" + endpointPeerId;
+    }
+
+    interface RelayReservation {
+        void reserve(String relayAddr);
     }
 
     static String newEndpointInstanceId() {
