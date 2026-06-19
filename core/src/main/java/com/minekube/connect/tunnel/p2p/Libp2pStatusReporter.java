@@ -57,6 +57,7 @@ final class Libp2pStatusReporter {
 
     private static final long CONNECT_TIMEOUT_SECONDS = 15;
     private static final long STREAM_TIMEOUT_SECONDS = 5;
+    private static final int REPORT_ATTEMPTS_PER_ADDRESS = 4;
 
     private final Host host;
     private final String endpointInstanceId;
@@ -130,7 +131,8 @@ final class Libp2pStatusReporter {
     void reportOnce(long nowUnixMs) {
         RuntimeException lastError = null;
         StatusReport report = buildReport(nowUnixMs);
-        for (String address : edgeAddrs) {
+        List<String> attemptAddrs = Libp2pEndpoint.registerAttemptAddresses(edgeAddrs, REPORT_ATTEMPTS_PER_ADDRESS);
+        for (String address : attemptAddrs) {
             Stream stream = null;
             try {
                 stream = streamOpener.open(address);

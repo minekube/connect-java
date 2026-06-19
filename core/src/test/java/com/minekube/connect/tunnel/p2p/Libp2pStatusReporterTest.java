@@ -13,9 +13,10 @@ import io.libp2p.core.Host;
 import io.libp2p.core.Stream;
 import java.util.concurrent.CompletableFuture;
 import java.util.Collections;
+import java.util.concurrent.atomic.AtomicInteger;
 import kotlin.Unit;
-import minekube.connect.v1alpha1.ConnectLibp2P.StatusReport;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterResult;
+import minekube.connect.v1alpha1.ConnectLibp2P.StatusReport;
 import org.junit.jupiter.api.Test;
 
 class Libp2pStatusReporterTest {
@@ -114,5 +115,38 @@ class Libp2pStatusReporterTest {
 
         verify(stream).closeWrite();
         verify(stream, never()).closeFuture();
+    }
+
+    @Test
+    void retriesSingleAnycastAddressForStatusReports() {
+        PlatformUtils platformUtils = mock(PlatformUtils.class);
+        when(platformUtils.minecraftVersion()).thenReturn("1.21.11");
+        when(platformUtils.serverImplementationName()).thenReturn("Paper");
+        Stream stream = mock(Stream.class);
+        when(stream.closeWrite()).thenReturn(CompletableFuture.completedFuture(Unit.INSTANCE));
+        AtomicInteger attempts = new AtomicInteger();
+        Libp2pStatusReporter reporter = new Libp2pStatusReporter(
+                mock(Host.class),
+                "instance-1",
+                "12D3Endpoint",
+                Collections.singletonList("/dns4/connect-proxy-staging.fly.dev/tcp/4001/p2p/12D3ConnectEdge"),
+                PeerRegisterResult.newBuilder()
+                        .setEndpointId("endpoint-id")
+                        .setEndpointHash("endpoint-hash")
+                        .setKvRevision(10)
+                        .build(),
+                platformUtils,
+                mock(ConnectLogger.class),
+                ignored -> {
+                    if (attempts.incrementAndGet() < 4) {
+                        throw new IllegalStateException("failed to connect libp2p Connect edge peer");
+                    }
+                    return stream;
+                });
+
+        reporter.reportOnce(1_000);
+
+        assertEquals(4, attempts.get());
+        verify(stream).closeWrite();
     }
 }

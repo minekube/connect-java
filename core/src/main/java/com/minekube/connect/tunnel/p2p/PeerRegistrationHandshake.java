@@ -24,9 +24,12 @@
 package com.minekube.connect.tunnel.p2p;
 
 import com.google.protobuf.ByteString;
+import io.libp2p.core.multiformats.Multiaddr;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Supplier;
 import minekube.connect.v1alpha1.ConnectLibp2P.EndpointPeerRecord;
 import minekube.connect.v1alpha1.ConnectLibp2P.OfflineMode;
@@ -96,8 +99,8 @@ final class PeerRegistrationHandshake {
 
     PeerRegisterCommit commit(PeerRegisterChallenge challenge, List<String> addrs, long sequence, long nowUnixMs) {
         long ttlMs = challenge.getKvTtlMs() > 0 ? challenge.getKvTtlMs() : 45_000;
-        List<String> recordAddrs = challengedRelayCircuitAddrs(challenge);
-        if (recordAddrs.isEmpty()) {
+        List<String> recordAddrs = challengedRelayCircuitAddrs(challenge, addrs);
+        if (recordAddrs.isEmpty() && challenge.getRelayAddrsList().isEmpty()) {
             recordAddrs = addrs;
         }
         EndpointPeerRecord record = EndpointPeerRecord.newBuilder()
@@ -131,13 +134,38 @@ final class PeerRegistrationHandshake {
         return Objects.requireNonNull(capacitySupplier.get(), "capacity");
     }
 
-    private List<String> challengedRelayCircuitAddrs(PeerRegisterChallenge challenge) {
+    private List<String> challengedRelayCircuitAddrs(PeerRegisterChallenge challenge, List<String> reservedAddrs) {
         List<String> relayAddrs = challenge.getRelayAddrsList();
+        Set<String> reservedRelayPeers = relayPeers(reservedAddrs);
         List<String> out = new ArrayList<>(relayAddrs.size());
         for (String relayAddr : relayAddrs) {
+            String relayPeer = relayPeer(relayAddr);
+            if (relayPeer == null || !reservedRelayPeers.contains(relayPeer)) {
+                continue;
+            }
             String separator = relayAddr.endsWith("/") ? "" : "/";
             out.add(relayAddr + separator + "p2p-circuit/p2p/" + identity.peerId());
         }
         return out;
+    }
+
+    private static Set<String> relayPeers(List<String> addrs) {
+        Set<String> peers = new HashSet<>();
+        for (String addr : addrs) {
+            String peer = relayPeer(addr);
+            if (peer != null) {
+                peers.add(peer);
+            }
+        }
+        return peers;
+    }
+
+    private static String relayPeer(String addr) {
+        try {
+            String relayAddr = addr.split("/p2p-circuit", 2)[0];
+            return Multiaddr.fromString(relayAddr).getPeerId().toBase58();
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 }

@@ -120,8 +120,9 @@ class PeerRegistrationHandshakeTest {
     }
 
     @Test
-    void commitSignsChallengeRelayAddrsInsteadOfObservedBootstrapAddrs() throws Exception {
+    void commitSignsReservedChallengeRelayAddrsInsteadOfObservedBootstrapAddrs() throws Exception {
         EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
+        String relayPeerId = "12D3KooWCqs14yyxXW5rosC5CJ9tmNsRvQ97KKUx5HzGKK1pyVsN";
         PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
                 identity,
                 "endpoint",
@@ -135,20 +136,49 @@ class PeerRegistrationHandshakeTest {
                 .setEndpointId("endpoint-id")
                 .setEndpointHash("endpoint-hash")
                 .setPublisherId("publisher")
-                .setPublisherPeerId("publisher-peer")
+                .setPublisherPeerId(relayPeerId)
                 .setRegion("cdg")
-                .addRelayAddrs("/dns6/6832e0da270568.vm.connect-proxy-staging.internal/tcp/4001/p2p/publisher-peer")
+                .addRelayAddrs("/dns6/6832e0da270568.vm.connect-proxy-staging.internal/tcp/4001/p2p/" + relayPeerId)
                 .setKvTtlMs(45_000)
                 .setNonce(ByteString.copyFromUtf8("nonce"))
                 .build();
 
         PeerRegisterCommit commit = handshake.commit(challenge, Collections.singletonList(
-                "/dns4/connect-proxy-staging.fly.dev/tcp/4001/p2p/publisher-peer/p2p-circuit/p2p/"
+                "/dns4/connect-proxy-staging.fly.dev/tcp/4001/p2p/" + relayPeerId + "/p2p-circuit/p2p/"
                         + identity.peerId()), 1, 1_000);
 
         assertEquals(Collections.singletonList(
-                        "/dns6/6832e0da270568.vm.connect-proxy-staging.internal/tcp/4001/p2p/publisher-peer"
+                        "/dns6/6832e0da270568.vm.connect-proxy-staging.internal/tcp/4001/p2p/" + relayPeerId
                                 + "/p2p-circuit/p2p/" + identity.peerId()),
                 commit.getRecord().getAddrsList());
+    }
+
+    @Test
+    void commitDoesNotAdvertiseChallengeRelayAddrsWithoutReservation() throws Exception {
+        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
+        String relayPeerId = "12D3KooWCqs14yyxXW5rosC5CJ9tmNsRvQ97KKUx5HzGKK1pyVsN";
+        PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
+                identity,
+                "endpoint",
+                "token",
+                "instance",
+                Collections.emptyList(),
+                OfflineMode.OFFLINE_MODE_ALLOWED,
+                Arrays.asList("session", "status"),
+                PeerCapacity.newBuilder().setMaxSessions(100).setActiveSessions(3).build());
+        PeerRegisterChallenge challenge = PeerRegisterChallenge.newBuilder()
+                .setEndpointId("endpoint-id")
+                .setEndpointHash("endpoint-hash")
+                .setPublisherId("publisher")
+                .setPublisherPeerId(relayPeerId)
+                .setRegion("cdg")
+                .addRelayAddrs("/dns6/6832e0da270568.vm.connect-proxy-staging.internal/tcp/4001/p2p/" + relayPeerId)
+                .setKvTtlMs(45_000)
+                .setNonce(ByteString.copyFromUtf8("nonce"))
+                .build();
+
+        PeerRegisterCommit commit = handshake.commit(challenge, Collections.emptyList(), 1, 1_000);
+
+        assertEquals(Collections.emptyList(), commit.getRecord().getAddrsList());
     }
 }

@@ -64,6 +64,7 @@ public final class Libp2pEndpoint {
     private static final long CONNECT_TIMEOUT_SECONDS = 15;
     private static final long STREAM_TIMEOUT_SECONDS = 5;
     private static final int REGISTER_ATTEMPTS_PER_ADDRESS = 4;
+    private static final int RELAY_RESERVATION_ATTEMPTS_PER_ADDRESS = 4;
 
     private final Path dataDirectory;
     private final ConnectConfig connectConfig;
@@ -391,14 +392,23 @@ public final class Libp2pEndpoint {
             ConnectLogger logger) {
         List<String> reserved = new ArrayList<>();
         RuntimeException lastError = null;
+        int total = relayAddrs.size() * RELAY_RESERVATION_ATTEMPTS_PER_ADDRESS;
         for (int i = 0; i < relayAddrs.size(); i++) {
             String relayAddr = relayAddrs.get(i);
-            try {
-                reservation.reserve(relayAddr);
-                reserved.add(relayCircuitAddr(relayAddr, endpointPeerId));
-            } catch (RuntimeException e) {
-                lastError = e;
-                logRelayReservationFailure(logger, relayAddr, i + 1, relayAddrs.size(), e);
+            for (int attempt = 0; attempt < RELAY_RESERVATION_ATTEMPTS_PER_ADDRESS; attempt++) {
+                try {
+                    reservation.reserve(relayAddr);
+                    reserved.add(relayCircuitAddr(relayAddr, endpointPeerId));
+                    break;
+                } catch (RuntimeException e) {
+                    lastError = e;
+                    logRelayReservationFailure(
+                            logger,
+                            relayAddr,
+                            i * RELAY_RESERVATION_ATTEMPTS_PER_ADDRESS + attempt + 1,
+                            total,
+                            e);
+                }
             }
         }
         if (reserved.isEmpty() && lastError != null) {
