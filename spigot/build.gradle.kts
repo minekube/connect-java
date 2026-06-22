@@ -2,14 +2,6 @@ var authlibVersion = "1.5.21"
 var guavaVersion = "31.1-jre"
 var gsonVersion = "2.8.5"
 
-//java {
-    // For Folia
-//    targetCompatibility = JavaVersion.VERSION_1_8
-//    toolchain {
-//        languageVersion.set(JavaLanguageVersion.of(17))
-//    }
-//}
-
 dependencies {
     api(projects.core)
 
@@ -55,7 +47,5 @@ relocate("org.yaml")
 
 // these dependencies are already present on the platform
 provided("com.mojang", "authlib", authlibVersion)
-provided("io.netty", "netty-transport", Versions.nettyVersion)
-provided("io.netty", "netty-codec", Versions.nettyVersion)
 provided("com.google.code.gson", "gson", gsonVersion)
 provided("com.viaversion", "viaversion-bukkit", Versions.viaVersionVersion)

@@ -28,6 +28,7 @@ package com.minekube.connect;
 import com.google.inject.Inject;
 import com.google.inject.Injector;
 import com.google.inject.Module;
+import com.google.inject.ConfigurationException;
 import com.google.inject.name.Named;
 import com.minekube.connect.api.ConnectApi;
 import com.minekube.connect.api.InstanceHolder;
@@ -42,6 +43,7 @@ import com.minekube.connect.module.ConfigLoadedModule;
 import com.minekube.connect.module.PostInitializeModule;
 import com.minekube.connect.register.WatcherRegister;
 import com.minekube.connect.tunnel.Tunneler;
+import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 import com.minekube.connect.util.Metrics;
 import com.minekube.connect.util.UpdateChecker;
 import java.io.IOException;
@@ -135,6 +137,10 @@ public class ConnectPlatform {
     }
 
     public boolean disable() {
+        try {
+            guice.getInstance(Libp2pEndpoint.class).stop();
+        } catch (ConfigurationException ignored) {
+        }
         guice.getInstance(WatcherRegister.class).stop();
         guice.getInstance(Tunneler.class).close();
         guice.getInstance(CommonPlatformInjector.class).shutdown();

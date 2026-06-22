@@ -32,6 +32,7 @@ import com.google.gson.annotations.SerializedName;
 import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
 import com.google.inject.Singleton;
+import com.google.inject.multibindings.Multibinder;
 import com.google.inject.name.Named;
 import com.minekube.connect.api.ConnectApi;
 import com.minekube.connect.api.SimpleConnectApi;
@@ -45,6 +46,9 @@ import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.inject.CommonPlatformInjector;
 import com.minekube.connect.packet.PacketHandlersImpl;
 import com.minekube.connect.platform.util.PlatformUtils;
+import com.minekube.connect.tunnel.TunnelClientTransport;
+import com.minekube.connect.tunnel.WebSocketTunnelTransport;
+import com.minekube.connect.tunnel.p2p.Libp2pTunnelTransport;
 import com.minekube.connect.util.Constants;
 import com.minekube.connect.util.HttpUtils;
 import com.minekube.connect.util.LanguageManager;
@@ -74,6 +78,10 @@ public class CommonModule extends AbstractModule {
 
         bind(PacketHandlers.class).to(PacketHandlersImpl.class);
         bind(PacketHandlersImpl.class).asEagerSingleton();
+        Multibinder<TunnelClientTransport> transports =
+                Multibinder.newSetBinder(binder(), TunnelClientTransport.class);
+        transports.addBinding().to(WebSocketTunnelTransport.class);
+        transports.addBinding().to(Libp2pTunnelTransport.class);
     }
 
     @Provides
@@ -117,24 +125,29 @@ public class CommonModule extends AbstractModule {
 
     @Provides
     @Singleton
+    @Named("connectToken")
+    public String connectToken() throws IOException {
+        Path tokenFile = dataDirectory.resolve("token.json");
+
+        Optional<String> token = Token.load(tokenFile);
+        if (!token.isPresent()) {
+            String t = Token.generate();
+            Token.save(tokenFile, t);
+            token = Optional.of(t);
+        }
+        return token.get();
+    }
+
+    @Provides
+    @Singleton
     @Named("connectHttpClient")
     public OkHttpClient connectOkHttpClient(
             @Named("defaultHttpClient") OkHttpClient defaultOkHttpClient,
             PlatformUtils platformUtils,
             @Named("platformName") String implementationName,
-            ConnectApi api
-    ) throws IOException {
-        Path tokenFile = dataDirectory.resolve("token.json");
-
-        Optional<String> token = Token.load(tokenFile);
-        if (!token.isPresent()) {
-            // Generate and save new token
-            String t = Token.generate();
-            Token.save(tokenFile, t);
-            token = Optional.of(t);
-        }
-        final String apiToken = token.get();
-
+            ConnectApi api,
+            @Named("connectToken") String apiToken
+    ) {
         return defaultOkHttpClient.newBuilder()
                 .addInterceptor(chain -> chain.proceed(chain.request().newBuilder()
                         // Add authorization token to every request

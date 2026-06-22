@@ -25,136 +25,110 @@
 
 package com.minekube.connect.tunnel;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import com.google.inject.Inject;
-import com.google.inject.name.Named;
 import com.minekube.connect.tunnel.TunnelConn.Handler;
-import com.minekube.connect.util.ReflectionUtils;
 import java.io.Closeable;
-import java.io.EOFException;
-import java.lang.reflect.Field;
-import java.util.Collection;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Stream;
-import okhttp3.Call;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.WebSocket;
-import okhttp3.WebSocketListener;
-import okio.ByteString;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport.Type;
 
 public class Tunneler implements Closeable {
 
-    private static final String SESSION_HEADER = "Connect-Session";
-    private static final Field DATA = ReflectionUtils.getField(ByteString.class, "data");
-    private final OkHttpClient httpClient;
+    private final Map<Type, TunnelClientTransport> transports;
 
     @Inject
-    public Tunneler(@Named("connectHttpClient") OkHttpClient httpClient) {
-        this.httpClient = httpClient;
+    public Tunneler(Set<TunnelClientTransport> transports) {
+        this.transports = new EnumMap<>(Type.class);
+        for (TunnelClientTransport transport : transports) {
+            this.transports.put(transport.type(), transport);
+        }
+    }
+
+    public Tunneler(TunnelClientTransport transport) {
+        this(Collections.singleton(transport));
+    }
+
+    public void prepare(Session session) {
+        for (SelectedTransport selected : select(session)) {
+            try {
+                selected.transport.prepare(selected.address);
+            } catch (RuntimeException ignored) {
+                // Warmup must not prevent the regular tunnel fallback chain.
+            }
+        }
     }
 
     public TunnelConn tunnel(final String tunnelServiceAddr, String sessionId, Handler handler) {
-        checkNotNull(tunnelServiceAddr, "tunnelServiceAddr must not be null");
-        checkNotNull(sessionId, "sessionId must not be null");
-        checkNotNull(handler, "handler must not be null");
-        checkArgument(!tunnelServiceAddr.isEmpty(),
-                "tunnelServiceAddr must not be empty");
-        checkArgument(!sessionId.isEmpty(), "sessionId must not be empty");
+        TunnelClientTransport transport = transports.get(Type.TYPE_WEBSOCKET);
+        if (transport == null) {
+            throw new IllegalStateException("no websocket tunnel transport configured");
+        }
+        return transport.tunnel(tunnelServiceAddr, sessionId, handler);
+    }
 
-        Request request = new Request.Builder()
-                .url(tunnelServiceAddr)
-                .addHeader(SESSION_HEADER, sessionId)
-                .build();
-
-        AtomicBoolean closeHandlerOnce = new AtomicBoolean();
-        Runnable handlerOnClose = () -> {
-            if (closeHandlerOnce.compareAndSet(false, true)) {
-                handler.onClose();
+    public TunnelConn tunnel(Session session, Handler handler) {
+        RuntimeException lastFailure = null;
+        for (SelectedTransport selected : select(session)) {
+            try {
+                return selected.transport.tunnel(selected.address, session.getId(), handler);
+            } catch (RuntimeException e) {
+                lastFailure = e;
             }
-        };
-
-        AtomicBoolean opened = new AtomicBoolean();
-
-        WebSocket ws = httpClient.newWebSocket(request, new WebSocketListener() {
-            @Override
-            public void onClosed(@NotNull WebSocket webSocket, int code, @NotNull String reason) {
-                handlerOnClose.run();
-            }
-
-            @Override
-            public void onClosing(@NotNull WebSocket webSocket, int code, @NotNull String reason) {
-                webSocket.close(1000, null);
-            }
-
-            @Override
-            public void onFailure(@NotNull WebSocket webSocket, @NotNull Throwable t,
-                                  @Nullable Response response) {
-                if (!(t instanceof EOFException)) {
-                    handler.onError(t);
-                }
-                handlerOnClose.run();
-            }
-
-
-            @Override
-            public void onMessage(@NotNull WebSocket webSocket, @NotNull ByteString bytes) {
-                // handler.onReceive(bytes.toByteArray()); // would copy
-
-                // Zero-copy fast path with safe fallback. DATA is null if the field
-                // can't be located (e.g. after Okio relocation); getCastedValue can
-                // also return null at runtime because IllegalAccessException is
-                // swallowed inside ReflectionUtils.getValue. Without this guard,
-                // onReceive(null) flows into Unpooled.wrappedBuffer(null), NPE-ing
-                // the OkHttp dispatcher thread and dropping every tunnel on it.
-                byte[] rawBytes = DATA != null ? ReflectionUtils.getCastedValue(bytes, DATA) : null;
-                if (rawBytes == null) {
-                    rawBytes = bytes.toByteArray();
-                }
-                handler.onReceive(rawBytes);
-            }
-
-            @Override
-            public void onOpen(@NotNull WebSocket webSocket, @NotNull Response response) {
-                opened.set(true);
-                // TODO log connected(?)
-            }
-        });
-
-        return new TunnelConn() {
-            @Override
-            public void write(byte[] data) {
-                ws.send(ByteString.of(data));
-            }
-
-            @Override
-            public void close(Throwable t) {
-                if (t == null) {
-                    ws.close(1000, "tunnel closed clientside");
-                } else {
-                    ws.close(1002, t.toString());
-                }
-                handlerOnClose.run();
-            }
-
-            @Override
-            public boolean opened() {
-                return opened.get();
-            }
-        };
+        }
+        if (lastFailure != null) {
+            throw lastFailure;
+        }
+        throw new IllegalStateException("no compatible tunnel transport configured");
     }
 
     @Override
     public void close() {
-        // cancel queued connections
-        Stream.of(httpClient.dispatcher().queuedCalls())
-                .flatMap(Collection::stream)
-                .filter(call -> call.request().header(SESSION_HEADER) != null)
-                .forEach(Call::cancel);
+        for (TunnelClientTransport transport : transports.values()) {
+            transport.close();
+        }
+    }
+
+    private List<SelectedTransport> select(Session session) {
+        List<SelectedTransport> selected = new ArrayList<>();
+        addAdvertisedTransport(session, selected, Type.TYPE_LIBP2P);
+        addAdvertisedTransport(session, selected, Type.TYPE_WEBSOCKET);
+
+        TunnelClientTransport websocket = transports.get(Type.TYPE_WEBSOCKET);
+        if (websocket != null && !session.getTunnelServiceAddr().isEmpty()) {
+            selected.add(new SelectedTransport(websocket, session.getTunnelServiceAddr()));
+        }
+        return selected;
+    }
+
+    private void addAdvertisedTransport(
+            Session session,
+            List<SelectedTransport> selected,
+            Type type
+    ) {
+        TunnelClientTransport transport = transports.get(type);
+        if (transport == null) {
+            return;
+        }
+        for (TunnelTransport tunnelTransport : session.getTunnelTransportsList()) {
+            if (tunnelTransport.getType() == type && !tunnelTransport.getAddress().isEmpty()) {
+                selected.add(new SelectedTransport(transport, tunnelTransport.getAddress()));
+            }
+        }
+    }
+
+    private static final class SelectedTransport {
+        private final TunnelClientTransport transport;
+        private final String address;
+
+        private SelectedTransport(TunnelClientTransport transport, String address) {
+            this.transport = transport;
+            this.address = address;
+        }
     }
 }

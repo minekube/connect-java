@@ -13,12 +13,35 @@ low latency edge proxies network nearest to you.
 
 Please refer to https://connect.minekube.com for more documentation.
 
+## Connect libp2p endpoint mode
+
+The Connect libp2p endpoint path is enabled by configuring the Connect edge peer
+address. It keeps the normal WatchService path available as fallback while the
+endpoint also registers a stable libp2p peer for proxy-initiated session streams.
+
+Environment variables:
+
+- `CONNECT_LIBP2P_EDGE_ADDR`: comma-separated Connect edge libp2p multiaddrs,
+  each including `/p2p/<connect-edge-peer-id>`. Setting this enables libp2p mode.
+- `CONNECT_LIBP2P_LISTEN_ADDR`: optional endpoint listen multiaddrs. The
+  default is `/ip4/127.0.0.1/tcp/0`.
+- `CONNECT_LIBP2P_ADVERTISE_ADDRS`: optional explicit endpoint addresses
+  to publish instead of the local listen addresses.
+- `CONNECT_LIBP2P_RELAY_ADDRS`: optional relay bootstrap multiaddrs. The
+  endpoint reserves each relay through these addresses. During registration,
+  the Connect edge can challenge the endpoint to sign equivalent
+  `/p2p-circuit/p2p/<endpoint-peer-id>` addresses that are better for other
+  edge proxies to dial, such as private per-machine relay addresses.
+
 ## Working setups
 
 When installing the Connect plugin the following platform settings are supported.
 
 - PaperMC/Spigot
     - If running in Online mode you must set to `enforce-secure-profile: false` in [server.properties](https://minecraft.fandom.com/wiki/Server.properties)
+    - For Paper/Spigot endpoints, set `settings.connection-throttle: -1` in `bukkit.yml`.
+      Connect may retry the backend handshake while detecting the server's forwarding mode, and
+      Paper's default connection throttle can reject that retry as `Connection throttled!`.
     - ✔️️ No forwarding + Online mode
     - ✔️ No forwarding + Offline mode
     - ✔️ Velocity forwarding + Online/Offline mode

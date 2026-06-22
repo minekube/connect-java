@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 GeyserMC. http://geysermc.org
+ * Copyright (c) 2021-2022 Minekube. https://minekube.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -19,26 +19,31 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *
- * @author GeyserMC
- * @link https://github.com/GeyserMC/Floodgate
+ * @author Minekube
+ * @link https://github.com/minekube/connect-java
  */
 
-object Versions {
-    const val spigotVersion = "1.19.4-R0.1-SNAPSHOT"
-    const val configUtilsVersion = "1.0-SNAPSHOT"
-    const val guiceVersion = "6.0.0"
-    const val nettyVersion = "4.2.3.Final"
-    const val snakeyamlVersion = "1.28"
-    const val cloudVersion = "1.5.0"
-    const val adventureApiVersion = "4.10.0"
-    const val adventurePlatformVersion = "4.0.0"
-    const val viaVersionVersion = "4.0.0"
-    const val gRPCVersion = "1.44.0"
-    const val protocVersion = "3.19.4"
-    const val bstatsVersion = "3.0.2"
-    const val gsonVersion = "2.8.6"
-    const val jvmLibp2pVersion = "1.3.2-RELEASE"
-    const val kotlinStdlibVersion = "1.9.22"
+package com.minekube.connect.tunnel.p2p;
 
-    const val checkerQual = "3.19.0"
+import com.google.protobuf.CodedOutputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import minekube.connect.v1alpha1.ConnectLibp2P.EndpointPeerRecord;
+
+final class PeerRecordSigningPayload {
+    private PeerRecordSigningPayload() {
+    }
+
+    static byte[] bytes(EndpointPeerRecord record) {
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream(record.getSerializedSize());
+            CodedOutputStream coded = CodedOutputStream.newInstance(out);
+            coded.useDeterministicSerialization();
+            record.writeTo(coded);
+            coded.flush();
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new IllegalStateException("encode deterministic peer record", e);
+        }
+    }
 }

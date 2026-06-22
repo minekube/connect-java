@@ -16,12 +16,16 @@ dependencies {
     api("org.bstats", "bstats-base", Versions.bstatsVersion)
 
     implementation("com.squareup.okhttp3:okhttp:4.9.3")
+    implementation("io.libp2p:jvm-libp2p:${Versions.jvmLibp2pVersion}")
+    api("io.netty", "netty-transport", Versions.nettyVersion)
+    api("io.netty", "netty-codec", Versions.nettyVersion)
+    api("io.netty", "netty-transport-native-unix-common", Versions.nettyVersion)
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:${Versions.kotlinStdlibVersion}")
     runtimeOnly("io.grpc", "grpc-netty-shaded", Versions.gRPCVersion)
     implementation("io.grpc", "grpc-protobuf", Versions.gRPCVersion)
     implementation("io.grpc", "grpc-stub", Versions.gRPCVersion)
     implementation("javax.annotation", "javax.annotation-api", "1.3.2")
 
-    // Test deps — pinned to versions still compatible with the Java 8 source target.
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.5")
     testImplementation("org.mockito:mockito-core:4.11.0")
     testImplementation("org.awaitility:awaitility:4.2.2")
@@ -34,11 +38,6 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
 }
-
-// present on all platforms
-provided("io.netty", "netty-transport", Versions.nettyVersion)
-provided("io.netty", "netty-codec", Versions.nettyVersion)
-provided("io.netty", "netty-transport-native-unix-common", Versions.nettyVersion)
 
 relocate("org.bstats")
 

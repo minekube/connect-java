@@ -32,6 +32,13 @@ dependencyResolutionManagement {
 
         mavenCentral()
 
+        maven("https://dl.cloudsmith.io/public/libp2p/jvm-libp2p/maven/") {
+            name = "jvm-libp2p"
+        }
+        maven("https://dl.cloudsmith.io/public/consensys/maven/maven/") {
+            name = "consensys"
+        }
+
         maven("https://repo.viaversion.com") {
             name = "viaversion-repo"
         }

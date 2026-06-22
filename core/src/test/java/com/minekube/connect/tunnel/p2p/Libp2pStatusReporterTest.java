@@ -1,0 +1,152 @@
+package com.minekube.connect.tunnel.p2p;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.platform.util.PlatformUtils;
+import io.libp2p.core.Host;
+import io.libp2p.core.Stream;
+import java.util.concurrent.CompletableFuture;
+import java.util.Collections;
+import java.util.concurrent.atomic.AtomicInteger;
+import kotlin.Unit;
+import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterResult;
+import minekube.connect.v1alpha1.ConnectLibp2P.StatusReport;
+import org.junit.jupiter.api.Test;
+
+class Libp2pStatusReporterTest {
+
+    @Test
+    void buildsGenericJavaStatusReport() {
+        PlatformUtils platformUtils = mock(PlatformUtils.class);
+        when(platformUtils.minecraftVersion()).thenReturn("1.21.11");
+        when(platformUtils.serverImplementationName()).thenReturn("Paper");
+        when(platformUtils.getPlayerCount()).thenReturn(4);
+
+        Libp2pStatusReporter reporter = new Libp2pStatusReporter(
+                mock(Host.class),
+                "instance-1",
+                "12D3Endpoint",
+                Collections.singletonList("/ip4/127.0.0.1/tcp/4001/p2p/12D3ConnectEdge"),
+                PeerRegisterResult.newBuilder()
+                        .setEndpointId("endpoint-id")
+                        .setEndpointHash("endpoint-hash")
+                        .setKvRevision(10)
+                        .build(),
+                platformUtils,
+                mock(ConnectLogger.class));
+
+        StatusReport report = reporter.buildReport(1_000);
+
+        assertEquals("endpoint-id", report.getEndpointId());
+        assertEquals("endpoint-hash", report.getEndpointHash());
+        assertEquals("instance-1", report.getEndpointInstanceId());
+        assertEquals("12D3Endpoint", report.getEndpointPeerId());
+        assertEquals(1_000, report.getObservedAtUnixMs());
+        assertEquals(1, report.getStatusesCount());
+        assertEquals("java", report.getStatuses(0).getEdition());
+        assertEquals(Libp2pStatusReporter.GENERIC_HOST, report.getStatuses(0).getRequestedHost());
+        assertEquals(25565, report.getStatuses(0).getRequestedPort());
+        assertEquals(0, report.getStatuses(0).getProtocol());
+        assertEquals("1.21.11", report.getStatuses(0).getVersionName());
+        assertEquals(4, report.getStatuses(0).getPlayersOnline());
+        assertEquals(512, report.getStatuses(0).getPlayersMax());
+        assertEquals("{\"text\":\"Paper\"}", report.getStatuses(0).getDescriptionJson());
+        assertEquals(15_000, Libp2pStatusReporter.STATUS_TTL_MS);
+        assertEquals(16_000, report.getStatuses(0).getExpiresAtUnixMs());
+        assertEquals(5, Libp2pStatusReporter.REPORT_INTERVAL_SECONDS);
+    }
+
+    @Test
+    void closesStatusStreamWriteSideAfterOneShotReport() {
+        PlatformUtils platformUtils = mock(PlatformUtils.class);
+        when(platformUtils.minecraftVersion()).thenReturn("1.21.11");
+        when(platformUtils.serverImplementationName()).thenReturn("Paper");
+        Stream stream = mock(Stream.class);
+        when(stream.closeWrite()).thenReturn(CompletableFuture.completedFuture(Unit.INSTANCE));
+        Libp2pStatusReporter reporter = new Libp2pStatusReporter(
+                mock(Host.class),
+                "instance-1",
+                "12D3Endpoint",
+                Collections.singletonList("/ip4/127.0.0.1/tcp/4001/p2p/12D3ConnectEdge"),
+                PeerRegisterResult.newBuilder()
+                        .setEndpointId("endpoint-id")
+                        .setEndpointHash("endpoint-hash")
+                        .setKvRevision(10)
+                        .build(),
+                platformUtils,
+                mock(ConnectLogger.class),
+                ignored -> stream);
+
+        reporter.reportOnce(1_000);
+
+        verify(stream).closeWrite();
+        verify(stream, never()).closeFuture();
+    }
+
+    @Test
+    void doesNotFailReportWhenRemoteDoesNotCloseStatusStream() {
+        PlatformUtils platformUtils = mock(PlatformUtils.class);
+        when(platformUtils.minecraftVersion()).thenReturn("1.21.11");
+        when(platformUtils.serverImplementationName()).thenReturn("Paper");
+        Stream stream = mock(Stream.class);
+        when(stream.closeWrite()).thenReturn(CompletableFuture.completedFuture(Unit.INSTANCE));
+        when(stream.closeFuture()).thenReturn(new CompletableFuture<>());
+        Libp2pStatusReporter reporter = new Libp2pStatusReporter(
+                mock(Host.class),
+                "instance-1",
+                "12D3Endpoint",
+                Collections.singletonList("/ip4/127.0.0.1/tcp/4001/p2p/12D3ConnectEdge"),
+                PeerRegisterResult.newBuilder()
+                        .setEndpointId("endpoint-id")
+                        .setEndpointHash("endpoint-hash")
+                        .setKvRevision(10)
+                        .build(),
+                platformUtils,
+                mock(ConnectLogger.class),
+                ignored -> stream);
+
+        assertDoesNotThrow(() -> reporter.reportOnce(1_000));
+
+        verify(stream).closeWrite();
+        verify(stream, never()).closeFuture();
+    }
+
+    @Test
+    void retriesSingleAnycastAddressForStatusReports() {
+        PlatformUtils platformUtils = mock(PlatformUtils.class);
+        when(platformUtils.minecraftVersion()).thenReturn("1.21.11");
+        when(platformUtils.serverImplementationName()).thenReturn("Paper");
+        Stream stream = mock(Stream.class);
+        when(stream.closeWrite()).thenReturn(CompletableFuture.completedFuture(Unit.INSTANCE));
+        AtomicInteger attempts = new AtomicInteger();
+        Libp2pStatusReporter reporter = new Libp2pStatusReporter(
+                mock(Host.class),
+                "instance-1",
+                "12D3Endpoint",
+                Collections.singletonList("/dns4/connect-proxy-staging.fly.dev/tcp/4001/p2p/12D3ConnectEdge"),
+                PeerRegisterResult.newBuilder()
+                        .setEndpointId("endpoint-id")
+                        .setEndpointHash("endpoint-hash")
+                        .setKvRevision(10)
+                        .build(),
+                platformUtils,
+                mock(ConnectLogger.class),
+                ignored -> {
+                    if (attempts.incrementAndGet() < 4) {
+                        throw new IllegalStateException("failed to connect libp2p Connect edge peer");
+                    }
+                    return stream;
+                });
+
+        reporter.reportOnce(1_000);
+
+        assertEquals(4, attempts.get());
+        verify(stream).closeWrite();
+    }
+}
