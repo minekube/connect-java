@@ -25,11 +25,7 @@ class CommonModuleTest {
     @Test
     void connectHttpClientSendsPluginVersionHeader() throws Exception {
         CommonModule module = new CommonModule(tempDir);
-        PlatformUtils platformUtils = mock(PlatformUtils.class);
-        when(platformUtils.authType()).thenReturn(PlatformUtils.AuthType.ONLINE);
-        when(platformUtils.serverImplementationName()).thenReturn("Paper");
-        when(platformUtils.minecraftVersion()).thenReturn("1.21.11");
-        when(platformUtils.getPlayerCount()).thenReturn(7);
+        PlatformUtils platformUtils = platformUtils();
 
         OkHttpClient client = module.connectOkHttpClient(
                 module.defaultOkHttpClient(),
@@ -51,7 +47,7 @@ class CommonModuleTest {
 
                 assertEquals(Constants.VERSION, recorded.getHeader("Connect-Version"));
                 assertEquals("spigot", recorded.getHeader("Connect-Platform"));
-                assertEquals("Paper", recorded.getHeaders().values("Connect-Platform").get(1));
+                assertEquals("test-server-impl", recorded.getHeaders().values("Connect-Platform").get(1));
             }
         }
     }
@@ -65,5 +61,48 @@ class CommonModuleTest {
         assertTrue(token.startsWith("T-"));
         assertEquals(token, module.connectToken());
         assertTrue(java.nio.file.Files.readString(tempDir.resolve("token.json")).contains(token));
+    }
+
+    @Test
+    void watchHttpClientKeepsConnectHeadersAndUsesWebSocketLiveness() throws Exception {
+        CommonModule module = new CommonModule(tempDir);
+        PlatformUtils platformUtils = platformUtils();
+
+        OkHttpClient connectClient = module.connectOkHttpClient(
+                module.defaultOkHttpClient(),
+                platformUtils,
+                "spigot",
+                new SimpleConnectApi(mock(ConnectLogger.class)),
+                module.connectToken()
+        );
+        OkHttpClient watchClient = module.watchOkHttpClient(connectClient);
+
+        assertEquals(0, watchClient.readTimeoutMillis());
+        assertEquals(30_000, watchClient.pingIntervalMillis());
+
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setBody("ok"));
+            server.start();
+
+            Request request = new Request.Builder()
+                    .url(server.url("/watch"))
+                    .build();
+            try (Response ignored = watchClient.newCall(request).execute()) {
+                RecordedRequest recorded = server.takeRequest();
+
+                assertEquals(Constants.VERSION, recorded.getHeader("Connect-Version"));
+                assertEquals("spigot", recorded.getHeader("Connect-Platform"));
+                assertEquals("test-server-impl", recorded.getHeaders().values("Connect-Platform").get(1));
+            }
+        }
+    }
+
+    private static PlatformUtils platformUtils() {
+        PlatformUtils platformUtils = mock(PlatformUtils.class);
+        when(platformUtils.authType()).thenReturn(PlatformUtils.AuthType.ONLINE);
+        when(platformUtils.serverImplementationName()).thenReturn("test-server-impl");
+        when(platformUtils.minecraftVersion()).thenReturn("test-minecraft-version");
+        when(platformUtils.getPlayerCount()).thenReturn(7);
+        return platformUtils;
     }
 }

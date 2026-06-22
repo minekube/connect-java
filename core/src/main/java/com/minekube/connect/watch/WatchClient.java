@@ -54,7 +54,7 @@ public class WatchClient {
     private final ConnectConfig config;
 
     @Inject
-    public WatchClient(@Named("connectHttpClient") OkHttpClient httpClient, ConnectConfig config) {
+    public WatchClient(@Named("watchHttpClient") OkHttpClient httpClient, ConnectConfig config) {
         this.httpClient = httpClient;
         this.config = config;
     }

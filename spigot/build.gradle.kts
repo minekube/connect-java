@@ -17,6 +17,7 @@ dependencies {
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.5")
     testImplementation("com.mojang", "authlib", authlibVersion)
+    testImplementation("io.netty", "netty-transport", Versions.nettyVersion)
     testImplementation("dev.folia", "folia-api", Versions.spigotVersion) {
         attributes {
             attribute(TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 17)

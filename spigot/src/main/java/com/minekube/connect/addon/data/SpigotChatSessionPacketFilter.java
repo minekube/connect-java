@@ -99,9 +99,14 @@ final class SpigotChatSessionPacketFilter extends ChannelInboundHandlerAdapter {
     }
 
     private static Object emptyLastSeenUpdate() throws Exception {
-        Constructor<?> constructor = classForName(LAST_SEEN_UPDATE)
-                .getConstructor(int.class, BitSet.class, byte.class);
-        return constructor.newInstance(0, new BitSet(), (byte) 0);
+        Class<?> lastSeenUpdate = classForName(LAST_SEEN_UPDATE);
+        try {
+            Constructor<?> constructor = lastSeenUpdate.getConstructor(int.class, BitSet.class, byte.class);
+            return constructor.newInstance(0, new BitSet(), (byte) 0);
+        } catch (NoSuchMethodException ignored) {
+            Constructor<?> constructor = lastSeenUpdate.getConstructor(int.class, BitSet.class);
+            return constructor.newInstance(0, new BitSet());
+        }
     }
 
     private static Object invoke(Object target, String methodName) throws Exception {
