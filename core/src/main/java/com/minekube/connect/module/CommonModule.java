@@ -57,11 +57,14 @@ import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import okhttp3.OkHttpClient;
 
 @RequiredArgsConstructor
 public class CommonModule extends AbstractModule {
+    private static final long WATCH_PING_INTERVAL_SECONDS = 30;
+
     private final Path dataDirectory;
 
     @Override
@@ -151,6 +154,18 @@ public class CommonModule extends AbstractModule {
                         .addHeader("Connect-osVersion", Metrics.OS_VERSION)
                         .addHeader("Connect-coreCount", String.valueOf(Metrics.CORE_COUNT))
                         .build()))
+                .build();
+    }
+
+    @Provides
+    @Singleton
+    @Named("watchHttpClient")
+    public OkHttpClient watchOkHttpClient(
+            @Named("connectHttpClient") OkHttpClient connectHttpClient
+    ) {
+        return connectHttpClient.newBuilder()
+                .readTimeout(0, TimeUnit.MILLISECONDS)
+                .pingInterval(WATCH_PING_INTERVAL_SECONDS, TimeUnit.SECONDS)
                 .build();
     }
 
