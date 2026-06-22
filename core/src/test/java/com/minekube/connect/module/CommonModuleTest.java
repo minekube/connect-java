@@ -67,7 +67,6 @@ class CommonModuleTest {
     void watchHttpClientKeepsConnectHeadersAndUsesWebSocketLiveness() throws Exception {
         CommonModule module = new CommonModule(tempDir);
         PlatformUtils platformUtils = platformUtils();
-
         OkHttpClient connectClient = module.connectOkHttpClient(
                 module.defaultOkHttpClient(),
                 platformUtils,
