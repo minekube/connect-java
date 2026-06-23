@@ -40,6 +40,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterChallenge;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterResult;
 
@@ -59,6 +60,23 @@ final class PeerRegistrationClient {
     }
 
     CompletableFuture<PeerRegisterResult> install(
+            Stream stream,
+            List<String> observedAddrs,
+            long sequence,
+            long nowUnixMs) {
+        return installResolved(stream, observedAddrs, sequence, nowUnixMs);
+    }
+
+    CompletableFuture<PeerRegisterResult> install(
+            Stream stream,
+            Supplier<List<String>> observedAddrsSupplier,
+            long sequence,
+            long nowUnixMs) {
+        List<String> observedAddrs = observedAddrsSupplier.get();
+        return installResolved(stream, observedAddrs, sequence, nowUnixMs);
+    }
+
+    private CompletableFuture<PeerRegisterResult> installResolved(
             Stream stream,
             List<String> observedAddrs,
             long sequence,

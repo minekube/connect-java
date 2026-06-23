@@ -26,6 +26,7 @@
 package com.minekube.connect.tunnel.p2p;
 
 import com.google.inject.Inject;
+import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.tunnel.P2PTunnelHeader;
 import com.minekube.connect.tunnel.TunnelClientTransport;
 import com.minekube.connect.tunnel.TunnelConn;
@@ -77,16 +78,26 @@ public final class Libp2pTunnelTransport implements TunnelClientTransport {
     private static final long STREAM_TIMEOUT_SECONDS = 5;
 
     private final Host host;
+    private final ConnectLogger logger;
     private final ConcurrentMap<PeerId, Connection> warmConnections = new ConcurrentHashMap<>();
     private boolean started;
 
-    @Inject
     public Libp2pTunnelTransport() {
-        this(createHost());
+        this(createHost(), null);
+    }
+
+    @Inject
+    public Libp2pTunnelTransport(ConnectLogger logger) {
+        this(createHost(), logger);
     }
 
     Libp2pTunnelTransport(Host host) {
+        this(host, null);
+    }
+
+    private Libp2pTunnelTransport(Host host, ConnectLogger logger) {
         this.host = Objects.requireNonNull(host, "host");
+        this.logger = logger;
         this.host.addProtocolHandler(new TunnelProtocolBinding());
     }
 
@@ -202,9 +213,9 @@ public final class Libp2pTunnelTransport implements TunnelClientTransport {
         Connection connection = warmConnection(peerId, multiaddr);
         Stream stream = openStream(connection);
         try {
-            stream.pushHandler(new InboundBytesHandler(handler));
+            stream.pushHandler(new InboundBytesHandler(handler, logger));
             stream.writeAndFlush(Unpooled.wrappedBuffer(header));
-            return new Libp2pTunnelConn(stream);
+            return new Libp2pTunnelConn(stream, logger);
         } catch (RuntimeException e) {
             stream.close();
             throw e;
@@ -341,9 +352,11 @@ public final class Libp2pTunnelTransport implements TunnelClientTransport {
 
     private static final class Libp2pTunnelConn extends TunnelConn {
         private final Stream stream;
+        private final ConnectLogger logger;
 
-        private Libp2pTunnelConn(Stream stream) {
+        private Libp2pTunnelConn(Stream stream, ConnectLogger logger) {
             this.stream = stream;
+            this.logger = logger;
         }
 
         @Override
@@ -353,6 +366,13 @@ public final class Libp2pTunnelTransport implements TunnelClientTransport {
 
         @Override
         public void close(Throwable t) {
+            if (logger != null) {
+                if (t == null) {
+                    logger.info("Connect libp2p tunnel close requested by local backend channel");
+                } else {
+                    logger.warn("Connect libp2p tunnel close requested with cause: " + t);
+                }
+            }
             stream.close();
         }
 
@@ -364,9 +384,11 @@ public final class Libp2pTunnelTransport implements TunnelClientTransport {
 
     private static final class InboundBytesHandler extends SimpleChannelInboundHandler<ByteBuf> {
         private final TunnelConn.Handler handler;
+        private final ConnectLogger logger;
 
-        private InboundBytesHandler(TunnelConn.Handler handler) {
+        private InboundBytesHandler(TunnelConn.Handler handler, ConnectLogger logger) {
             this.handler = handler;
+            this.logger = logger;
         }
 
         @Override
@@ -376,12 +398,18 @@ public final class Libp2pTunnelTransport implements TunnelClientTransport {
 
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            if (logger != null) {
+                logger.warn("Connect libp2p tunnel inbound stream error: " + cause);
+            }
             handler.onError(cause);
             ctx.close();
         }
 
         @Override
         public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+            if (logger != null) {
+                logger.info("Connect libp2p tunnel inbound stream closed; closing local backend channel");
+            }
             handler.onClose();
             super.channelInactive(ctx);
         }

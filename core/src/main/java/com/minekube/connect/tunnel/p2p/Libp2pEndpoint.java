@@ -119,7 +119,6 @@ public final class Libp2pEndpoint {
             Libp2pStatusReporter.installStatusProtocol(host);
             installSessionResponder(host);
             await(host.start(), START_TIMEOUT_SECONDS, "start libp2p endpoint host");
-            reservedRelayAddrs = reserveRelayAddrs();
             started = true;
             PlatformUtils.AuthType authType = platformUtils.authType();
             OfflineMode offlineMode = offlineMode(authType);
@@ -227,7 +226,7 @@ public final class Libp2pEndpoint {
                 client = new PeerRegistrationClient(handshake);
                 PeerRegisterResult result = await(client.install(
                                 stream,
-                                observedAddrs(),
+                                this::refreshObservedAddrs,
                                 sequence.incrementAndGet(),
                                 System.currentTimeMillis()),
                         CONNECT_TIMEOUT_SECONDS,
@@ -363,8 +362,14 @@ public final class Libp2pEndpoint {
         return stream;
     }
 
-    private List<String> observedAddrs() {
-        return new ArrayList<>(reservedRelayAddrs);
+    private List<String> refreshObservedAddrs() {
+        List<String> addrs = reserveRelayAddrs();
+        synchronized (this) {
+            if (started) {
+                reservedRelayAddrs = addrs;
+            }
+        }
+        return new ArrayList<>(addrs);
     }
 
     private PeerCapacity currentCapacity() {
