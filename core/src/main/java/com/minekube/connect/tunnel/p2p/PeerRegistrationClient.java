@@ -64,7 +64,7 @@ final class PeerRegistrationClient {
             List<String> observedAddrs,
             long sequence,
             long nowUnixMs) {
-        return install(stream, () -> observedAddrs, sequence, nowUnixMs);
+        return installResolved(stream, observedAddrs, sequence, nowUnixMs);
     }
 
     CompletableFuture<PeerRegisterResult> install(
@@ -72,8 +72,16 @@ final class PeerRegistrationClient {
             Supplier<List<String>> observedAddrsSupplier,
             long sequence,
             long nowUnixMs) {
-        this.stream = stream;
         List<String> observedAddrs = observedAddrsSupplier.get();
+        return installResolved(stream, observedAddrs, sequence, nowUnixMs);
+    }
+
+    private CompletableFuture<PeerRegisterResult> installResolved(
+            Stream stream,
+            List<String> observedAddrs,
+            long sequence,
+            long nowUnixMs) {
+        this.stream = stream;
         CompletableFuture<PeerRegisterResult> result = new CompletableFuture<>();
         P2PFrameDecoder<PeerRegisterChallenge> challengeDecoder = new P2PFrameDecoder<>(
                 PeerRegisterChallenge.parser(),
@@ -82,7 +90,6 @@ final class PeerRegistrationClient {
         stream.pushHandler(new ChallengeHandler(
                 stream,
                 challengeDecoder,
-                observedAddrsSupplier,
                 observedAddrs,
                 sequence,
                 nowUnixMs,
@@ -108,14 +115,14 @@ final class PeerRegistrationClient {
             ChannelHandlerContext ctx,
             Stream stream,
             PeerRegisterChallenge challenge,
-            Supplier<List<String>> observedAddrsSupplier,
+            List<String> observedAddrs,
             long sequence,
             CompletableFuture<PeerRegisterResult> result) {
         P2PFrameDecoder<PeerRegisterResult> resultDecoder = new P2PFrameDecoder<>(
                 PeerRegisterResult.parser(),
                 P2PFrameCodec.MAX_CONTROL_FRAME_SIZE);
         ctx.pipeline().addLast(resultDecoder);
-        ctx.pipeline().addLast(new ResultHandler(stream, challenge, observedAddrsSupplier, sequence, result));
+        ctx.pipeline().addLast(new ResultHandler(stream, challenge, observedAddrs, sequence, result));
     }
 
     private static void writeFrame(Stream stream, MessageLite message) {
@@ -131,7 +138,6 @@ final class PeerRegistrationClient {
     private final class ChallengeHandler extends SimpleChannelInboundHandler<PeerRegisterChallenge> {
         private final Stream stream;
         private final ChannelHandler decoder;
-        private final Supplier<List<String>> observedAddrsSupplier;
         private final List<String> observedAddrs;
         private final long sequence;
         private final long nowUnixMs;
@@ -140,14 +146,12 @@ final class PeerRegistrationClient {
         private ChallengeHandler(
                 Stream stream,
                 ChannelHandler decoder,
-                Supplier<List<String>> observedAddrsSupplier,
                 List<String> observedAddrs,
                 long sequence,
                 long nowUnixMs,
                 CompletableFuture<PeerRegisterResult> result) {
             this.stream = stream;
             this.decoder = decoder;
-            this.observedAddrsSupplier = observedAddrsSupplier;
             this.observedAddrs = observedAddrs;
             this.sequence = sequence;
             this.nowUnixMs = nowUnixMs;
@@ -159,7 +163,7 @@ final class PeerRegistrationClient {
             ctx.pipeline().remove(this);
             ctx.pipeline().remove(decoder);
             writeFrame(stream, handshake.commit(challenge, observedAddrs, sequence, nowUnixMs));
-            installResultHandler(ctx, stream, challenge, observedAddrsSupplier, sequence, result);
+            installResultHandler(ctx, stream, challenge, observedAddrs, sequence, result);
         }
 
         @Override
@@ -184,7 +188,7 @@ final class PeerRegistrationClient {
     private final class ResultHandler extends SimpleChannelInboundHandler<PeerRegisterResult> {
         private final Stream stream;
         private final PeerRegisterChallenge challenge;
-        private final Supplier<List<String>> observedAddrsSupplier;
+        private final List<String> observedAddrs;
         private final AtomicLong sequence;
         private final CompletableFuture<PeerRegisterResult> result;
         private volatile ScheduledFuture<?> ackTimeout;
@@ -192,12 +196,12 @@ final class PeerRegistrationClient {
         private ResultHandler(
                 Stream stream,
                 PeerRegisterChallenge challenge,
-                Supplier<List<String>> observedAddrsSupplier,
+                List<String> observedAddrs,
                 long sequence,
                 CompletableFuture<PeerRegisterResult> result) {
             this.stream = stream;
             this.challenge = challenge;
-            this.observedAddrsSupplier = observedAddrsSupplier;
+            this.observedAddrs = observedAddrs;
             this.sequence = new AtomicLong(sequence);
             this.result = result;
         }
@@ -215,7 +219,7 @@ final class PeerRegistrationClient {
                     try {
                         writeFrame(stream, handshake.commit(
                                 challenge,
-                                observedAddrsSupplier.get(),
+                                observedAddrs,
                                 sequence.incrementAndGet(),
                                 System.currentTimeMillis()));
                         scheduleAckTimeout();

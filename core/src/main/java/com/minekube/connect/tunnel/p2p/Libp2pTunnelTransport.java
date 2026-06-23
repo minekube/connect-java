@@ -82,6 +82,10 @@ public final class Libp2pTunnelTransport implements TunnelClientTransport {
     private final ConcurrentMap<PeerId, Connection> warmConnections = new ConcurrentHashMap<>();
     private boolean started;
 
+    public Libp2pTunnelTransport() {
+        this(createHost(), null);
+    }
+
     @Inject
     public Libp2pTunnelTransport(ConnectLogger logger) {
         this(createHost(), logger);
