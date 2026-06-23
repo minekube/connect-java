@@ -138,6 +138,20 @@ class VelocityChatSessionPacketFilterTest {
         assertEquals(0, packet.refCnt());
     }
 
+    @Test
+    void derivesChatSessionUpdatePacketIdWhileVelocityReconfiguresBackendConnection() {
+        ByteBuf packet = packet(9, 1, 2, 3);
+        EmbeddedChannel channel = new EmbeddedChannel();
+        channel.pipeline().addLast("minecraft-decoder",
+                new FakeMinecraftDecoder("CONFIGURATION", new FakeProtocolRegistry(8)));
+        channel.pipeline().addLast(new VelocityChatSessionPacketFilter(true));
+
+        assertFalse(channel.writeInbound(packet));
+
+        assertFalse(channel.finish());
+        assertEquals(0, packet.refCnt());
+    }
+
     private static ByteBuf packet(int packetId, int... payload) {
         ByteBuf packet = Unpooled.buffer();
         writeVarInt(packet, packetId);
