@@ -60,6 +60,9 @@ public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<Byte
         try {
             TunnelConn tunnelConn = context.getTunnelConn().getAndSet(null);
             if (tunnelConn != null) {
+                String username = context.getPlayer().getUsername();
+                logger.info("Connect local backend channel closed; closing tunnel"
+                        + (username.isEmpty() ? "" : " for " + username));
                 tunnelConn.close();
             }
 
@@ -93,6 +96,7 @@ public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<Byte
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+        logger.warn("Connect local backend channel error: " + cause);
         // Reject session proposal in case we are still able to and connection was stopped very early.
         rejectProposal(context, StatusProto.fromThrowable(cause));
         ctx.close();
