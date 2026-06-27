@@ -126,7 +126,7 @@ class TunnelHandlerTest {
             return closeFuture;
         }).when(channel).close();
 
-        return new TunnelHandler(mock(ConnectLogger.class), channel);
+        return new TunnelHandler(mock(ConnectLogger.class), channel, "player", "session");
     }
 
     private void awaitEventLoop() throws Exception {

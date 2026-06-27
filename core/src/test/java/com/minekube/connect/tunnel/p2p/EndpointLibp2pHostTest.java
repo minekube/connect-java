@@ -1,5 +1,7 @@
 package com.minekube.connect.tunnel.p2p;
 
+import com.minekube.connect.tunnel.p2p.impl.Libp2pTunnelTransportRuntime;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -27,7 +29,7 @@ class EndpointLibp2pHostTest {
     void createsHostWithPersistedEndpointIdentity() throws Exception {
         EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
 
-        Host host = Libp2pTunnelTransport.createHost(identity.privateKey());
+        Host host = Libp2pTunnelTransportRuntime.createHost(identity.privateKey());
         try {
             assertEquals(identity.peerId(), host.getPeerId().toString());
             host.start().get(10, TimeUnit.SECONDS);
@@ -39,7 +41,7 @@ class EndpointLibp2pHostTest {
     @Test
     void endpointHostCanOpenRegisterProtocolStream() throws Exception {
         endpointHostCanOpenProtocolStream(Libp2pEndpoint.REGISTER_PROTOCOL_ID, host ->
-                Libp2pEndpoint.installRegisterProtocol(host));
+                Libp2pEndpointRuntime.installRegisterProtocol(host));
     }
 
     @Test
@@ -50,7 +52,7 @@ class EndpointLibp2pHostTest {
 
     @Test
     void endpointHostCanReserveRelayListenAddress() throws Exception {
-        Host relay = Libp2pTunnelTransport.createRelayServiceHost(
+        Host relay = Libp2pTunnelTransportRuntime.createRelayServiceHost(
                 EndpointPeerIdentity.loadOrCreate(tempDir.resolve("relay.key")).privateKey(),
                 "/ip4/127.0.0.1/tcp/0");
         Host endpoint = null;
@@ -59,11 +61,11 @@ class EndpointLibp2pHostTest {
         try {
             relay.start().get(10, TimeUnit.SECONDS);
             String relayAddress = relay.listenAddresses().get(0).withP2P(relay.getPeerId()).toString();
-            endpoint = Libp2pTunnelTransport.createHost(
+            endpoint = Libp2pTunnelTransportRuntime.createHost(
                     EndpointPeerIdentity.loadOrCreate(tempDir.resolve("endpoint-relay.key")).privateKey(),
                     new String[]{"/ip4/127.0.0.1/tcp/0"},
                     Collections.singletonList(relayAddress));
-            Libp2pEndpoint.installRegisterProtocol(endpoint);
+            Libp2pEndpointRuntime.installRegisterProtocol(endpoint);
             endpoint.addProtocolHandler(new io.libp2p.core.multistream.StrictProtocolBinding<Void>(
                     "test-relay-stream",
                     new io.libp2p.protocol.ProtocolHandler<Void>(Long.MAX_VALUE, Long.MAX_VALUE) {
@@ -84,7 +86,7 @@ class EndpointLibp2pHostTest {
             endpoint.getNetwork()
                     .listen(io.libp2p.core.multiformats.Multiaddr.fromString(relayAddress + "/p2p-circuit"))
                     .get(10, TimeUnit.SECONDS);
-            edge = Libp2pTunnelTransport.createHost(
+            edge = Libp2pTunnelTransportRuntime.createHost(
                     EndpointPeerIdentity.loadOrCreate(tempDir.resolve("edge-relay.key")).privateKey(),
                     new String[]{"/ip4/127.0.0.1/tcp/0"},
                     Collections.singletonList(relayAddress));
@@ -127,7 +129,7 @@ class EndpointLibp2pHostTest {
 
     @Test
     void directEndpointHostDoesNotInstallRelayTransportWithoutRelayAddrs() throws Exception {
-        Host endpoint = Libp2pTunnelTransport.createHost(
+        Host endpoint = Libp2pTunnelTransportRuntime.createHost(
                 EndpointPeerIdentity.loadOrCreate(tempDir.resolve("endpoint-direct.key")).privateKey(),
                 new String[]{"/ip4/127.0.0.1/tcp/0"},
                 Collections.emptyList());
@@ -144,10 +146,10 @@ class EndpointLibp2pHostTest {
     }
 
     private void endpointHostCanOpenProtocolStream(String protocolID, java.util.function.Consumer<Host> installer) throws Exception {
-        Host endpoint = Libp2pTunnelTransport.createHost(
+        Host endpoint = Libp2pTunnelTransportRuntime.createHost(
                 EndpointPeerIdentity.loadOrCreate(tempDir.resolve("endpoint.key")).privateKey(),
                 "/ip4/127.0.0.1/tcp/0");
-        Host edge = Libp2pTunnelTransport.createHost(
+        Host edge = Libp2pTunnelTransportRuntime.createHost(
                 EndpointPeerIdentity.loadOrCreate(tempDir.resolve("edge.key")).privateKey(),
                 "/ip4/127.0.0.1/tcp/0");
         CountDownLatch accepted = new CountDownLatch(1);

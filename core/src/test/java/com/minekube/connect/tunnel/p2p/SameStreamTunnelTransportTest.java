@@ -40,6 +40,23 @@ class SameStreamTunnelTransportTest {
     }
 
     @Test
+    void copiesOutboundBytesBeforeWritingToStream() {
+        Stream stream = mock(Stream.class);
+        SameStreamTunnelTransport transport = new SameStreamTunnelTransport(stream, ignored -> {});
+        RecordingHandler handler = new RecordingHandler();
+        TunnelConn conn = transport.tunnel("", "session-1", handler);
+
+        byte[] payload = new byte[] {1, 2, 3};
+        conn.write(payload);
+        payload[0] = 9;
+
+        ArgumentCaptor<Object> outbound = ArgumentCaptor.forClass(Object.class);
+        verify(stream).writeAndFlush(outbound.capture());
+        ByteBuf buf = (ByteBuf) outbound.getValue();
+        assertArrayEquals(new byte[] {1, 2, 3}, ByteBufUtil.getBytes(buf));
+    }
+
+    @Test
     void forwardsInboundBytesToTunnelHandler() {
         Stream stream = mock(Stream.class);
         SameStreamTunnelTransport transport = new SameStreamTunnelTransport(stream, ignored -> {});
@@ -50,6 +67,23 @@ class SameStreamTunnelTransportTest {
         verify(stream).pushHandler(captor.capture());
         EmbeddedChannel channel = new EmbeddedChannel(captor.getValue());
         channel.writeInbound(io.netty.buffer.Unpooled.wrappedBuffer(new byte[] {4, 5}));
+
+        assertArrayEquals(new byte[] {4, 5}, handler.received);
+    }
+
+    @Test
+    void copiesInboundBytesBeforeHandingToTunnelHandler() {
+        Stream stream = mock(Stream.class);
+        SameStreamTunnelTransport transport = new SameStreamTunnelTransport(stream, ignored -> {});
+        RecordingHandler handler = new RecordingHandler();
+        transport.tunnel("", "session-1", handler);
+
+        ArgumentCaptor<ChannelHandler> captor = ArgumentCaptor.forClass(ChannelHandler.class);
+        verify(stream).pushHandler(captor.capture());
+        EmbeddedChannel channel = new EmbeddedChannel(captor.getValue());
+        byte[] payload = new byte[] {4, 5};
+        channel.writeInbound(io.netty.buffer.Unpooled.wrappedBuffer(payload));
+        payload[0] = 9;
 
         assertArrayEquals(new byte[] {4, 5}, handler.received);
     }

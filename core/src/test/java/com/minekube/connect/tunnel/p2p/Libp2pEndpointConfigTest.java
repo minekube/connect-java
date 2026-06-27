@@ -38,7 +38,7 @@ class Libp2pEndpointConfigTest {
     void derivesEndpointRelayCircuitAddresses() {
         assertEquals(
                 "/ip4/127.0.0.1/tcp/4001/p2p/relay1/p2p-circuit/p2p/endpoint1",
-                Libp2pEndpoint.relayCircuitAddr(
+                Libp2pEndpointRuntime.relayCircuitAddr(
                         "/ip4/127.0.0.1/tcp/4001/p2p/relay1",
                         "endpoint1"));
     }
@@ -55,7 +55,7 @@ class Libp2pEndpointConfigTest {
     @Test
     void generatesDistinctEndpointInstanceIds() {
         assertNotEquals(
-                Libp2pEndpoint.newEndpointInstanceId(),
-                Libp2pEndpoint.newEndpointInstanceId());
+                Libp2pEndpointRuntime.newEndpointInstanceId(),
+                Libp2pEndpointRuntime.newEndpointInstanceId());
     }
 }

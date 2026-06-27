@@ -20,7 +20,7 @@ class Libp2pEndpointTest {
         ConnectLogger logger = mock(ConnectLogger.class);
         List<String> reserved = new ArrayList<>();
 
-        List<String> addrs = Libp2pEndpoint.reserveRelayAddrs(
+        List<String> addrs = Libp2pEndpointRuntime.reserveRelayAddrs(
                 Arrays.asList(
                         "/dns4/connect-proxy-staging.fly.dev/tcp/4001/p2p/edge-a",
                         "/dns4/connect-proxy-staging.fly.dev/tcp/4001/p2p/edge-b"),
@@ -42,7 +42,7 @@ class Libp2pEndpointTest {
     void failsWhenAllRelayReservationsFail() {
         ConnectLogger logger = mock(ConnectLogger.class);
 
-        IllegalStateException error = assertThrows(IllegalStateException.class, () -> Libp2pEndpoint.reserveRelayAddrs(
+        IllegalStateException error = assertThrows(IllegalStateException.class, () -> Libp2pEndpointRuntime.reserveRelayAddrs(
                 List.of("/dns4/connect-proxy-staging.fly.dev/tcp/4001/p2p/edge-a"),
                 "endpoint-peer",
                 relayAddr -> {
@@ -58,7 +58,7 @@ class Libp2pEndpointTest {
         ConnectLogger logger = mock(ConnectLogger.class);
         AtomicInteger attempts = new AtomicInteger();
 
-        List<String> addrs = Libp2pEndpoint.reserveRelayAddrs(
+        List<String> addrs = Libp2pEndpointRuntime.reserveRelayAddrs(
                 List.of("/dns4/connect-proxy-staging.fly.dev/tcp/4001/p2p/edge-a"),
                 "endpoint-peer",
                 relayAddr -> {
@@ -77,9 +77,9 @@ class Libp2pEndpointTest {
     void repeatsRegisterAddressesForAnycastBootstrapRetries() {
         assertEquals(
                 List.of("edge-a", "edge-a", "edge-a", "edge-a"),
-                Libp2pEndpoint.registerAttemptAddresses(List.of("edge-a"), 4));
+                Libp2pEndpointRuntime.registerAttemptAddresses(List.of("edge-a"), 4));
         assertEquals(
                 List.of("edge-a", "edge-b", "edge-a", "edge-b", "edge-a", "edge-b"),
-                Libp2pEndpoint.registerAttemptAddresses(List.of("edge-a", "edge-b"), 3));
+                Libp2pEndpointRuntime.registerAttemptAddresses(List.of("edge-a", "edge-b"), 3));
     }
 }

@@ -99,7 +99,7 @@ final class PeerRegistrationHandshake {
 
     PeerRegisterCommit commit(PeerRegisterChallenge challenge, List<String> addrs, long sequence, long nowUnixMs) {
         long ttlMs = challenge.getKvTtlMs() > 0 ? challenge.getKvTtlMs() : 45_000;
-        List<String> recordAddrs = challengedRelayCircuitAddrs(challenge, addrs);
+        List<String> recordAddrs = recordRelayCircuitAddrs(challenge, addrs);
         if (recordAddrs.isEmpty() && challenge.getRelayAddrsList().isEmpty()) {
             recordAddrs = addrs;
         }
@@ -128,6 +128,21 @@ final class PeerRegistrationHandshake {
                 .setRecord(record)
                 .setSignature(ByteString.copyFrom(identity.sign(PeerRecordSigningPayload.bytes(record))))
                 .build();
+    }
+
+    private List<String> recordRelayCircuitAddrs(PeerRegisterChallenge challenge, List<String> reservedAddrs) {
+        List<String> out = challengedRelayCircuitAddrs(challenge, reservedAddrs);
+        Set<String> challengedRelayPeers = relayPeers(challenge.getRelayAddrsList());
+        Set<String> seen = new HashSet<>(out);
+        for (String addr : reservedAddrs) {
+            String relayPeer = relayPeer(addr);
+            if (relayPeer == null || challengedRelayPeers.contains(relayPeer) || seen.contains(addr)) {
+                continue;
+            }
+            out.add(addr);
+            seen.add(addr);
+        }
+        return out;
     }
 
     private PeerCapacity capacity() {

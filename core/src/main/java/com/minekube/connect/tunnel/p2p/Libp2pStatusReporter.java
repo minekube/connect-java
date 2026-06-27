@@ -131,7 +131,7 @@ final class Libp2pStatusReporter {
     void reportOnce(long nowUnixMs) {
         RuntimeException lastError = null;
         StatusReport report = buildReport(nowUnixMs);
-        List<String> attemptAddrs = Libp2pEndpoint.registerAttemptAddresses(edgeAddrs, REPORT_ATTEMPTS_PER_ADDRESS);
+        List<String> attemptAddrs = Libp2pEndpointRuntime.registerAttemptAddresses(edgeAddrs, REPORT_ATTEMPTS_PER_ADDRESS);
         for (String address : attemptAddrs) {
             Stream stream = null;
             try {

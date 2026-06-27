@@ -25,16 +25,28 @@
 
 package com.minekube.connect.tunnel.p2p;
 
-public final class Libp2pRuntime {
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
-    private Libp2pRuntime() {
-    }
+import com.minekube.connect.tunnel.TunnelClientTransport;
+import org.junit.jupiter.api.Test;
 
-    public static int minimumJavaFeatureVersion() {
-        return 11;
-    }
+class Libp2pRuntimeLoaderTest {
+    @Test
+    void loadsRuntimeClassesChildFirstAndSharedApiClassesFromParent() throws ClassNotFoundException {
+        ClassLoader parent = Libp2pEndpoint.class.getClassLoader();
+        ClassLoader runtimeLoader = Libp2pRuntimeLoader.classLoader();
 
-    public static String hostClassName() {
-        return "io.libp2p.core.Host";
+        Class<?> runtimeClass = Class.forName(
+                "com.minekube.connect.tunnel.p2p.Libp2pEndpointRuntime",
+                false,
+                runtimeLoader);
+        Class<?> sharedTransportApi = Class.forName(
+                "com.minekube.connect.tunnel.TunnelClientTransport",
+                false,
+                runtimeLoader);
+
+        assertNotSame(parent, runtimeClass.getClassLoader());
+        assertSame(TunnelClientTransport.class, sharedTransportApi);
     }
 }

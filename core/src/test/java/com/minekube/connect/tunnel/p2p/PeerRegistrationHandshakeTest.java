@@ -154,6 +154,45 @@ class PeerRegistrationHandshakeTest {
     }
 
     @Test
+    void commitIncludesAdditionalReservedRelayCircuitAddrs() throws Exception {
+        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
+        String publisherRelayPeerId = "12D3KooWCqs14yyxXW5rosC5CJ9tmNsRvQ97KKUx5HzGKK1pyVsN";
+        String bedrockRelayPeerId = "12D3KooWGHadkiFkRv4oq1UreQe9b1XPqPoKs9NbZrb5aq1QGttN";
+        PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
+                identity,
+                "endpoint",
+                "token",
+                "instance",
+                Collections.emptyList(),
+                OfflineMode.OFFLINE_MODE_ALLOWED,
+                Arrays.asList("session", "status"),
+                PeerCapacity.newBuilder().setMaxSessions(100).setActiveSessions(3).build());
+        PeerRegisterChallenge challenge = PeerRegisterChallenge.newBuilder()
+                .setEndpointId("endpoint-id")
+                .setEndpointHash("endpoint-hash")
+                .setPublisherId("publisher")
+                .setPublisherPeerId(publisherRelayPeerId)
+                .setRegion("cdg")
+                .addRelayAddrs("/dns6/6832e0da270568.vm.connect-proxy-staging.internal/tcp/4001/p2p/" + publisherRelayPeerId)
+                .setKvTtlMs(45_000)
+                .setNonce(ByteString.copyFromUtf8("nonce"))
+                .build();
+        String bedrockCircuitAddr = "/dns6/e82723db106108.vm.connect-proxy-staging.internal/tcp/4001/p2p/"
+                + bedrockRelayPeerId + "/p2p-circuit/p2p/" + identity.peerId();
+
+        PeerRegisterCommit commit = handshake.commit(challenge, Arrays.asList(
+                "/dns4/connect-proxy-staging.fly.dev/tcp/4001/p2p/" + publisherRelayPeerId
+                        + "/p2p-circuit/p2p/" + identity.peerId(),
+                bedrockCircuitAddr), 1, 1_000);
+
+        assertEquals(Arrays.asList(
+                        "/dns6/6832e0da270568.vm.connect-proxy-staging.internal/tcp/4001/p2p/"
+                                + publisherRelayPeerId + "/p2p-circuit/p2p/" + identity.peerId(),
+                        bedrockCircuitAddr),
+                commit.getRecord().getAddrsList());
+    }
+
+    @Test
     void commitDoesNotAdvertiseChallengeRelayAddrsWithoutReservation() throws Exception {
         EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
         String relayPeerId = "12D3KooWCqs14yyxXW5rosC5CJ9tmNsRvQ97KKUx5HzGKK1pyVsN";
