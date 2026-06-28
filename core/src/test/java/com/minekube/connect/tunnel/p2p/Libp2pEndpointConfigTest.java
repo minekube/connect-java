@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 class Libp2pEndpointConfigTest {
     private static final String MOXY_PEER = "12D3KooWNXa3WQenRYKVJCHxcadnp3JPcxRALCqk97qpMiqAG1tt";
+    private static final String SECOND_MOXY_PEER = "12D3KooWEzZpASrUwA3s8CM3UCDCCYjQzfh91ZyJnxRqaZ9xTi31";
 
     @Test
     void disabledWhenRegisterAddressIsMissing() {
@@ -50,6 +51,19 @@ class Libp2pEndpointConfigTest {
 
         assertEquals(1, config.edgePeerIds().size());
         assertEquals(MOXY_PEER, config.edgePeerIds().get(0));
+    }
+
+    @Test
+    void authorizesRelayPeerIdsAlongsideRegisterPeerIds() {
+        Libp2pEndpointConfig config = Libp2pEndpointConfig.fromEnvironment(Map.of(
+                "CONNECT_LIBP2P_EDGE_ADDR", "/dns4/primary-edge.example/tcp/4001/p2p/" + MOXY_PEER,
+                "CONNECT_LIBP2P_RELAY_ADDRS",
+                        "/dns4/primary-edge.example/tcp/4001/p2p/" + MOXY_PEER
+                                + ",/dns4/second-edge.example/tcp/4001/p2p/" + SECOND_MOXY_PEER));
+
+        assertEquals(2, config.edgePeerIds().size());
+        assertEquals(MOXY_PEER, config.edgePeerIds().get(0));
+        assertEquals(SECOND_MOXY_PEER, config.edgePeerIds().get(1));
     }
 
     @Test
