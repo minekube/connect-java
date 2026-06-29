@@ -143,10 +143,6 @@ public class ConnectPlatform {
         } catch (ConfigurationException ignored) {
         }
         guice.getInstance(WatchHealthServer.class).stop();
-        try {
-            guice.getInstance(Libp2pEndpoint.class).stop();
-        } catch (ConfigurationException ignored) {
-        }
         guice.getInstance(WatcherRegister.class).stop();
         guice.getInstance(Tunneler.class).close();
         guice.getInstance(CommonPlatformInjector.class).shutdown();
