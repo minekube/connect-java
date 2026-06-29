@@ -41,6 +41,7 @@ final class VelocityChatSessionPacketFilter extends ChannelInboundHandlerAdapter
 
     private static final String MINECRAFT_DECODER = "minecraft-decoder";
     private static final String PLAY_STATE = "PLAY";
+    private static final String CONFIGURATION_STATE = "CONFIGURATION";
     private static final String SESSION_CHAT_PACKET =
             "com.velocitypowered.proxy.protocol.packet.chat.session.SessionPlayerChatPacket";
     private static final String SESSION_COMMAND_PACKET =
@@ -148,7 +149,8 @@ final class VelocityChatSessionPacketFilter extends ChannelInboundHandlerAdapter
             }
 
             Object state = fieldValue(decoder, "state");
-            if (!PLAY_STATE.equals(String.valueOf(state))) {
+            String protocolState = String.valueOf(state);
+            if (!PLAY_STATE.equals(protocolState) && !CONFIGURATION_STATE.equals(protocolState)) {
                 return -1;
             }
 
