@@ -28,27 +28,23 @@ import java.net.URLClassLoader;
 import java.security.CodeSource;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
 final class Libp2pRuntimeLoader {
     private static final List<String> CHILD_FIRST_PREFIXES = Arrays.asList(
-            "com.minekube.connect.tunnel.p2p.EndpointPeerIdentity",
-            "com.minekube.connect.tunnel.p2p.Libp2pEndpointConfig",
-            "com.minekube.connect.tunnel.p2p.Libp2pEndpointErrors",
-            "com.minekube.connect.tunnel.p2p.Libp2pEndpointRuntime",
-            "com.minekube.connect.tunnel.p2p.Libp2pSession",
-            "com.minekube.connect.tunnel.p2p.Libp2pStatus",
-            "com.minekube.connect.tunnel.p2p.P2PFrame",
-            "com.minekube.connect.tunnel.p2p.PeerRecord",
-            "com.minekube.connect.tunnel.p2p.PeerRegistration",
-            "com.minekube.connect.tunnel.p2p.SameStreamTunnelTransport",
-            "com.minekube.connect.tunnel.p2p.impl.",
+            "com.minekube.connect.tunnel.p2p.",
             "io.libp2p.",
             "io.netty.",
             "kotlin.",
             "kotlinx.");
+    private static final Set<String> PARENT_FIRST_CLASSES = new HashSet<>(Arrays.asList(
+            "com.minekube.connect.tunnel.p2p.Libp2pEndpoint",
+            "com.minekube.connect.tunnel.p2p.Libp2pRuntime",
+            "com.minekube.connect.tunnel.p2p.Libp2pRuntimeLoader",
+            "com.minekube.connect.tunnel.p2p.Libp2pTunnelTransport"));
 
     private static volatile ClassLoader classLoader;
 
@@ -132,6 +128,9 @@ final class Libp2pRuntimeLoader {
         }
 
         private static boolean isChildFirst(String name) {
+            if (PARENT_FIRST_CLASSES.contains(name)) {
+                return false;
+            }
             for (String prefix : CHILD_FIRST_PREFIXES) {
                 if (name.startsWith(prefix)) {
                     return true;

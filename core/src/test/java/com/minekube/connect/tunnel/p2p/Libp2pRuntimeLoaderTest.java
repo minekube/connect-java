@@ -29,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 import com.minekube.connect.tunnel.TunnelClientTransport;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class Libp2pRuntimeLoaderTest {
@@ -37,16 +38,34 @@ class Libp2pRuntimeLoaderTest {
         ClassLoader parent = Libp2pEndpoint.class.getClassLoader();
         ClassLoader runtimeLoader = Libp2pRuntimeLoader.classLoader();
 
-        Class<?> runtimeClass = Class.forName(
+        for (String className : List.of(
+                "com.minekube.connect.tunnel.p2p.EndpointPeerIdentity",
+                "com.minekube.connect.tunnel.p2p.Libp2pEndpointConfig",
                 "com.minekube.connect.tunnel.p2p.Libp2pEndpointRuntime",
-                false,
-                runtimeLoader);
+                "com.minekube.connect.tunnel.p2p.Libp2pSessionMapper",
+                "com.minekube.connect.tunnel.p2p.Libp2pSessionResponder",
+                "com.minekube.connect.tunnel.p2p.Libp2pStatusReporter",
+                "com.minekube.connect.tunnel.p2p.P2PFrameCodec",
+                "com.minekube.connect.tunnel.p2p.P2PFrameDecoder",
+                "com.minekube.connect.tunnel.p2p.PeerRecordSigningPayload",
+                "com.minekube.connect.tunnel.p2p.PeerRegistrationClient",
+                "com.minekube.connect.tunnel.p2p.PeerRegistrationHandshake",
+                "com.minekube.connect.tunnel.p2p.SameStreamTunnelTransport",
+                "com.minekube.connect.tunnel.p2p.impl.Libp2pTunnelTransportRuntime",
+                "io.libp2p.core.Host",
+                "io.netty.channel.Channel")) {
+            Class<?> runtimeClass = Class.forName(className, false, runtimeLoader);
+            assertSame(runtimeLoader, runtimeClass.getClassLoader(), className);
+        }
+
         Class<?> sharedTransportApi = Class.forName(
                 "com.minekube.connect.tunnel.TunnelClientTransport",
                 false,
                 runtimeLoader);
 
-        assertNotSame(parent, runtimeClass.getClassLoader());
+        assertSame(parent, Class.forName("com.minekube.connect.tunnel.p2p.Libp2pEndpoint", false, runtimeLoader).getClassLoader());
+        assertSame(parent, Class.forName("com.minekube.connect.tunnel.p2p.Libp2pTunnelTransport", false, runtimeLoader).getClassLoader());
+        assertNotSame(parent, runtimeLoader);
         assertSame(TunnelClientTransport.class, sharedTransportApi);
     }
 }

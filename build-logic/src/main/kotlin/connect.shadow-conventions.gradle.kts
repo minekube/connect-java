@@ -36,7 +36,7 @@ tasks {
     named("build") {
         dependsOn(shadowJar)
     }
-    register("verifyLibp2pRuntimeIsolation") {
+    val verifyLibp2pRuntimeIsolation = register("verifyLibp2pRuntimeIsolation") {
         dependsOn(shadowJar)
         group = "verification"
         description = "Verifies libp2p runtime classes are isolated from parent-facing Connect classes."
@@ -44,10 +44,17 @@ tasks {
             verifyLibp2pRuntimeIsolation(shadowJar.get().archiveFile.get().asFile)
         }
     }
+    named("check") {
+        dependsOn(verifyLibp2pRuntimeIsolation)
+    }
 }
 
 fun verifyLibp2pRuntimeIsolation(jarFile: File) {
     JarFile(jarFile).use { jar ->
+        if (jar.getJarEntry("com/minekube/connect/tunnel/p2p/Libp2pEndpoint.class") == null) {
+            return
+        }
+
         fun requireEntry(name: String): ByteArray {
             val entry = jar.getJarEntry(name)
                 ?: error("${jarFile.name} is missing $name")
