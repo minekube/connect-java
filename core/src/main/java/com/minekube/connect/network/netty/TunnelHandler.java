@@ -99,10 +99,12 @@ class TunnelHandler implements Handler {
 
     @Override
     public void onClose() {
-        logger.debug("Connect tunnel stream closed; closing local backend channel player={} session={} "
-                        + "local={} remote={} tunnelToBackendPackets={} tunnelToBackendBytes={}",
-                playerName, sessionId, downstreamServerConn.localAddress(), downstreamServerConn.remoteAddress(),
-                tunnelToBackendPackets.get(), tunnelToBackendBytes.get());
+        if (logger.isDebug()) {
+            logger.info("Connect tunnel stream closed; closing local backend channel player={} session={} "
+                            + "local={} remote={} tunnelToBackendPackets={} tunnelToBackendBytes={}",
+                    playerName, sessionId, downstreamServerConn.localAddress(), downstreamServerConn.remoteAddress(),
+                    tunnelToBackendPackets.get(), tunnelToBackendBytes.get());
+        }
         // Flush before closing: deferred writes from onReceive() may still be
         // sitting in the channel's outbound buffer with the flush scheduled as
         // a separate EventLoop task, so closing without a final flush can drop

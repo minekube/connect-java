@@ -36,6 +36,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
+import java.util.List;
 
 public final class Libp2pEndpoint {
     static final String REGISTER_PROTOCOL_ID = "/minekube/connect/register/1.0.0";
@@ -43,6 +44,7 @@ public final class Libp2pEndpoint {
     private final ConnectLogger logger;
     private Object runtime;
     private Method startMethod;
+    private Method startBootstrapMethod;
     private Method stopMethod;
 
     @Inject
@@ -78,8 +80,10 @@ public final class Libp2pEndpoint {
                     platformInjector,
                     api);
             this.startMethod = runtimeClass.getDeclaredMethod("start");
+            this.startBootstrapMethod = runtimeClass.getDeclaredMethod("start", List.class, List.class);
             this.stopMethod = runtimeClass.getDeclaredMethod("stop");
             this.startMethod.setAccessible(true);
+            this.startBootstrapMethod.setAccessible(true);
             this.stopMethod.setAccessible(true);
         } catch (Exception | LinkageError e) {
             this.runtime = null;
@@ -94,6 +98,22 @@ public final class Libp2pEndpoint {
         }
         try {
             startMethod.invoke(runtime);
+        } catch (InvocationTargetException e) {
+            stop();
+            Throwable cause = e.getCause() == null ? e : e.getCause();
+            logger.error("Failed to start Connect libp2p endpoint", cause);
+        } catch (Exception | LinkageError e) {
+            stop();
+            logger.error("Failed to start Connect libp2p endpoint", e);
+        }
+    }
+
+    public synchronized void start(List<String> registerAddrs, List<String> relayAddrs) {
+        if (runtime == null) {
+            return;
+        }
+        try {
+            startBootstrapMethod.invoke(runtime, registerAddrs, relayAddrs);
         } catch (InvocationTargetException e) {
             stop();
             Throwable cause = e.getCause() == null ? e : e.getCause();

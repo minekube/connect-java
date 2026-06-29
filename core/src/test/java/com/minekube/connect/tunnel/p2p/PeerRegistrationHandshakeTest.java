@@ -13,6 +13,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 import minekube.connect.v1alpha1.ConnectLibp2P.EndpointPeerRecord;
+import minekube.connect.v1alpha1.ConnectLibp2P.EndpointAuthType;
 import minekube.connect.v1alpha1.ConnectLibp2P.OfflineMode;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerCapacity;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterChallenge;
@@ -36,6 +37,7 @@ class PeerRegistrationHandshakeTest {
                 "instance",
                 Collections.singletonList("parent"),
                 OfflineMode.OFFLINE_MODE_ALLOWED,
+                EndpointAuthType.ENDPOINT_AUTH_TYPE_PROXIED,
                 Arrays.asList("session", "status"),
                 PeerCapacity.newBuilder().setMaxSessions(100).setActiveSessions(3).build());
 
@@ -48,6 +50,7 @@ class PeerRegistrationHandshakeTest {
         assertEquals(identity.peerId(), init.getEndpointPeerId());
         assertEquals(identity.publicKeyBase64(), init.getEndpointPublicKey());
         assertEquals(OfflineMode.OFFLINE_MODE_ALLOWED, init.getOfflineMode());
+        assertEquals(EndpointAuthType.ENDPOINT_AUTH_TYPE_PROXIED, init.getAuthType());
         assertEquals(Arrays.asList("session", "status"), init.getCapabilitiesList());
 
         PeerRegisterChallenge challenge = PeerRegisterChallenge.newBuilder()
@@ -69,6 +72,7 @@ class PeerRegistrationHandshakeTest {
         assertEquals("publisher-peer", record.getPublisherPeerId());
         assertEquals("local", record.getRegion());
         assertEquals(Arrays.asList("session", "status"), record.getCapabilitiesList());
+        assertEquals(EndpointAuthType.ENDPOINT_AUTH_TYPE_PROXIED, record.getAuthType());
         assertEquals(init.getObservedAddrsList(), record.getAddrsList());
         assertEquals(Collections.emptyList(), record.getDirectAddrsList());
         assertArrayEquals(challenge.getNonce().toByteArray(), record.getNonce().toByteArray());
@@ -154,7 +158,7 @@ class PeerRegistrationHandshakeTest {
     }
 
     @Test
-    void commitIncludesAdditionalReservedRelayCircuitAddrs() throws Exception {
+    void commitDoesNotIncludeAdditionalUnchallengedRelayCircuitAddrs() throws Exception {
         EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
         String publisherRelayPeerId = "12D3KooWCqs14yyxXW5rosC5CJ9tmNsRvQ97KKUx5HzGKK1pyVsN";
         String bedrockRelayPeerId = "12D3KooWGHadkiFkRv4oq1UreQe9b1XPqPoKs9NbZrb5aq1QGttN";
@@ -185,10 +189,9 @@ class PeerRegistrationHandshakeTest {
                         + "/p2p-circuit/p2p/" + identity.peerId(),
                 bedrockCircuitAddr), 1, 1_000);
 
-        assertEquals(Arrays.asList(
+        assertEquals(Collections.singletonList(
                         "/dns6/6832e0da270568.vm.connect-proxy-staging.internal/tcp/4001/p2p/"
-                                + publisherRelayPeerId + "/p2p-circuit/p2p/" + identity.peerId(),
-                        bedrockCircuitAddr),
+                                + publisherRelayPeerId + "/p2p-circuit/p2p/" + identity.peerId()),
                 commit.getRecord().getAddrsList());
     }
 

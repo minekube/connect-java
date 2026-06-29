@@ -147,11 +147,13 @@ public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<Byte
     @Override
     public void channelInactive(@NotNull ChannelHandlerContext ctx) throws Exception {
         TunnelConn activeTunnelConn = context.getTunnelConn().get();
-        logger.debug("Connect local backend channel inactive player={} session={} local={} remote={} "
-                        + "backendToTunnelPackets={} backendToTunnelBytes={} tunnelOpened={}",
-                playerName(), sessionId(), ctx.channel().localAddress(), ctx.channel().remoteAddress(),
-                backendToTunnelPackets.get(), backendToTunnelBytes.get(),
-                activeTunnelConn != null && activeTunnelConn.opened());
+        if (logger.isDebug()) {
+            logger.info("Connect local backend channel inactive player={} session={} local={} remote={} "
+                            + "backendToTunnelPackets={} backendToTunnelBytes={} tunnelOpened={}",
+                    playerName(), sessionId(), ctx.channel().localAddress(), ctx.channel().remoteAddress(),
+                    backendToTunnelPackets.get(), backendToTunnelBytes.get(),
+                    activeTunnelConn != null && activeTunnelConn.opened());
+        }
         onChannelClosed(context, api, logger);
         super.channelInactive(ctx);
     }

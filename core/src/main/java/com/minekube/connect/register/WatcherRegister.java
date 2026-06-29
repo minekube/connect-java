@@ -38,8 +38,10 @@ import com.minekube.connect.util.backoff.BackOff;
 import com.minekube.connect.util.backoff.ExponentialBackOff;
 import com.minekube.connect.watch.SessionProposal;
 import com.minekube.connect.watch.SessionProposal.State;
+import com.minekube.connect.watch.WatchBootstrap;
 import com.minekube.connect.watch.WatchClient;
 import com.minekube.connect.watch.Watcher;
+import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import java.io.IOException;
 import java.time.Duration;
@@ -59,6 +61,7 @@ public class WatcherRegister {
     @Inject private PlatformInjector platformInjector;
     @Inject private ConnectLogger logger;
     @Inject private SimpleConnectApi api;
+    @Inject private Libp2pEndpoint libp2pEndpoint;
 
     // volatile: written from injection thread (start/stop) and read from the
     // scheduler thread (retry) and OkHttp dispatcher (WatcherImpl callbacks).
@@ -154,8 +157,11 @@ public class WatcherRegister {
     private class WatcherImpl implements Watcher {
 
         @Override
-        public void onOpen() {
+        public void onOpen(WatchBootstrap bootstrap) {
             logger.translatedInfo("connect.watch.started");
+            if (bootstrap.hasLibp2p()) {
+                libp2pEndpoint.start(bootstrap.libp2pEdgeAddrs(), bootstrap.libp2pRelayAddrs());
+            }
             startResetBackOffTimer();
         }
 

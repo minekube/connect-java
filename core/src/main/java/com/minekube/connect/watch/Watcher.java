@@ -36,5 +36,8 @@ public interface Watcher {
 
     default void onOpen() {
     }
-}
 
+    default void onOpen(WatchBootstrap bootstrap) {
+        onOpen();
+    }
+}

@@ -142,7 +142,7 @@ public class WatchClient {
 
             @Override
             public void onOpen(@NotNull WebSocket webSocket, @NotNull Response response) {
-                watcher.onOpen();
+                watcher.onOpen(WatchBootstrap.fromHeaders(response.headers()));
             }
         });
 

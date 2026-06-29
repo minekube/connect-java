@@ -55,6 +55,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
+import minekube.connect.v1alpha1.ConnectLibp2P.EndpointAuthType;
 import minekube.connect.v1alpha1.ConnectLibp2P.OfflineMode;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerCapacity;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterResult;
@@ -107,6 +108,25 @@ final class Libp2pEndpointRuntime {
     @Inject
     public synchronized void start() {
         libp2pConfig = Libp2pEndpointConfig.fromSystemEnvironment();
+        startWithConfig(libp2pConfig);
+    }
+
+    synchronized void start(List<String> registerAddrs, List<String> relayAddrs) {
+        if (started) {
+            return;
+        }
+        Libp2pEndpointConfig environmentConfig = Libp2pEndpointConfig.fromSystemEnvironment();
+        libp2pConfig = environmentConfig.enabled()
+                ? environmentConfig
+                : Libp2pEndpointConfig.fromBootstrap(registerAddrs, relayAddrs);
+        startWithConfig(libp2pConfig);
+    }
+
+    private void startWithConfig(Libp2pEndpointConfig config) {
+        if (started) {
+            return;
+        }
+        libp2pConfig = Objects.requireNonNull(config, "config");
         if (!libp2pConfig.enabled()) {
             return;
         }
@@ -123,11 +143,12 @@ final class Libp2pEndpointRuntime {
             started = true;
             PlatformUtils.AuthType authType = platformUtils.authType();
             OfflineMode offlineMode = offlineMode(authType);
+            EndpointAuthType endpointAuthType = endpointAuthType(authType);
             logger.info("Connect libp2p offline mode: "
                     + offlineMode
                     + " (allowOfflineModePlayers=" + connectConfig.getAllowOfflineModePlayers()
                     + ", authType=" + authType + ")");
-            startRegistrationLoop(offlineMode);
+            startRegistrationLoop(offlineMode, endpointAuthType);
         } catch (Exception | LinkageError e) {
             stop();
             logger.error("Failed to start Connect libp2p endpoint", e);
@@ -203,7 +224,7 @@ final class Libp2pEndpointRuntime {
         });
     }
 
-    private ActiveRegistration registerOnce(OfflineMode offlineMode) {
+    private ActiveRegistration registerOnce(OfflineMode offlineMode, EndpointAuthType authType) {
         RuntimeException lastError = null;
         List<String> attemptAddrs = registerAttemptAddresses(
                 libp2pConfig.registerAddrs(),
@@ -222,6 +243,7 @@ final class Libp2pEndpointRuntime {
                                 ? Collections.emptyList()
                                 : connectConfig.getSuperEndpoints(),
                         offlineMode,
+                        authType,
                         Arrays.asList("session", "status"),
                         this::currentCapacity);
                 client = new PeerRegistrationClient(handshake);
@@ -287,16 +309,16 @@ final class Libp2pEndpointRuntime {
         }
     }
 
-    private void startRegistrationLoop(OfflineMode offlineMode) {
+    private void startRegistrationLoop(OfflineMode offlineMode, EndpointAuthType authType) {
         registrationExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "connect-libp2p-registration");
             thread.setDaemon(true);
             return thread;
         });
-        registerAndWatch(offlineMode);
+        registerAndWatch(offlineMode, authType);
     }
 
-    private void scheduleRegisterRetry(OfflineMode offlineMode, long delaySeconds) {
+    private void scheduleRegisterRetry(OfflineMode offlineMode, EndpointAuthType authType, long delaySeconds) {
         ScheduledExecutorService executor;
         synchronized (this) {
             if (!started || registrationExecutor == null || registrationExecutor.isShutdown()) {
@@ -306,7 +328,7 @@ final class Libp2pEndpointRuntime {
         }
         executor.schedule(() -> {
             try {
-                registerAndWatch(offlineMode);
+                registerAndWatch(offlineMode, authType);
             } catch (RuntimeException e) {
                 if (Libp2pEndpointErrors.isTransientConnectError(e)) {
                     logger.warn("Connect libp2p registration refresh failed; retrying: "
@@ -314,13 +336,13 @@ final class Libp2pEndpointRuntime {
                 } else {
                     logger.error("Failed to refresh Connect libp2p registration", e);
                 }
-                scheduleRegisterRetry(offlineMode, 5);
+                scheduleRegisterRetry(offlineMode, authType, 5);
             }
         }, delaySeconds, TimeUnit.SECONDS);
     }
 
-    private void registerAndWatch(OfflineMode offlineMode) {
-        ActiveRegistration registration = registerOnce(offlineMode);
+    private void registerAndWatch(OfflineMode offlineMode, EndpointAuthType authType) {
+        ActiveRegistration registration = registerOnce(offlineMode, authType);
         ActiveRegistration previous;
         synchronized (this) {
             if (!started) {
@@ -345,7 +367,7 @@ final class Libp2pEndpointRuntime {
             } else {
                 logger.error("Connect libp2p registration stream failed; reconnecting", error);
             }
-            scheduleRegisterRetry(offlineMode, 1);
+            scheduleRegisterRetry(offlineMode, authType, 1);
         });
     }
 
@@ -466,6 +488,19 @@ final class Libp2pEndpointRuntime {
         return authType == PlatformUtils.AuthType.OFFLINE
                 ? OfflineMode.OFFLINE_MODE_ALLOWED
                 : OfflineMode.OFFLINE_MODE_DENIED;
+    }
+
+    private static EndpointAuthType endpointAuthType(PlatformUtils.AuthType authType) {
+        switch (authType) {
+            case ONLINE:
+                return EndpointAuthType.ENDPOINT_AUTH_TYPE_ONLINE;
+            case OFFLINE:
+                return EndpointAuthType.ENDPOINT_AUTH_TYPE_OFFLINE;
+            case PROXIED:
+                return EndpointAuthType.ENDPOINT_AUTH_TYPE_PROXIED;
+            default:
+                return EndpointAuthType.ENDPOINT_AUTH_TYPE_UNSPECIFIED;
+        }
     }
 
     private static <T> T await(CompletableFuture<T> future, long timeoutSeconds, String action) {

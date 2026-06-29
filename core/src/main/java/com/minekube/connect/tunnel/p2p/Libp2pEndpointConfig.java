@@ -72,6 +72,14 @@ final class Libp2pEndpointConfig {
         return fromEnvironment(System.getenv());
     }
 
+    static Libp2pEndpointConfig fromBootstrap(List<String> registerAddrs, List<String> relayAddrs) {
+        return new Libp2pEndpointConfig(
+                immutableCopy(registerAddrs),
+                Collections.singletonList("/ip4/127.0.0.1/tcp/0"),
+                Collections.emptyList(),
+                immutableCopy(relayAddrs));
+    }
+
     boolean enabled() {
         return !registerAddrs.isEmpty();
     }
@@ -117,5 +125,15 @@ final class Libp2pEndpointConfig {
                 .map(String::trim)
                 .filter(part -> !part.isEmpty())
                 .collect(Collectors.toList());
+    }
+
+    private static List<String> immutableCopy(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return Collections.unmodifiableList(values.stream()
+                .filter(value -> value != null && !value.trim().isEmpty())
+                .map(String::trim)
+                .collect(Collectors.toList()));
     }
 }

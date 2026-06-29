@@ -20,6 +20,18 @@ class Libp2pEndpointConfigTest {
     }
 
     @Test
+    void bootstrapConfigEnablesManagedLibp2p() {
+        Libp2pEndpointConfig config = Libp2pEndpointConfig.fromBootstrap(
+                java.util.List.of("/dns4/connect.example/tcp/4001/p2p/" + MOXY_PEER),
+                java.util.List.of("/dns4/connect.example/tcp/4001/p2p/" + SECOND_MOXY_PEER));
+
+        assertTrue(config.enabled());
+        assertEquals("/ip4/127.0.0.1/tcp/0", config.listenAddrs().get(0));
+        assertEquals(1, config.registerAddrs().size());
+        assertEquals(1, config.relayAddrs().size());
+    }
+
+    @Test
     void parsesRegisterListenAndAdvertiseAddresses() {
         Libp2pEndpointConfig config = Libp2pEndpointConfig.fromEnvironment(Map.of(
                 "CONNECT_LIBP2P_EDGE_ADDR", " /ip4/127.0.0.1/tcp/1/p2p/a , /ip4/127.0.0.1/tcp/2/p2p/b ",

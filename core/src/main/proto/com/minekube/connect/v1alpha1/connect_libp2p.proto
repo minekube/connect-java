@@ -19,6 +19,7 @@ message PeerRegisterInit {
   PeerCapacity capacity = 10;
   int64 issued_at_unix_ms = 11;
   int64 expires_at_unix_ms = 12;
+  EndpointAuthType auth_type = 13;
 }
 
 message PeerCapacity {
@@ -30,6 +31,13 @@ enum OfflineMode {
   OFFLINE_MODE_UNSPECIFIED = 0;
   OFFLINE_MODE_ALLOWED = 1;
   OFFLINE_MODE_DENIED = 2;
+}
+
+enum EndpointAuthType {
+  ENDPOINT_AUTH_TYPE_UNSPECIFIED = 0;
+  ENDPOINT_AUTH_TYPE_ONLINE = 1;
+  ENDPOINT_AUTH_TYPE_OFFLINE = 2;
+  ENDPOINT_AUTH_TYPE_PROXIED = 3;
 }
 
 message EndpointPeerRecord {
@@ -53,6 +61,7 @@ message EndpointPeerRecord {
   int64 renewed_at_unix_ms = 18;
   int64 expires_at_unix_ms = 19;
   bytes nonce = 20;
+  EndpointAuthType auth_type = 21;
 }
 
 message PeerRegisterChallenge {

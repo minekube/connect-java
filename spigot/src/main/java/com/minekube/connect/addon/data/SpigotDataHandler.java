@@ -38,6 +38,7 @@ import com.minekube.connect.util.ProxyUtils;
 import com.minekube.connect.util.SpigotGameProfiles;
 import com.mojang.authlib.GameProfile;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.function.UnaryOperator;
 
 public final class SpigotDataHandler extends CommonDataHandler {
@@ -57,7 +58,9 @@ public final class SpigotDataHandler extends CommonDataHandler {
     }
 
     private void removeSelf() {
-        ctx.pipeline().remove(this);
+        if (ctx.pipeline().context(this) != null) {
+            ctx.pipeline().remove(this);
+        }
     }
 
     private void debug(String message) {
@@ -246,7 +249,18 @@ public final class SpigotDataHandler extends CommonDataHandler {
     }
 
     private String getPlayerRemoteAddressAsString() {
-        final String addr = ((InetSocketAddress) ctx.channel().remoteAddress()).getAddress().getHostAddress();
+        return playerRemoteAddressAsString(
+                ctx.channel().remoteAddress(),
+                sessionCtx.getSpoofedAddress());
+    }
+
+    static String playerRemoteAddressAsString(SocketAddress remoteAddress, InetSocketAddress spoofedAddress) {
+        InetSocketAddress address = remoteAddress instanceof InetSocketAddress
+                ? (InetSocketAddress) remoteAddress
+                : spoofedAddress;
+        final String addr = address.getAddress() != null
+                ? address.getAddress().getHostAddress()
+                : address.getHostString();
         int ipv6ScopeIdx = addr.indexOf('%');
         if (ipv6ScopeIdx == -1) {
             return addr;
