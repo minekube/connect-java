@@ -159,7 +159,7 @@ class PeerRegistrationClientTest {
     }
 
     @Test
-    void reusesObservedAddrsForRenewCommit() throws Exception {
+    void refreshesObservedAddrsBeforeRenewCommit() throws Exception {
         EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
         PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
                 identity,
@@ -209,8 +209,7 @@ class PeerRegistrationClientTest {
                 PeerRegisterCommit.parser(),
                 P2PFrameCodec.MAX_CONTROL_FRAME_SIZE);
 
-        assertEquals(1, observedCalls.get());
-        assertEquals(Collections.singletonList("/ip4/127.0.0.1/tcp/1234/p2p/" + identity.peerId()),
+        assertEquals(Collections.singletonList("/ip4/127.0.0.1/tcp/5678/p2p/" + identity.peerId()),
                 renew.getRecord().getAddrsList());
     }
 

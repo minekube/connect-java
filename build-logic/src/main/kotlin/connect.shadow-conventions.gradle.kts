@@ -1,4 +1,5 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import java.util.jar.JarFile
 
 plugins {
     id("connect.base-conventions")
@@ -34,6 +35,67 @@ tasks {
     }
     named("build") {
         dependsOn(shadowJar)
+    }
+    val verifyLibp2pRuntimeIsolation = register("verifyLibp2pRuntimeIsolation") {
+        dependsOn(shadowJar)
+        group = "verification"
+        description = "Verifies libp2p runtime classes are isolated from parent-facing Connect classes."
+        doLast {
+            verifyLibp2pRuntimeIsolation(shadowJar.get().archiveFile.get().asFile)
+        }
+    }
+    named("check") {
+        dependsOn(verifyLibp2pRuntimeIsolation)
+    }
+}
+
+fun verifyLibp2pRuntimeIsolation(jarFile: File) {
+    JarFile(jarFile).use { jar ->
+        if (jar.getJarEntry("com/minekube/connect/tunnel/p2p/Libp2pEndpoint.class") == null) {
+            return
+        }
+
+        fun requireEntry(name: String): ByteArray {
+            val entry = jar.getJarEntry(name)
+                ?: error("${jarFile.name} is missing $name")
+            return jar.getInputStream(entry).use { it.readBytes() }
+        }
+
+        fun ByteArray.containsConstant(value: String): Boolean =
+            String(this, Charsets.ISO_8859_1).contains(value)
+
+        val endpointWrapper = requireEntry("com/minekube/connect/tunnel/p2p/Libp2pEndpoint.class")
+        val transportWrapper = requireEntry("com/minekube/connect/tunnel/p2p/Libp2pTunnelTransport.class")
+        val endpointRuntime = requireEntry("com/minekube/connect/tunnel/p2p/Libp2pEndpointRuntime.class")
+        val transportRuntime = requireEntry("com/minekube/connect/tunnel/p2p/impl/Libp2pTunnelTransportRuntime.class")
+        val localSession = requireEntry("com/minekube/connect/network/netty/LocalSession.class")
+
+        listOf(
+            "io/libp2p",
+            "io/netty",
+            "Lio/libp2p",
+            "Lio/netty",
+        ).forEach { forbidden ->
+            check(!endpointWrapper.containsConstant(forbidden)) {
+                "Libp2pEndpoint parent wrapper must not reference $forbidden in ${jarFile.name}"
+            }
+            check(!transportWrapper.containsConstant(forbidden)) {
+                "Libp2pTunnelTransport parent wrapper must not reference $forbidden in ${jarFile.name}"
+            }
+        }
+
+        check(endpointRuntime.containsConstant("io/libp2p")) {
+            "Libp2pEndpointRuntime should contain libp2p references in ${jarFile.name}"
+        }
+        check(transportRuntime.containsConstant("io/netty")) {
+            "Libp2pTunnelTransportRuntime should contain runtime Netty references in ${jarFile.name}"
+        }
+        check(localSession.containsConstant("io/netty")) {
+            "LocalSession should keep server Netty references in ${jarFile.name}"
+        }
+        check(!localSession.containsConstant("com/minekube/connect/libp2p/shadow/io/netty")) {
+            "LocalSession must not be rewritten to private libp2p Netty in ${jarFile.name}"
+        }
     }
 }
 

@@ -25,6 +25,8 @@
 
 package com.minekube.connect.tunnel.p2p;
 
+import com.minekube.connect.tunnel.p2p.impl.Libp2pTunnelTransportRuntime;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -55,13 +57,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport.Type;
 import org.junit.jupiter.api.Test;
 
-class Libp2pTunnelTransportTest {
+class Libp2pTunnelTransportRuntimeTest {
 
     @Test
     void sendsConnectEdgeCompatibleHeaderAndReceivesBytes() throws Exception {
         Responder responder = startResponder();
         try {
-            Libp2pTunnelTransport transport = new Libp2pTunnelTransport(tcpOnlyHost());
+            Libp2pTunnelTransportRuntime transport = new Libp2pTunnelTransportRuntime(tcpOnlyHost());
             try {
                 RecordingHandler handler = new RecordingHandler();
                 TunnelConn conn = transport.tunnel(responder.address(), "test-session", handler);
@@ -83,7 +85,7 @@ class Libp2pTunnelTransportTest {
     void prepareWarmsConnectionBeforeOpeningSessionStream() throws Exception {
         Responder responder = startResponder();
         try {
-            Libp2pTunnelTransport transport = new Libp2pTunnelTransport(tcpOnlyHost());
+            Libp2pTunnelTransportRuntime transport = new Libp2pTunnelTransportRuntime(tcpOnlyHost());
             try {
                 transport.prepare(responder.address());
 
@@ -131,7 +133,7 @@ class Libp2pTunnelTransportTest {
 
         private void start() throws Exception {
             host.addProtocolHandler(new StrictProtocolBinding<Void>(
-                    Libp2pTunnelTransport.PROTOCOL_ID,
+                    Libp2pTunnelTransportRuntime.PROTOCOL_ID,
                     new ProtocolHandler<Void>(Long.MAX_VALUE, Long.MAX_VALUE) {
                         @Override
                         protected CompletableFuture<Void> onStartInitiator(Stream stream) {

@@ -33,6 +33,7 @@ import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.function.Consumer;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport.Type;
@@ -69,7 +70,7 @@ final class SameStreamTunnelTransport implements TunnelClientTransport {
 
         @Override
         public void write(byte[] data) {
-            stream.writeAndFlush(Unpooled.wrappedBuffer(data));
+            stream.writeAndFlush(Unpooled.wrappedBuffer(Arrays.copyOf(data, data.length)));
         }
 
         @Override
@@ -92,7 +93,7 @@ final class SameStreamTunnelTransport implements TunnelClientTransport {
 
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
-            handler.onReceive(ByteBufUtil.getBytes(msg, msg.readerIndex(), msg.readableBytes(), false));
+            handler.onReceive(ByteBufUtil.getBytes(msg, msg.readerIndex(), msg.readableBytes(), true));
         }
 
         @Override

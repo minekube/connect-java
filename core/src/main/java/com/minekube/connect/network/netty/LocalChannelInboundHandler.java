@@ -37,6 +37,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.RequiredArgsConstructor;
 import org.jetbrains.annotations.NotNull;
 
@@ -49,6 +50,8 @@ public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<Byte
     private final ConnectLogger logger;
     private final Tunneler tunneler;
     private final SimpleConnectApi api;
+    private final AtomicLong backendToTunnelPackets = new AtomicLong();
+    private final AtomicLong backendToTunnelBytes = new AtomicLong();
     private TunnelConn tunnelConn;
 
     public static void onChannelClosed(Context context,
@@ -60,9 +63,6 @@ public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<Byte
         try {
             TunnelConn tunnelConn = context.getTunnelConn().getAndSet(null);
             if (tunnelConn != null) {
-                String username = context.getPlayer().getUsername();
-                logger.info("Connect local backend channel closed; closing tunnel"
-                        + (username.isEmpty() ? "" : " for " + username));
                 tunnelConn.close();
             }
 
@@ -96,7 +96,10 @@ public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<Byte
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        logger.warn("Connect local backend channel error: " + cause);
+        logger.warn("Connect local backend channel exception player={} session={} local={} remote={} "
+                        + "backendToTunnelPackets={} backendToTunnelBytes={} cause={}",
+                playerName(), sessionId(), ctx.channel().localAddress(), ctx.channel().remoteAddress(),
+                backendToTunnelPackets.get(), backendToTunnelBytes.get(), cause.toString());
         // Reject session proposal in case we are still able to and connection was stopped very early.
         rejectProposal(context, StatusProto.fromThrowable(cause));
         ctx.close();
@@ -112,17 +115,19 @@ public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<Byte
 
     @Override
     public void channelActive(@NotNull ChannelHandlerContext ctx) throws Exception {
+        logger.debug("Connect local backend channel active player={} session={} local={} remote={}",
+                playerName(), sessionId(), ctx.channel().localAddress(), ctx.channel().remoteAddress());
         // Start tunnel from downstream server -> upstream TunnelService
         if (FORCE_TUNNEL_SERVICE_ADDR != null && !FORCE_TUNNEL_SERVICE_ADDR.isEmpty()) {
             tunnelConn = tunneler.tunnel(
                     tunnelSvcAddr(),
                     context.getSessionProposal().getSession().getId(),
-                    new TunnelHandler(logger, ctx.channel())
+                    new TunnelHandler(logger, ctx.channel(), playerName(), sessionId())
             );
         } else {
             tunnelConn = tunneler.tunnel(
                     context.getSessionProposal().getSession(),
-                    new TunnelHandler(logger, ctx.channel())
+                    new TunnelHandler(logger, ctx.channel(), playerName(), sessionId())
             );
         }
         context.tunnelConn.set(tunnelConn);
@@ -131,15 +136,33 @@ public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<Byte
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, ByteBuf buf) {
-        // Get underlying byte array from buf without copy
-        byte[] data = ByteBufUtil.getBytes(buf, buf.readerIndex(), buf.readableBytes(), false);
+        int readableBytes = buf.readableBytes();
+        backendToTunnelPackets.incrementAndGet();
+        backendToTunnelBytes.addAndGet(readableBytes);
+        byte[] data = ByteBufUtil.getBytes(buf, buf.readerIndex(), buf.readableBytes(), true);
         // downstream server -> local session server -> TunnelService
         tunnelConn.write(data);
     }
 
     @Override
     public void channelInactive(@NotNull ChannelHandlerContext ctx) throws Exception {
+        TunnelConn activeTunnelConn = context.getTunnelConn().get();
+        if (logger.isDebug()) {
+            logger.info("Connect local backend channel inactive player={} session={} local={} remote={} "
+                            + "backendToTunnelPackets={} backendToTunnelBytes={} tunnelOpened={}",
+                    playerName(), sessionId(), ctx.channel().localAddress(), ctx.channel().remoteAddress(),
+                    backendToTunnelPackets.get(), backendToTunnelBytes.get(),
+                    activeTunnelConn != null && activeTunnelConn.opened());
+        }
         onChannelClosed(context, api, logger);
         super.channelInactive(ctx);
+    }
+
+    private String playerName() {
+        return context.getPlayer().getUsername();
+    }
+
+    private String sessionId() {
+        return context.getSessionProposal().getSession().getId();
     }
 }

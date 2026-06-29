@@ -25,8 +25,6 @@
 
 package com.minekube.connect.tunnel.p2p;
 
-import io.libp2p.core.Host;
-
 public final class Libp2pRuntime {
 
     private Libp2pRuntime() {
@@ -37,6 +35,6 @@ public final class Libp2pRuntime {
     }
 
     public static String hostClassName() {
-        return Host.class.getName();
+        return "io.libp2p.core.Host";
     }
 }

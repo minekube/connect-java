@@ -24,10 +24,13 @@
 package com.minekube.connect.tunnel.p2p;
 
 import io.libp2p.core.multiformats.Multiaddr;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 final class Libp2pEndpointConfig {
@@ -69,6 +72,14 @@ final class Libp2pEndpointConfig {
         return fromEnvironment(System.getenv());
     }
 
+    static Libp2pEndpointConfig fromBootstrap(List<String> registerAddrs, List<String> relayAddrs) {
+        return new Libp2pEndpointConfig(
+                immutableCopy(registerAddrs),
+                Collections.singletonList("/ip4/127.0.0.1/tcp/0"),
+                Collections.emptyList(),
+                immutableCopy(relayAddrs));
+    }
+
     boolean enabled() {
         return !registerAddrs.isEmpty();
     }
@@ -90,9 +101,20 @@ final class Libp2pEndpointConfig {
     }
 
     List<String> edgePeerIds() {
-        return registerAddrs.stream()
-                .map(address -> Multiaddr.fromString(address).getPeerId().toBase58())
-                .collect(Collectors.toList());
+        List<String> peerIds = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        appendPeerIds(peerIds, seen, registerAddrs);
+        appendPeerIds(peerIds, seen, relayAddrs);
+        return peerIds;
+    }
+
+    private static void appendPeerIds(List<String> peerIds, Set<String> seen, List<String> addresses) {
+        for (String address : addresses) {
+            String peerId = Multiaddr.fromString(address).getPeerId().toBase58();
+            if (seen.add(peerId)) {
+                peerIds.add(peerId);
+            }
+        }
     }
 
     private static List<String> split(String value) {
@@ -103,5 +125,15 @@ final class Libp2pEndpointConfig {
                 .map(String::trim)
                 .filter(part -> !part.isEmpty())
                 .collect(Collectors.toList());
+    }
+
+    private static List<String> immutableCopy(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return Collections.unmodifiableList(values.stream()
+                .filter(value -> value != null && !value.trim().isEmpty())
+                .map(String::trim)
+                .collect(Collectors.toList()));
     }
 }

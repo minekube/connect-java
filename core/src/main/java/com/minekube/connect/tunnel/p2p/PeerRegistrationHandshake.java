@@ -32,6 +32,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 import minekube.connect.v1alpha1.ConnectLibp2P.EndpointPeerRecord;
+import minekube.connect.v1alpha1.ConnectLibp2P.EndpointAuthType;
 import minekube.connect.v1alpha1.ConnectLibp2P.OfflineMode;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerCapacity;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterChallenge;
@@ -45,6 +46,7 @@ final class PeerRegistrationHandshake {
     private final String endpointInstanceId;
     private final List<String> parentEndpoints;
     private final OfflineMode offlineMode;
+    private final EndpointAuthType authType;
     private final List<String> capabilities;
     private final Supplier<PeerCapacity> capacitySupplier;
 
@@ -57,7 +59,21 @@ final class PeerRegistrationHandshake {
             OfflineMode offlineMode,
             List<String> capabilities,
             PeerCapacity capacity) {
-        this(identity, endpoint, token, endpointInstanceId, parentEndpoints, offlineMode, capabilities, () -> capacity);
+        this(identity, endpoint, token, endpointInstanceId, parentEndpoints, offlineMode,
+                EndpointAuthType.ENDPOINT_AUTH_TYPE_UNSPECIFIED, capabilities, () -> capacity);
+    }
+
+    PeerRegistrationHandshake(
+            EndpointPeerIdentity identity,
+            String endpoint,
+            String token,
+            String endpointInstanceId,
+            List<String> parentEndpoints,
+            OfflineMode offlineMode,
+            EndpointAuthType authType,
+            List<String> capabilities,
+            PeerCapacity capacity) {
+        this(identity, endpoint, token, endpointInstanceId, parentEndpoints, offlineMode, authType, capabilities, () -> capacity);
     }
 
     PeerRegistrationHandshake(
@@ -69,12 +85,27 @@ final class PeerRegistrationHandshake {
             OfflineMode offlineMode,
             List<String> capabilities,
             Supplier<PeerCapacity> capacitySupplier) {
+        this(identity, endpoint, token, endpointInstanceId, parentEndpoints, offlineMode,
+                EndpointAuthType.ENDPOINT_AUTH_TYPE_UNSPECIFIED, capabilities, capacitySupplier);
+    }
+
+    PeerRegistrationHandshake(
+            EndpointPeerIdentity identity,
+            String endpoint,
+            String token,
+            String endpointInstanceId,
+            List<String> parentEndpoints,
+            OfflineMode offlineMode,
+            EndpointAuthType authType,
+            List<String> capabilities,
+            Supplier<PeerCapacity> capacitySupplier) {
         this.identity = Objects.requireNonNull(identity, "identity");
         this.endpoint = Objects.requireNonNull(endpoint, "endpoint");
         this.token = Objects.requireNonNull(token, "token");
         this.endpointInstanceId = Objects.requireNonNull(endpointInstanceId, "endpointInstanceId");
         this.parentEndpoints = new ArrayList<>(Objects.requireNonNull(parentEndpoints, "parentEndpoints"));
         this.offlineMode = Objects.requireNonNull(offlineMode, "offlineMode");
+        this.authType = Objects.requireNonNull(authType, "authType");
         this.capabilities = new ArrayList<>(Objects.requireNonNull(capabilities, "capabilities"));
         this.capacitySupplier = Objects.requireNonNull(capacitySupplier, "capacitySupplier");
     }
@@ -89,6 +120,7 @@ final class PeerRegistrationHandshake {
                 .setEndpointPublicKey(identity.publicKeyBase64())
                 .addAllParentEndpoints(parentEndpoints)
                 .setOfflineMode(offlineMode)
+                .setAuthType(authType)
                 .addAllCapabilities(capabilities)
                 .addAllObservedAddrs(observedAddrs)
                 .setCapacity(capacity())
@@ -99,7 +131,7 @@ final class PeerRegistrationHandshake {
 
     PeerRegisterCommit commit(PeerRegisterChallenge challenge, List<String> addrs, long sequence, long nowUnixMs) {
         long ttlMs = challenge.getKvTtlMs() > 0 ? challenge.getKvTtlMs() : 45_000;
-        List<String> recordAddrs = challengedRelayCircuitAddrs(challenge, addrs);
+        List<String> recordAddrs = recordRelayCircuitAddrs(challenge, addrs);
         if (recordAddrs.isEmpty() && challenge.getRelayAddrsList().isEmpty()) {
             recordAddrs = addrs;
         }
@@ -118,6 +150,7 @@ final class PeerRegistrationHandshake {
                 .addAllCapabilities(capabilities)
                 .setCapacity(capacity())
                 .setOfflineMode(offlineMode)
+                .setAuthType(authType)
                 .setSequence(sequence)
                 .setIssuedAtUnixMs(nowUnixMs)
                 .setRenewedAtUnixMs(nowUnixMs)
@@ -128,6 +161,10 @@ final class PeerRegistrationHandshake {
                 .setRecord(record)
                 .setSignature(ByteString.copyFrom(identity.sign(PeerRecordSigningPayload.bytes(record))))
                 .build();
+    }
+
+    private List<String> recordRelayCircuitAddrs(PeerRegisterChallenge challenge, List<String> reservedAddrs) {
+        return challengedRelayCircuitAddrs(challenge, reservedAddrs);
     }
 
     private PeerCapacity capacity() {

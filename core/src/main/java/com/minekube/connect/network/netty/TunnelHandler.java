@@ -33,14 +33,20 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.EventLoop;
+import java.util.Arrays;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor
 class TunnelHandler implements Handler {
     private final ConnectLogger logger;
     private final Channel downstreamServerConn; // local server connection
+    private final String playerName;
+    private final String sessionId;
+    private final AtomicLong tunnelToBackendPackets = new AtomicLong();
+    private final AtomicLong tunnelToBackendBytes = new AtomicLong();
 
     // Coalesces flushes across an EventLoop tick: one flush() per batch of
     // onReceive calls instead of one per packet. The CAS lives inside the
@@ -51,6 +57,9 @@ class TunnelHandler implements Handler {
 
     @Override
     public void onReceive(byte[] data) {
+        tunnelToBackendPackets.incrementAndGet();
+        tunnelToBackendBytes.addAndGet(data.length);
+        byte[] payload = Arrays.copyOf(data, data.length);
         // TunnelService -> local session server -> downstream server.
         // Allocate the ByteBuf inside the lambda so it isn't leaked if execute()
         // rejects (event loop shutting down during proxy stop).
@@ -58,7 +67,7 @@ class TunnelHandler implements Handler {
         EventLoop el = ch.eventLoop();
         try {
             el.execute(() -> {
-                ch.write(Unpooled.wrappedBuffer(data), ch.voidPromise());
+                ch.write(Unpooled.wrappedBuffer(payload), ch.voidPromise());
                 if (flushScheduled.compareAndSet(false, true)) {
                     try {
                         el.execute(() -> {
@@ -82,16 +91,20 @@ class TunnelHandler implements Handler {
         if (status.getCode() == Code.CANCELLED) {
             return;
         }
-        logger.error("Connection error with TunnelService: " +
-                        t + (
-                        t.getCause() == null ? ""
-                                : " (cause: " + t.getCause().toString() + ")"
-                )
-        );
+        logger.error("Connection error with TunnelService player={} session={} "
+                        + "tunnelToBackendPackets={} tunnelToBackendBytes={}: {}{}",
+                playerName, sessionId, tunnelToBackendPackets.get(), tunnelToBackendBytes.get(),
+                t, t.getCause() == null ? "" : " (cause: " + t.getCause() + ")");
     }
 
     @Override
     public void onClose() {
+        if (logger.isDebug()) {
+            logger.info("Connect tunnel stream closed; closing local backend channel player={} session={} "
+                            + "local={} remote={} tunnelToBackendPackets={} tunnelToBackendBytes={}",
+                    playerName, sessionId, downstreamServerConn.localAddress(), downstreamServerConn.remoteAddress(),
+                    tunnelToBackendPackets.get(), tunnelToBackendBytes.get());
+        }
         // Flush before closing: deferred writes from onReceive() may still be
         // sitting in the channel's outbound buffer with the flush scheduled as
         // a separate EventLoop task, so closing without a final flush can drop
