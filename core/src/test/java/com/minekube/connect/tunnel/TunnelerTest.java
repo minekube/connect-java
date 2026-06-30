@@ -3,8 +3,10 @@ package com.minekube.connect.tunnel;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -22,6 +24,7 @@ import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
 import okio.ByteString;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Test;
@@ -193,6 +196,61 @@ class TunnelerTest {
             assertArrayEquals(sent, received);
         } finally {
             setStaticField(dataField, originalData);
+        }
+    }
+
+    @Test
+    void sendsFlyForceInstanceHeaderWhenTunnelAddressTargetsFlyMachine() throws Exception {
+        OkHttpClient client = new OkHttpClient();
+        TunnelConn conn = null;
+
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+            }));
+            server.start();
+
+            String tunnelUrl = webSocketUrl(server) + "?fi=machine-123&cid=";
+            conn = new Tunneler(new WebSocketTunnelTransport(client))
+                    .tunnel(tunnelUrl, "session-123", new CapturingHandler());
+            RecordedRequest request = server.takeRequest(5, SECONDS);
+
+            assertNotNull(request);
+            assertEquals("session-123", request.getHeader("Connect-Session"));
+            assertEquals("machine-123", request.getHeader("Fly-Force-Instance-Id"));
+        } finally {
+            if (conn != null) {
+                conn.close();
+            }
+            client.dispatcher().cancelAll();
+            client.dispatcher().executorService().shutdownNow();
+            client.connectionPool().evictAll();
+        }
+    }
+
+    @Test
+    void omitsFlyForceInstanceHeaderWhenTunnelAddressHasNoFlyTarget() throws Exception {
+        OkHttpClient client = new OkHttpClient();
+        TunnelConn conn = null;
+
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+            }));
+            server.start();
+
+            conn = new Tunneler(new WebSocketTunnelTransport(client))
+                    .tunnel(webSocketUrl(server), "session-456", new CapturingHandler());
+            RecordedRequest request = server.takeRequest(5, SECONDS);
+
+            assertNotNull(request);
+            assertEquals("session-456", request.getHeader("Connect-Session"));
+            assertNull(request.getHeader("Fly-Force-Instance-Id"));
+        } finally {
+            if (conn != null) {
+                conn.close();
+            }
+            client.dispatcher().cancelAll();
+            client.dispatcher().executorService().shutdownNow();
+            client.connectionPool().evictAll();
         }
     }
 
