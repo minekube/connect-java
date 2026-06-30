@@ -38,21 +38,26 @@ final class Libp2pEndpointConfig {
     static final String LISTEN_ADDR_ENV = "CONNECT_LIBP2P_LISTEN_ADDR";
     static final String ADVERTISE_ADDRS_ENV = "CONNECT_LIBP2P_ADVERTISE_ADDRS";
     static final String RELAY_ADDRS_ENV = "CONNECT_LIBP2P_RELAY_ADDRS";
+    private static final List<String> LEGACY_WATCH_CAPABILITIES = Collections.unmodifiableList(Arrays.asList("session", "status"));
+    private static final List<String> WATCHLESS_CAPABILITIES = Collections.unmodifiableList(Arrays.asList("session", "status", "watchless"));
 
     private final List<String> registerAddrs;
     private final List<String> listenAddrs;
     private final List<String> advertiseAddrs;
     private final List<String> relayAddrs;
+    private final List<String> capabilities;
 
     private Libp2pEndpointConfig(
             List<String> registerAddrs,
             List<String> listenAddrs,
             List<String> advertiseAddrs,
-            List<String> relayAddrs) {
+            List<String> relayAddrs,
+            List<String> capabilities) {
         this.registerAddrs = registerAddrs;
         this.listenAddrs = listenAddrs;
         this.advertiseAddrs = advertiseAddrs;
         this.relayAddrs = relayAddrs;
+        this.capabilities = capabilities;
     }
 
     static Libp2pEndpointConfig fromEnvironment(Map<String, String> env) {
@@ -65,7 +70,8 @@ final class Libp2pEndpointConfig {
                 registerAddrs,
                 listenAddrs,
                 split(env.get(ADVERTISE_ADDRS_ENV)),
-                split(env.get(RELAY_ADDRS_ENV)));
+                split(env.get(RELAY_ADDRS_ENV)),
+                LEGACY_WATCH_CAPABILITIES);
     }
 
     static Libp2pEndpointConfig fromSystemEnvironment() {
@@ -73,11 +79,19 @@ final class Libp2pEndpointConfig {
     }
 
     static Libp2pEndpointConfig fromBootstrap(List<String> registerAddrs, List<String> relayAddrs) {
+        return fromBootstrap(registerAddrs, relayAddrs, false);
+    }
+
+    static Libp2pEndpointConfig fromBootstrap(
+            List<String> registerAddrs,
+            List<String> relayAddrs,
+            boolean watchless) {
         return new Libp2pEndpointConfig(
                 immutableCopy(registerAddrs),
                 Collections.singletonList("/ip4/127.0.0.1/tcp/0"),
                 Collections.emptyList(),
-                immutableCopy(relayAddrs));
+                immutableCopy(relayAddrs),
+                watchless ? WATCHLESS_CAPABILITIES : LEGACY_WATCH_CAPABILITIES);
     }
 
     boolean enabled() {
@@ -98,6 +112,10 @@ final class Libp2pEndpointConfig {
 
     List<String> relayAddrs() {
         return relayAddrs;
+    }
+
+    List<String> capabilities() {
+        return capabilities;
     }
 
     List<String> edgePeerIds() {

@@ -15,9 +15,7 @@
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
  * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
+ * DEALINGS IN THE SOFTWARE.
  *
  * @author Minekube
  * @link https://github.com/minekube/connect-java
@@ -38,7 +36,7 @@ import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.List;
 
-public final class Libp2pEndpoint {
+public class Libp2pEndpoint {
     static final String REGISTER_PROTOCOL_ID = "/minekube/connect/register/1.0.0";
 
     private final ConnectLogger logger;
@@ -80,7 +78,8 @@ public final class Libp2pEndpoint {
                     platformInjector,
                     api);
             this.startMethod = runtimeClass.getDeclaredMethod("start");
-            this.startBootstrapMethod = runtimeClass.getDeclaredMethod("start", List.class, List.class);
+            this.startBootstrapMethod = runtimeClass.getDeclaredMethod(
+                    "start", List.class, List.class, boolean.class);
             this.stopMethod = runtimeClass.getDeclaredMethod("stop");
             this.startMethod.setAccessible(true);
             this.startBootstrapMethod.setAccessible(true);
@@ -108,12 +107,12 @@ public final class Libp2pEndpoint {
         }
     }
 
-    public synchronized void start(List<String> registerAddrs, List<String> relayAddrs) {
+    public synchronized void start(List<String> registerAddrs, List<String> relayAddrs, boolean watchless) {
         if (runtime == null) {
             return;
         }
         try {
-            startBootstrapMethod.invoke(runtime, registerAddrs, relayAddrs);
+            startBootstrapMethod.invoke(runtime, registerAddrs, relayAddrs, watchless);
         } catch (InvocationTargetException e) {
             stop();
             Throwable cause = e.getCause() == null ? e : e.getCause();

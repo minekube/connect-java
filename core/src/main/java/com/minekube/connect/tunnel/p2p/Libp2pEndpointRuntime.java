@@ -111,14 +111,14 @@ final class Libp2pEndpointRuntime {
         startWithConfig(libp2pConfig);
     }
 
-    synchronized void start(List<String> registerAddrs, List<String> relayAddrs) {
+    synchronized void start(List<String> registerAddrs, List<String> relayAddrs, boolean watchless) {
         if (started) {
             return;
         }
         Libp2pEndpointConfig environmentConfig = Libp2pEndpointConfig.fromSystemEnvironment();
         libp2pConfig = environmentConfig.enabled()
                 ? environmentConfig
-                : Libp2pEndpointConfig.fromBootstrap(registerAddrs, relayAddrs);
+                : Libp2pEndpointConfig.fromBootstrap(registerAddrs, relayAddrs, watchless);
         startWithConfig(libp2pConfig);
     }
 
@@ -244,7 +244,7 @@ final class Libp2pEndpointRuntime {
                                 : connectConfig.getSuperEndpoints(),
                         offlineMode,
                         authType,
-                        Arrays.asList("session", "status"),
+                        libp2pConfig.capabilities(),
                         this::currentCapacity);
                 client = new PeerRegistrationClient(handshake);
                 PeerRegisterResult result = await(client.install(

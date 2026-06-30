@@ -36,6 +36,7 @@ import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.util.Utils;
 import com.minekube.connect.util.backoff.BackOff;
 import com.minekube.connect.util.backoff.ExponentialBackOff;
+import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 import com.minekube.connect.watch.SessionProposal;
 import com.minekube.connect.watch.SessionProposal.State;
 import com.minekube.connect.watch.WatchBootstrap;
@@ -160,7 +161,10 @@ public class WatcherRegister {
         public void onOpen(WatchBootstrap bootstrap) {
             logger.translatedInfo("connect.watch.started");
             if (bootstrap.hasLibp2p()) {
-                libp2pEndpoint.start(bootstrap.libp2pEdgeAddrs(), bootstrap.libp2pRelayAddrs());
+                libp2pEndpoint.start(
+                        bootstrap.libp2pEdgeAddrs(),
+                        bootstrap.libp2pRelayAddrs(),
+                        bootstrap.supportsWatchlessLibp2p());
             }
             startResetBackOffTimer();
         }

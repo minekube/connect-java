@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -17,6 +18,30 @@ class Libp2pEndpointConfigTest {
         Libp2pEndpointConfig config = Libp2pEndpointConfig.fromEnvironment(Map.of());
 
         assertFalse(config.enabled());
+        assertEquals(List.of("session", "status"), config.capabilities());
+    }
+
+    @Test
+    void bootstrapConfigEnablesWatchlessWhenSupportedByEdge() {
+        Libp2pEndpointConfig config = Libp2pEndpointConfig.fromBootstrap(
+                List.of("/dns4/connect.example/tcp/4001/p2p/" + MOXY_PEER),
+                List.of("/dns4/connect.example/tcp/4001/p2p/" + MOXY_PEER),
+                true);
+
+        assertTrue(config.enabled());
+        assertEquals(List.of("/ip4/127.0.0.1/tcp/0"), config.listenAddrs());
+        assertEquals(List.of("session", "status", "watchless"), config.capabilities());
+    }
+
+    @Test
+    void bootstrapConfigKeepsLegacyWatchCapabilityWhenWatchlessIsUnsupported() {
+        Libp2pEndpointConfig config = Libp2pEndpointConfig.fromBootstrap(
+                List.of("/dns4/connect.example/tcp/4001/p2p/" + MOXY_PEER),
+                List.of("/dns4/connect.example/tcp/4001/p2p/" + MOXY_PEER),
+                false);
+
+        assertTrue(config.enabled());
+        assertEquals(List.of("session", "status"), config.capabilities());
     }
 
     @Test

@@ -14,13 +14,16 @@ import static org.mockito.Mockito.when;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.watch.SessionProposal;
+import com.minekube.connect.watch.WatchBootstrap;
 import com.minekube.connect.watch.WatchClient;
 import com.minekube.connect.watch.Watcher;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.Timer;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -127,6 +130,25 @@ class WatcherRegisterTest {
     }
 
     @Test
+    void watchOpenStartsLibp2pEndpointFromBootstrap() throws Exception {
+        Fixture fixture = newFixture();
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+
+        watcher.getValue().onOpen(WatchBootstrap.fromLists(
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("session", "status", "watchless")));
+
+        verify(fixture.libp2pEndpoint).start(
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                true);
+    }
+
+    @Test
     void watcherRegisterDoesNotDeclareTimerFields() {
         assertNoTimerFields(WatcherRegister.class);
         for (Class<?> nestedClass : WatcherRegister.class.getDeclaredClasses()) {
@@ -180,10 +202,12 @@ class WatcherRegisterTest {
         inject(register, "platformInjector", mock(PlatformInjector.class));
         inject(register, "logger", mock(ConnectLogger.class));
         inject(register, "api", mock(SimpleConnectApi.class));
+        inject(register, "libp2pEndpoint", mock(Libp2pEndpoint.class));
         when(((PlatformInjector) getField(register, "platformInjector")).getServerSocketAddress())
                 .thenReturn(new InetSocketAddress("127.0.0.1", 25565));
         return new Fixture(register, watchClient, (Tunneler) getField(register, "tunneler"),
-                (PlatformInjector) getField(register, "platformInjector"));
+                (PlatformInjector) getField(register, "platformInjector"),
+                (Libp2pEndpoint) getField(register, "libp2pEndpoint"));
     }
 
     private static void inject(WatcherRegister register, String fieldName, Object value)
@@ -225,17 +249,20 @@ class WatcherRegisterTest {
         private final WatchClient watchClient;
         private final Tunneler tunneler;
         private final PlatformInjector platformInjector;
+        private final Libp2pEndpoint libp2pEndpoint;
 
         private Fixture(
                 WatcherRegister register,
                 WatchClient watchClient,
                 Tunneler tunneler,
-                PlatformInjector platformInjector
+                PlatformInjector platformInjector,
+                Libp2pEndpoint libp2pEndpoint
         ) {
             this.register = register;
             this.watchClient = watchClient;
             this.tunneler = tunneler;
             this.platformInjector = platformInjector;
+            this.libp2pEndpoint = libp2pEndpoint;
         }
     }
 }
