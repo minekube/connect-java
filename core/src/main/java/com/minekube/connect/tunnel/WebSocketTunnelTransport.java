@@ -34,6 +34,8 @@ import com.minekube.connect.tunnel.TunnelConn.Handler;
 import com.minekube.connect.util.ReflectionUtils;
 import java.io.EOFException;
 import java.lang.reflect.Field;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Collection;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
@@ -51,6 +53,8 @@ import org.jetbrains.annotations.Nullable;
 public class WebSocketTunnelTransport implements TunnelClientTransport {
 
     private static final String SESSION_HEADER = "Connect-Session";
+    private static final String FLY_INSTANCE_QUERY = "fi";
+    private static final String FLY_FORCE_INSTANCE_HEADER = "Fly-Force-Instance-Id";
     private static final Field DATA = ReflectionUtils.getField(ByteString.class, "data");
     private final OkHttpClient httpClient;
 
@@ -73,10 +77,13 @@ public class WebSocketTunnelTransport implements TunnelClientTransport {
                 "tunnelServiceAddr must not be empty");
         checkArgument(!sessionId.isEmpty(), "sessionId must not be empty");
 
-        Request request = new Request.Builder()
+        Request.Builder request = new Request.Builder()
                 .url(tunnelServiceAddr)
-                .addHeader(SESSION_HEADER, sessionId)
-                .build();
+                .addHeader(SESSION_HEADER, sessionId);
+        String flyInstanceId = flyInstanceId(tunnelServiceAddr);
+        if (flyInstanceId != null && !flyInstanceId.isEmpty()) {
+            request.addHeader(FLY_FORCE_INSTANCE_HEADER, flyInstanceId);
+        }
 
         AtomicBoolean closeHandlerOnce = new AtomicBoolean();
         Runnable handlerOnClose = () -> {
@@ -87,7 +94,7 @@ public class WebSocketTunnelTransport implements TunnelClientTransport {
 
         AtomicBoolean opened = new AtomicBoolean();
 
-        WebSocket ws = httpClient.newWebSocket(request, new WebSocketListener() {
+        WebSocket ws = httpClient.newWebSocket(request.build(), new WebSocketListener() {
             @Override
             public void onClosed(@NotNull WebSocket webSocket, int code, @NotNull String reason) {
                 handlerOnClose.run();
@@ -162,5 +169,26 @@ public class WebSocketTunnelTransport implements TunnelClientTransport {
                 .flatMap(Collection::stream)
                 .filter(call -> call.request().header(SESSION_HEADER) != null)
                 .forEach(Call::cancel);
+    }
+
+    private static String flyInstanceId(String tunnelServiceAddr) {
+        URI uri;
+        try {
+            uri = new URI(tunnelServiceAddr);
+        } catch (URISyntaxException e) {
+            return null;
+        }
+        String query = uri.getRawQuery();
+        if (query == null || query.isEmpty()) {
+            return null;
+        }
+        for (String param : query.split("&")) {
+            int separator = param.indexOf('=');
+            String name = separator >= 0 ? param.substring(0, separator) : param;
+            if (FLY_INSTANCE_QUERY.equals(name)) {
+                return separator >= 0 ? param.substring(separator + 1) : "";
+            }
+        }
+        return null;
     }
 }
