@@ -5,8 +5,8 @@ plugin release, hub image rebuild, and production rollout as separate steps.
 
 ## Worktree Safety
 
-- Robin often has active libp2p or transport branches in the root worktree.
-  Do not modify that worktree unless explicitly asked.
+- The root worktree may contain active libp2p or transport feature branches.
+  Do not modify an active worktree unless explicitly asked.
 - For unrelated fixes or release docs, create a separate worktree from
   `origin/connect`.
 - Preserve user changes. Never reset or force-clean active branches.
