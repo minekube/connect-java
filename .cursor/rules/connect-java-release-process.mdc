@@ -4,177 +4,76 @@ description: 'Connect Java plugin release process and versioning workflow'
 
 # Connect Java Release Process
 
-This rule documents the complete release workflow for Connect Java plugins across all platforms (Velocity, BungeeCord, Spigot/Paper).
+Connect Java publishes platform plugins for Velocity, BungeeCord, and
+Spigot/Paper. The release branch is `connect`.
 
-## Current Release Configuration
+## Stable Releases
 
-- **Release Branch**: `connect`
-- **Current Version**: Check [build.gradle.kts](mdc:build.gradle.kts) line 9
-- **Platforms**: Velocity, BungeeCord, Spigot/Paper
-- **Automation**: GitHub Actions via [release.yml](mdc:.github/workflows/release.yml)
+Stable releases are automated with [release-please.yml](mdc:.github/workflows/release-please.yml).
+
+1. Merge normal changes to `connect`.
+2. release-please reads Conventional Commit messages:
+   - `fix:` -> patch release
+   - `feat:` -> minor release
+   - `feat!:` or `BREAKING CHANGE:` -> major release
+   - `chore:`, `docs:`, `ci:`, `test:` -> no stable release
+3. release-please opens a release PR that updates `CHANGELOG.md` and
+   `.release-please-manifest.json`.
+4. The workflow dispatches [pullrequest.yml](mdc:.github/workflows/pullrequest.yml)
+   on the release PR branch, waits for the Gradle build, then merges the release PR.
+5. release-please runs again on `connect`, creates the version tag/release, and
+   dispatches [release.yml](mdc:.github/workflows/release.yml) on the tag.
+6. `release.yml` builds all plugin JARs and uploads them to both the versioned
+   release and the stable `latest` release.
+
+Do not manually bump versions or create release tags unless repairing failed
+automation. The Gradle build derives the plugin version from git tags via
+`gitVersion()`.
 
 ## Release Artifacts
 
-Each release produces these platform-specific JARs:
+Each release produces:
 
-- **`connect-spigot.jar`** - For Spigot/Paper servers
-- **`connect-velocity.jar`** - For Velocity proxy
-- **`connect-bungee.jar`** - For BungeeCord proxy
+- `connect-spigot.jar` for Spigot/Paper servers
+- `connect-velocity.jar` for Velocity proxies
+- `connect-bungee.jar` for BungeeCord proxies
+- `LICENSE`
 
-Built via shadow plugin configuration in [connect.shadow-conventions.gradle.kts](mdc:build-logic/src/main/kotlin/connect.shadow-conventions.gradle.kts).
+The JARs are built by the shadow plugin configuration in
+[connect.shadow-conventions.gradle.kts](mdc:build-logic/src/main/kotlin/connect.shadow-conventions.gradle.kts).
 
-## Release Types
+## Pre-Releases
 
-### 1. Versioned Release (Tag-based)
+Every push to `connect` still updates the `latest-prerelease` GitHub release.
+Use those artifacts for staging or urgent production testing before a stable
+release is cut.
 
-**Trigger**: Push git tag matching `*.*.*` pattern
-**Creates**:
+## Verification
 
-- GitHub release with tag name (e.g., `0.7.0`)
-- JARs named `connect-{platform}-{version}.jar`
-- Updates `latest` release tag
-- Standard JARs named `connect-{platform}.jar`
-
-### 2. Pre-release (Branch-based)
-
-**Trigger**: Push to `connect` branch without tag
-**Creates**:
-
-- GitHub pre-release with `latest-prerelease` tag
-- JARs named `connect-{platform}-prerelease.jar`
-
-## Step-by-Step Release Process
-
-### 1. Pre-Release Checks
+Before merging code intended for release:
 
 ```bash
-# Ensure all platforms build successfully
 ./gradlew build
-
-# Verify all fixes are working:
-# - Velocity: no event loop incompatibilities
-# - BungeeCord: no "channel not registered" errors
-# - Spigot/Paper: no IllegalAccessException on handshake
 ```
 
-### 2. Version Update
-
-Edit [build.gradle.kts](mdc:build.gradle.kts):
-
-```kotlin
-allprojects {
-    group = "com.minekube.connect"
-    version = "0.7.0" // Update this line
-    // ...
-}
-```
-
-### 3. Commit and Push Changes
+After a stable release:
 
 ```bash
-git add build.gradle.kts
-git commit -m "Release version 0.7.0"
-git push origin connect
+gh -R minekube/connect-java release view <version> --json tagName,targetCommitish,isDraft,isPrerelease,assets
+curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<version>/connect-velocity.jar
+curl -I -L --fail https://github.com/minekube/connect-java/releases/download/latest/connect-velocity.jar
 ```
 
-### 4. Create and Push Tag (Let Workflow Handle Releases)
+If the hub uses the new plugin, update the hub dependency pin, rebuild the hub
+image, deploy through gitops, and verify a real public Connect join.
 
-The workflow is designed to automatically create releases when tags are pushed. **Do not create releases manually via GitHub UI** - this will conflict with the automated release creation.
+## Rollback
+
+If a release has a critical issue, fix forward with a patch release whenever
+possible. If a bad tag/release must be removed:
 
 ```bash
-git tag 0.7.0
-git push origin 0.7.0
+git tag -d <version>
+git push origin :refs/tags/<version>
+gh -R minekube/connect-java release delete <version>
 ```
-
-The workflow will automatically create:
-1. **Versioned release** (`0.7.0`) with JARs named `connect-{platform}-0.7.0.jar`
-2. **Latest release** (`latest`) with standard JAR names
-
-### 5. Monitor Release
-
-- Check GitHub Actions workflow completion
-- Verify 2 releases created:
-  1. **Versioned release** (`0.7.0`) - Created by workflow with versioned JARs
-  2. **Latest release** (`latest`) - Updated by workflow with standard JAR names
-
-## GitHub Actions Workflow
-
-The [release.yml](mdc:.github/workflows/release.yml) workflow:
-
-**Environment**:
-
-- Ubuntu latest
-- JDK 17 (Temurin distribution)
-- Gradle build action
-
-**Build Process**:
-
-1. Checkout code
-2. Setup Java and Gradle
-3. Run `./gradlew build`
-4. Copy JARs from `{platform}/build/libs/connect-{platform}.jar`
-5. Create releases with appropriate naming
-
-**Release Logic**:
-
-- **Tag push**: Creates versioned + latest releases
-- **Branch push**: Creates pre-release only
-
-## Version Numbering
-
-**Pattern**: `MAJOR.MINOR.PATCH` (semantic versioning)
-
-- **MAJOR**: Breaking changes to injection or API
-- **MINOR**: New platform support, significant features
-- **PATCH**: Bug fixes, compatibility updates
-
-**Recent versions**: 0.6.2 → 0.7.0 (next)
-
-## Release Verification
-
-After release, verify:
-
-1. **GitHub Releases**: All 3 releases created with correct JARs
-2. **JAR Integrity**: Download and verify JAR file sizes/contents
-3. **Platform Testing**:
-   - Deploy to test servers
-   - Verify injection works without errors
-   - Test player connections through Connect network
-
-## Rollback Process
-
-If release has critical issues:
-
-```bash
-# Delete problematic tag
-git tag -d 0.7.0
-git push origin :refs/tags/0.7.0
-
-# Delete GitHub releases manually via web interface
-# Fix issues and re-release with patch version (0.7.1)
-```
-
-## Pre-Release Testing
-
-For testing unreleased changes:
-
-1. Push to `connect` branch (without tag)
-2. Use JARs from `latest-prerelease` release
-3. Test on staging environments
-4. When stable, create official release tag
-
-## Common Release Issues
-
-- **Build failures**: Check Java/Gradle compatibility in workflow
-- **Missing JARs**: Verify shadow plugin configuration
-- **Wrong versions**: Ensure [build.gradle.kts](mdc:build.gradle.kts) version updated
-- **Tag conflicts**: Delete and recreate tags if needed
-
-## Workflow Design
-
-**Why the workflow uses command-line tags:**
-
-- **Automated release creation**: The workflow creates releases automatically when tags are pushed
-- **Multiple release types**: Creates both versioned (`0.7.0`) and latest (`latest`) releases
-- **Artifact management**: Handles JAR naming and upload automatically
-- **Conflict avoidance**: Manual GitHub UI releases conflict with the automated "Release version" step (lines 82-90)
