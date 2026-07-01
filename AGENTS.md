@@ -13,10 +13,21 @@ plugin release, hub image rebuild, and production rollout as separate steps.
 
 ## Release Flow
 
-- Stable plugin artifacts are published from GitHub releases.
+- Stable plugin artifacts are published from GitHub releases managed by
+  `release-please.yml` on the `connect` branch.
+- Use Conventional Commit prefixes to drive releases:
+  `fix:` for patch, `feat:` for minor, and `feat!:`/`BREAKING CHANGE:` for
+  major. Non-release prefixes such as `chore:`, `docs:`, `ci:`, and `test:`
+  should not cut a stable release.
+- `release-please.yml` opens and auto-merges a release PR, creates the version
+  tag/release, then dispatches `release.yml` on that tag so the JAR artifacts
+  are uploaded. Do not manually bump versions or create release tags unless
+  repairing automation.
 - The `release.yml` workflow uploads:
   `connect-spigot.jar`, `connect-velocity.jar`, `connect-bungee.jar`, and
   `LICENSE`.
+- Pushes to `connect` still update the `latest-prerelease` release for
+  unreleased testing builds.
 - After creating a release, verify the release is not draft/prerelease unless
   intentionally so, and verify the asset digest/availability:
 
