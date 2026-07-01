@@ -200,7 +200,7 @@ class TunnelerTest {
     }
 
     @Test
-    void sendsFlyForceInstanceHeaderWhenTunnelAddressTargetsFlyMachine() throws Exception {
+    void omitsFlyForceInstanceHeaderWhenTunnelAddressTargetsFlyMachine() throws Exception {
         OkHttpClient client = new OkHttpClient();
         TunnelConn conn = null;
 
@@ -216,7 +216,8 @@ class TunnelerTest {
 
             assertNotNull(request);
             assertEquals("session-123", request.getHeader("Connect-Session"));
-            assertEquals("machine-123", request.getHeader("Fly-Force-Instance-Id"));
+            assertNull(request.getHeader("Fly-Force-Instance-Id"));
+            assertEquals("/tunnel?fi=machine-123&cid=", request.getPath());
         } finally {
             if (conn != null) {
                 conn.close();
