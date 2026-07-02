@@ -107,7 +107,7 @@ public class WatchClient {
                 if (message == null || message.isEmpty()) {
                     watcher.onError(t);
                 } else {
-                    watcher.onError(new RuntimeException(message, t));
+                    watcher.onError(new RuntimeException(WatchAuthFailureMessage.format(message), t));
                 }
             }
 
