@@ -98,9 +98,10 @@ final class Libp2pStatusReporter {
         this.streamOpener = streamOpener == null ? this::openStatusStream : streamOpener;
     }
 
-    void reportSafely() {
+    boolean reportSafely() {
         try {
             reportOnce(System.currentTimeMillis());
+            return true;
         } catch (RuntimeException e) {
             if (Libp2pEndpointErrors.isTransientConnectError(e)) {
                 logger.warn("Connect libp2p status report failed; retrying: "
@@ -108,6 +109,7 @@ final class Libp2pStatusReporter {
             } else {
                 logger.error("Failed to report Connect libp2p status", e);
             }
+            return false;
         }
     }
 

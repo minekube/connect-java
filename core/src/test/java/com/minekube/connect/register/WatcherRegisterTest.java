@@ -7,23 +7,32 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.watch.SessionProposal;
+import com.minekube.connect.watch.WatchBootstrap;
 import com.minekube.connect.watch.WatchClient;
 import com.minekube.connect.watch.Watcher;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.Timer;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.mockito.ArgumentCaptor;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfile;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
@@ -32,7 +41,7 @@ import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport.Type;
 import okhttp3.WebSocket;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
+import org.mockito.stubbing.Answer;
 
 class WatcherRegisterTest {
     private WatcherRegister register;
@@ -127,6 +136,102 @@ class WatcherRegisterTest {
     }
 
     @Test
+    void watchOpenStartsLibp2pEndpointFromBootstrap() throws Exception {
+        Fixture fixture = newFixture();
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+
+        watcher.getValue().onOpen(WatchBootstrap.fromLists(
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("session", "status", "watchless")));
+
+        verify(fixture.libp2pEndpoint).start(
+                eq(List.of("/dns4/connect.example/tcp/4001/p2p/edge")),
+                eq(List.of("/dns4/connect.example/tcp/4001/p2p/edge")),
+                eq(true),
+                any(Runnable.class),
+                any(Runnable.class));
+    }
+
+    @Test
+    void watchlessReadyClosesLegacyWatchSocketAndSuppressesReconnect() throws Exception {
+        Fixture fixture = newFixture();
+        RunnableCaptor callbacks = new RunnableCaptor();
+        doAnswer(callbacks.capture()).when(fixture.libp2pEndpoint).start(
+                any(),
+                any(),
+                anyBoolean(),
+                any(Runnable.class),
+                any(Runnable.class));
+        WebSocket webSocket = mock(WebSocket.class);
+        when(fixture.watchClient.watch(any(Watcher.class))).thenReturn(webSocket);
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+
+        watcher.getValue().onOpen(WatchBootstrap.fromLists(
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("session", "status", "watchless")));
+        callbacks.ready.run();
+        watcher.getValue().onCompleted();
+
+        verify(webSocket).close(1000, "watchless endpoint mode enabled");
+        verifyNoMoreInteractions(fixture.watchClient);
+    }
+
+    @Test
+    void watchlessFallbackReopensLegacyWatchSocket() throws Exception {
+        Fixture fixture = newFixture();
+        RunnableCaptor callbacks = new RunnableCaptor();
+        doAnswer(callbacks.capture()).when(fixture.libp2pEndpoint).start(
+                any(),
+                any(),
+                anyBoolean(),
+                any(Runnable.class),
+                any(Runnable.class));
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+
+        watcher.getValue().onOpen(WatchBootstrap.fromLists(
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("session", "status", "watchless")));
+        callbacks.ready.run();
+        callbacks.fallback.run();
+
+        verify(fixture.watchClient, times(2)).watch(any(Watcher.class));
+    }
+
+    @Test
+    void oldWatchBootstrapKeepsLegacyWatchSocketPrimary() throws Exception {
+        Fixture fixture = newFixture();
+        WebSocket webSocket = mock(WebSocket.class);
+        when(fixture.watchClient.watch(any(Watcher.class))).thenReturn(webSocket);
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+
+        watcher.getValue().onOpen(WatchBootstrap.fromLists(
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("session", "status")));
+
+        verify(fixture.libp2pEndpoint).start(
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                false);
+        verifyNoMoreInteractions(webSocket);
+    }
+
+    @Test
     void watcherRegisterDoesNotDeclareTimerFields() {
         assertNoTimerFields(WatcherRegister.class);
         for (Class<?> nestedClass : WatcherRegister.class.getDeclaredClasses()) {
@@ -180,10 +285,12 @@ class WatcherRegisterTest {
         inject(register, "platformInjector", mock(PlatformInjector.class));
         inject(register, "logger", mock(ConnectLogger.class));
         inject(register, "api", mock(SimpleConnectApi.class));
+        inject(register, "libp2pEndpoint", mock(Libp2pEndpoint.class));
         when(((PlatformInjector) getField(register, "platformInjector")).getServerSocketAddress())
                 .thenReturn(new InetSocketAddress("127.0.0.1", 25565));
         return new Fixture(register, watchClient, (Tunneler) getField(register, "tunneler"),
-                (PlatformInjector) getField(register, "platformInjector"));
+                (PlatformInjector) getField(register, "platformInjector"),
+                (Libp2pEndpoint) getField(register, "libp2pEndpoint"));
     }
 
     private static void inject(WatcherRegister register, String fieldName, Object value)
@@ -225,17 +332,33 @@ class WatcherRegisterTest {
         private final WatchClient watchClient;
         private final Tunneler tunneler;
         private final PlatformInjector platformInjector;
+        private final Libp2pEndpoint libp2pEndpoint;
 
         private Fixture(
                 WatcherRegister register,
                 WatchClient watchClient,
                 Tunneler tunneler,
-                PlatformInjector platformInjector
+                PlatformInjector platformInjector,
+                Libp2pEndpoint libp2pEndpoint
         ) {
             this.register = register;
             this.watchClient = watchClient;
             this.tunneler = tunneler;
             this.platformInjector = platformInjector;
+            this.libp2pEndpoint = libp2pEndpoint;
+        }
+    }
+
+    private static final class RunnableCaptor {
+        private Runnable ready;
+        private Runnable fallback;
+
+        private Answer<Void> capture() {
+            return invocation -> {
+                ready = invocation.getArgument(3);
+                fallback = invocation.getArgument(4);
+                return null;
+            };
         }
     }
 }

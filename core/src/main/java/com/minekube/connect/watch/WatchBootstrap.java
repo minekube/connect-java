@@ -30,23 +30,43 @@ import okhttp3.Headers;
 public final class WatchBootstrap {
     public static final String LIBP2P_EDGE_ADDRS_HEADER = "Connect-Libp2p-Edge-Addrs";
     public static final String LIBP2P_RELAY_ADDRS_HEADER = "Connect-Libp2p-Relay-Addrs";
+    public static final String LIBP2P_CAPABILITIES_HEADER = "Connect-Libp2p-Capabilities";
+
+    private static final String CAPABILITY_WATCHLESS = "watchless";
 
     private final List<String> libp2pEdgeAddrs;
     private final List<String> libp2pRelayAddrs;
+    private final List<String> libp2pCapabilities;
 
-    private WatchBootstrap(List<String> libp2pEdgeAddrs, List<String> libp2pRelayAddrs) {
-        this.libp2pEdgeAddrs = Collections.unmodifiableList(new ArrayList<>(libp2pEdgeAddrs));
-        this.libp2pRelayAddrs = Collections.unmodifiableList(new ArrayList<>(libp2pRelayAddrs));
+    private WatchBootstrap(
+            List<String> libp2pEdgeAddrs,
+            List<String> libp2pRelayAddrs,
+            List<String> libp2pCapabilities) {
+        this.libp2pEdgeAddrs = immutableCopy(libp2pEdgeAddrs);
+        this.libp2pRelayAddrs = immutableCopy(libp2pRelayAddrs);
+        this.libp2pCapabilities = immutableCopy(libp2pCapabilities);
     }
 
     public static WatchBootstrap fromHeaders(Headers headers) {
-        return new WatchBootstrap(
+        return fromLists(
                 parseHeaderValues(headers.values(LIBP2P_EDGE_ADDRS_HEADER)),
-                parseHeaderValues(headers.values(LIBP2P_RELAY_ADDRS_HEADER)));
+                parseHeaderValues(headers.values(LIBP2P_RELAY_ADDRS_HEADER)),
+                parseHeaderValues(headers.values(LIBP2P_CAPABILITIES_HEADER)));
+    }
+
+    public static WatchBootstrap fromLists(
+            List<String> libp2pEdgeAddrs,
+            List<String> libp2pRelayAddrs,
+            List<String> libp2pCapabilities) {
+        return new WatchBootstrap(libp2pEdgeAddrs, libp2pRelayAddrs, libp2pCapabilities);
     }
 
     public boolean hasLibp2p() {
         return !libp2pEdgeAddrs.isEmpty();
+    }
+
+    public boolean supportsWatchlessLibp2p() {
+        return libp2pCapabilities.contains(CAPABILITY_WATCHLESS);
     }
 
     public List<String> libp2pEdgeAddrs() {
@@ -74,5 +94,12 @@ public final class WatchBootstrap {
             }
         }
         return out;
+    }
+
+    private static List<String> immutableCopy(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return Collections.unmodifiableList(new ArrayList<>(values));
     }
 }
