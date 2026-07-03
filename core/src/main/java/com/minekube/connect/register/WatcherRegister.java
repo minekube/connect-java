@@ -33,16 +33,15 @@ import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.network.netty.LocalSession;
 import com.minekube.connect.tunnel.Tunneler;
+import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 import com.minekube.connect.util.Utils;
 import com.minekube.connect.util.backoff.BackOff;
 import com.minekube.connect.util.backoff.ExponentialBackOff;
-import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 import com.minekube.connect.watch.SessionProposal;
 import com.minekube.connect.watch.SessionProposal.State;
 import com.minekube.connect.watch.WatchBootstrap;
 import com.minekube.connect.watch.WatchClient;
 import com.minekube.connect.watch.Watcher;
-import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import java.io.IOException;
 import java.time.Duration;
@@ -67,6 +66,8 @@ public class WatcherRegister {
     // volatile: written from injection thread (start/stop) and read from the
     // scheduler thread (retry) and OkHttp dispatcher (WatcherImpl callbacks).
     private volatile WebSocket ws;
+    private volatile WatcherImpl watcher;
+    private volatile boolean legacyWatchEnabled;
     private ExponentialBackOff backOffPolicy;
     private final AtomicBoolean started = new AtomicBoolean();
 
@@ -79,6 +80,7 @@ public class WatcherRegister {
     @Inject
     public void start() {
         if (started.compareAndSet(false, true)) {
+            legacyWatchEnabled = true;
             scheduler = Executors.newSingleThreadScheduledExecutor(
                     new DefaultThreadFactory("connect-watcher-scheduler", true));
             backOffPolicy = new ExponentialBackOff.Builder()
@@ -102,6 +104,7 @@ public class WatcherRegister {
             return;
         }
         logger.info("Stopped watching for sessions");
+        legacyWatchEnabled = false;
         if (retryFuture != null) {
             retryFuture.cancel(false);
             retryFuture = null;
@@ -111,13 +114,17 @@ public class WatcherRegister {
             scheduler = null;
         }
         if (ws != null) {
+            if (watcher != null) {
+                watcher.ignoreTerminalEvents();
+            }
             ws.close(1000, "watcher stopped");
             ws = null;
         }
+        watcher = null;
     }
 
     private void retry() {
-        if (!started.get()) {
+        if (!started.get() || !legacyWatchEnabled) {
             return;
         }
         if (retryFuture != null) {
@@ -142,29 +149,81 @@ public class WatcherRegister {
         logger.info("Trying to reconnect in {}...",
                 Utils.humanReadableFormat(Duration.ofMillis(millis)));
         retryFuture = s.schedule(() -> {
-            if (started.get()) {
+            if (started.get() && legacyWatchEnabled) {
                 watch();
             }
         }, millis, TimeUnit.MILLISECONDS);
     }
 
     private void watch() {
+        if (!started.get() || !legacyWatchEnabled) {
+            return;
+        }
         if (ws != null) {
+            if (watcher != null) {
+                watcher.ignoreTerminalEvents();
+            }
             ws.close(1000, "watcher is reconnecting");
         }
-        ws = watchClient.watch(new WatcherImpl());
+        watcher = new WatcherImpl();
+        ws = watchClient.watch(watcher);
+    }
+
+    private void enterWatchlessMode() {
+        if (!started.get()) {
+            return;
+        }
+        legacyWatchEnabled = false;
+        if (retryFuture != null) {
+            retryFuture.cancel(false);
+            retryFuture = null;
+        }
+        WatcherImpl currentWatcher = watcher;
+        if (currentWatcher != null) {
+            currentWatcher.ignoreTerminalEvents();
+        }
+        WebSocket currentWebSocket = ws;
+        ws = null;
+        watcher = null;
+        logger.info("Connect libp2p watchless endpoint mode enabled");
+        if (currentWebSocket != null) {
+            currentWebSocket.close(1000, "watchless endpoint mode enabled");
+        }
+    }
+
+    private void enterLegacyWatchFallback() {
+        if (!started.get()) {
+            return;
+        }
+        if (legacyWatchEnabled && ws != null) {
+            return;
+        }
+        legacyWatchEnabled = true;
+        resetBackOff();
+        logger.info("Connect libp2p watchless endpoint fallback enabled WatchService");
+        watch();
     }
 
     private class WatcherImpl implements Watcher {
+        private volatile boolean ignoreTerminalEvents;
 
         @Override
         public void onOpen(WatchBootstrap bootstrap) {
             logger.translatedInfo("connect.watch.started");
             if (bootstrap.hasLibp2p()) {
-                libp2pEndpoint.start(
-                        bootstrap.libp2pEdgeAddrs(),
-                        bootstrap.libp2pRelayAddrs(),
-                        bootstrap.supportsWatchlessLibp2p());
+                if (bootstrap.supportsWatchlessLibp2p()) {
+                    libp2pEndpoint.start(
+                            bootstrap.libp2pEdgeAddrs(),
+                            bootstrap.libp2pRelayAddrs(),
+                            true,
+                            WatcherRegister.this::enterWatchlessMode,
+                            WatcherRegister.this::enterLegacyWatchFallback);
+                } else {
+                    libp2pEndpoint.start(
+                            bootstrap.libp2pEdgeAddrs(),
+                            bootstrap.libp2pRelayAddrs(),
+                            false);
+                }
             }
             startResetBackOffTimer();
         }
@@ -208,6 +267,9 @@ public class WatcherRegister {
 
         @Override
         public void onError(Throwable t) {
+            if (shouldIgnoreTerminalEvent()) {
+                return;
+            }
             logger.error("Connection error with WatchService: " +
                             t + (
                             t.getCause() == null ? ""
@@ -220,6 +282,9 @@ public class WatcherRegister {
 
         @Override
         public void onCompleted() {
+            if (shouldIgnoreTerminalEvent()) {
+                return;
+            }
             cancelResetBackOffTimer();
             retry();
         }
@@ -230,7 +295,7 @@ public class WatcherRegister {
             cancelResetBackOffTimer();
             // Snapshot: a late onOpen after stop() can land here with scheduler == null.
             ScheduledExecutorService s = scheduler;
-            if (s == null || !started.get()) {
+            if (s == null || !started.get() || !legacyWatchEnabled || ignoreTerminalEvents) {
                 return;
             }
             resetBackOffFuture = s.schedule(() -> {
@@ -245,6 +310,15 @@ public class WatcherRegister {
                 resetBackOffFuture.cancel(false);
                 resetBackOffFuture = null;
             }
+        }
+
+        void ignoreTerminalEvents() {
+            ignoreTerminalEvents = true;
+            cancelResetBackOffTimer();
+        }
+
+        private boolean shouldIgnoreTerminalEvent() {
+            return ignoreTerminalEvents || !legacyWatchEnabled || !started.get();
         }
     }
 }

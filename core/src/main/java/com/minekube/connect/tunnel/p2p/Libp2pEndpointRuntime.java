@@ -67,6 +67,7 @@ final class Libp2pEndpointRuntime {
     private static final long STREAM_TIMEOUT_SECONDS = 5;
     private static final int REGISTER_ATTEMPTS_PER_ADDRESS = 4;
     private static final int RELAY_RESERVATION_ATTEMPTS_PER_ADDRESS = 4;
+    private static final int WATCHLESS_STATUS_FAILURE_THRESHOLD = 3;
 
     private final Path dataDirectory;
     private final ConnectConfig connectConfig;
@@ -84,6 +85,7 @@ final class Libp2pEndpointRuntime {
     private ScheduledExecutorService registrationExecutor;
     private ScheduledExecutorService statusExecutor;
     private ActiveRegistration activeRegistration;
+    private Libp2pWatchlessController watchlessController;
     private List<String> reservedRelayAddrs = Collections.emptyList();
     private boolean started;
 
@@ -112,6 +114,15 @@ final class Libp2pEndpointRuntime {
     }
 
     synchronized void start(List<String> registerAddrs, List<String> relayAddrs, boolean watchless) {
+        start(registerAddrs, relayAddrs, watchless, null, null);
+    }
+
+    synchronized void start(
+            List<String> registerAddrs,
+            List<String> relayAddrs,
+            boolean watchless,
+            Runnable watchlessReady,
+            Runnable watchFallback) {
         if (started) {
             return;
         }
@@ -119,10 +130,14 @@ final class Libp2pEndpointRuntime {
         libp2pConfig = environmentConfig.enabled()
                 ? environmentConfig
                 : Libp2pEndpointConfig.fromBootstrap(registerAddrs, relayAddrs, watchless);
-        startWithConfig(libp2pConfig);
+        startWithConfig(libp2pConfig, watchlessReady, watchFallback);
     }
 
     private void startWithConfig(Libp2pEndpointConfig config) {
+        startWithConfig(config, null, null);
+    }
+
+    private void startWithConfig(Libp2pEndpointConfig config, Runnable watchlessReady, Runnable watchFallback) {
         if (started) {
             return;
         }
@@ -130,6 +145,11 @@ final class Libp2pEndpointRuntime {
         if (!libp2pConfig.enabled()) {
             return;
         }
+        watchlessController = new Libp2pWatchlessController(
+                libp2pConfig.watchless(),
+                WATCHLESS_STATUS_FAILURE_THRESHOLD,
+                watchlessReady,
+                watchFallback);
         try {
             identity = EndpointPeerIdentity.loadOrCreate(dataDirectory.resolve("libp2p-identity.key"));
             host = Libp2pTunnelTransportRuntime.createHost(
@@ -164,6 +184,7 @@ final class Libp2pEndpointRuntime {
             activeRegistration.close();
             activeRegistration = null;
         }
+        watchlessController = null;
         reservedRelayAddrs = Collections.emptyList();
         if (statusExecutor != null) {
             statusExecutor.shutdownNow();
@@ -344,6 +365,8 @@ final class Libp2pEndpointRuntime {
     private void registerAndWatch(OfflineMode offlineMode, EndpointAuthType authType) {
         ActiveRegistration registration = registerOnce(offlineMode, authType);
         ActiveRegistration previous;
+        Libp2pWatchlessController controller;
+        boolean statusHealthy;
         synchronized (this) {
             if (!started) {
                 registration.close();
@@ -353,12 +376,27 @@ final class Libp2pEndpointRuntime {
             activeRegistration = registration;
             logger.info("Connect libp2p endpoint registered: "
                     + registration.result().getEndpointId() + " (" + identity.peerId() + ")");
-            startStatusReporter(registration.result());
+            statusHealthy = startStatusReporter(registration.result());
+            controller = watchlessController;
         }
         if (previous != null) {
             previous.close();
         }
+        if (controller != null) {
+            controller.registrationCommitted(statusHealthy);
+        }
         registration.client().closedFuture().whenComplete((ignored, error) -> {
+            Libp2pWatchlessController currentController;
+            synchronized (this) {
+                if (activeRegistration != registration) {
+                    return;
+                }
+                currentController = watchlessController;
+                stopStatusReporter();
+            }
+            if (currentController != null) {
+                currentController.registrationClosed();
+            }
             if (error == null) {
                 logger.info("Connect libp2p registration stream closed; reconnecting");
             } else if (Libp2pEndpointErrors.isTransientConnectError(error)) {
@@ -518,11 +556,8 @@ final class Libp2pEndpointRuntime {
         }
     }
 
-    private void startStatusReporter(PeerRegisterResult result) {
-        if (statusExecutor != null) {
-            statusExecutor.shutdownNow();
-            statusExecutor = null;
-        }
+    private boolean startStatusReporter(PeerRegisterResult result) {
+        stopStatusReporter();
         Libp2pStatusReporter reporter = new Libp2pStatusReporter(
                 host,
                 endpointInstanceId,
@@ -531,17 +566,34 @@ final class Libp2pEndpointRuntime {
                 result,
                 platformUtils,
                 logger);
-        reporter.reportSafely();
+        boolean initialStatusHealthy = reporter.reportSafely();
         statusExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "connect-libp2p-status-report");
             thread.setDaemon(true);
             return thread;
         });
         statusExecutor.scheduleWithFixedDelay(
-                reporter::reportSafely,
+                () -> {
+                    boolean healthy = reporter.reportSafely();
+                    Libp2pWatchlessController controller;
+                    synchronized (this) {
+                        controller = watchlessController;
+                    }
+                    if (controller != null) {
+                        controller.statusReportResult(healthy);
+                    }
+                },
                 Libp2pStatusReporter.REPORT_INTERVAL_SECONDS,
                 Libp2pStatusReporter.REPORT_INTERVAL_SECONDS,
                 TimeUnit.SECONDS);
+        return initialStatusHealthy;
+    }
+
+    private void stopStatusReporter() {
+        if (statusExecutor != null) {
+            statusExecutor.shutdownNow();
+            statusExecutor = null;
+        }
     }
 
     private static final class ActiveRegistration {

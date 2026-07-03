@@ -46,18 +46,21 @@ final class Libp2pEndpointConfig {
     private final List<String> advertiseAddrs;
     private final List<String> relayAddrs;
     private final List<String> capabilities;
+    private final boolean watchless;
 
     private Libp2pEndpointConfig(
             List<String> registerAddrs,
             List<String> listenAddrs,
             List<String> advertiseAddrs,
             List<String> relayAddrs,
-            List<String> capabilities) {
+            List<String> capabilities,
+            boolean watchless) {
         this.registerAddrs = registerAddrs;
         this.listenAddrs = listenAddrs;
         this.advertiseAddrs = advertiseAddrs;
         this.relayAddrs = relayAddrs;
         this.capabilities = capabilities;
+        this.watchless = watchless;
     }
 
     static Libp2pEndpointConfig fromEnvironment(Map<String, String> env) {
@@ -71,7 +74,8 @@ final class Libp2pEndpointConfig {
                 listenAddrs,
                 split(env.get(ADVERTISE_ADDRS_ENV)),
                 split(env.get(RELAY_ADDRS_ENV)),
-                LEGACY_WATCH_CAPABILITIES);
+                LEGACY_WATCH_CAPABILITIES,
+                false);
     }
 
     static Libp2pEndpointConfig fromSystemEnvironment() {
@@ -91,7 +95,8 @@ final class Libp2pEndpointConfig {
                 Collections.singletonList("/ip4/127.0.0.1/tcp/0"),
                 Collections.emptyList(),
                 immutableCopy(relayAddrs),
-                watchless ? WATCHLESS_CAPABILITIES : LEGACY_WATCH_CAPABILITIES);
+                watchless ? WATCHLESS_CAPABILITIES : LEGACY_WATCH_CAPABILITIES,
+                watchless);
     }
 
     boolean enabled() {
@@ -116,6 +121,10 @@ final class Libp2pEndpointConfig {
 
     List<String> capabilities() {
         return capabilities;
+    }
+
+    boolean watchless() {
+        return watchless;
     }
 
     List<String> edgePeerIds() {

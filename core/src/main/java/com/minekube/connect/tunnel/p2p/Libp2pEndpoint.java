@@ -43,6 +43,7 @@ public class Libp2pEndpoint {
     private Object runtime;
     private Method startMethod;
     private Method startBootstrapMethod;
+    private Method startWatchlessMethod;
     private Method stopMethod;
 
     @Inject
@@ -80,9 +81,12 @@ public class Libp2pEndpoint {
             this.startMethod = runtimeClass.getDeclaredMethod("start");
             this.startBootstrapMethod = runtimeClass.getDeclaredMethod(
                     "start", List.class, List.class, boolean.class);
+            this.startWatchlessMethod = runtimeClass.getDeclaredMethod(
+                    "start", List.class, List.class, boolean.class, Runnable.class, Runnable.class);
             this.stopMethod = runtimeClass.getDeclaredMethod("stop");
             this.startMethod.setAccessible(true);
             this.startBootstrapMethod.setAccessible(true);
+            this.startWatchlessMethod.setAccessible(true);
             this.stopMethod.setAccessible(true);
         } catch (Exception | LinkageError e) {
             this.runtime = null;
@@ -108,11 +112,24 @@ public class Libp2pEndpoint {
     }
 
     public synchronized void start(List<String> registerAddrs, List<String> relayAddrs, boolean watchless) {
+        start(registerAddrs, relayAddrs, watchless, null, null);
+    }
+
+    public synchronized void start(
+            List<String> registerAddrs,
+            List<String> relayAddrs,
+            boolean watchless,
+            Runnable watchlessReady,
+            Runnable watchFallback) {
         if (runtime == null) {
             return;
         }
         try {
-            startBootstrapMethod.invoke(runtime, registerAddrs, relayAddrs, watchless);
+            if (watchlessReady == null && watchFallback == null) {
+                startBootstrapMethod.invoke(runtime, registerAddrs, relayAddrs, watchless);
+            } else {
+                startWatchlessMethod.invoke(runtime, registerAddrs, relayAddrs, watchless, watchlessReady, watchFallback);
+            }
         } catch (InvocationTargetException e) {
             stop();
             Throwable cause = e.getCause() == null ? e : e.getCause();
