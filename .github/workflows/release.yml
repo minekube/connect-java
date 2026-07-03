@@ -15,7 +15,7 @@ on:
         type: string
   # Trigger on branch push for pre-releases
   push:
-    branches: [connect]
+    branches: [main]
 
 jobs:
   build:
@@ -117,7 +117,7 @@ jobs:
             prerelease/*.jar
             LICENSE
           body: |
-            Automated pre-release build from `connect` branch.
+            Automated pre-release build from `main` branch.
 
             **Version:** ${{ steps.version.outputs.version }}
             **Commit:** ${{ github.sha }}
