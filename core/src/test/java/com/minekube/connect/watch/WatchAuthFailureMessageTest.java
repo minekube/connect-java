@@ -13,7 +13,7 @@ class WatchAuthFailureMessageTest {
         assertEquals(
                 "WatchService rejected the endpoint token for this endpoint name. "
                         + "Regenerate the token for this exact endpoint and organization in the Minekube dashboard, "
-                        + "copy it into config.yml, then restart the server. "
+                        + "replace the token in token.json or CONNECT_TOKEN, then restart the server. "
                         + "If you do not own this endpoint name, choose a different endpoint name.",
                 message);
     }

@@ -12,7 +12,7 @@ final class WatchAuthFailureMessage {
         if (message.startsWith(TOKEN_ENDPOINT_MISMATCH)) {
             return "WatchService rejected the endpoint token for this endpoint name. "
                     + "Regenerate the token for this exact endpoint and organization in the Minekube dashboard, "
-                    + "copy it into config.yml, then restart the server. "
+                    + "replace the token in token.json or CONNECT_TOKEN, then restart the server. "
                     + "If you do not own this endpoint name, choose a different endpoint name.";
         }
         if (message.startsWith(ENDPOINT_ORG_OWNED)) {
