@@ -30,6 +30,7 @@ import com.google.inject.name.Named;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.InjectorAddon;
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.network.netty.LocalChannelInboundHandler;
 import com.minekube.connect.network.netty.LocalSession;
@@ -39,6 +40,7 @@ public final class SpigotDataAddon implements InjectorAddon {
     @Inject private ConnectConfig config;
     @Inject private SimpleConnectApi api;
     @Inject private ConnectLogger logger;
+    @Inject private BedrockIdentityEnforcer bedrockIdentityEnforcer;
 
     @Inject
     @Named("packetHandler")
@@ -54,7 +56,8 @@ public final class SpigotDataAddon implements InjectorAddon {
                     new SpigotDataHandler(ctx,
                             packetHandlerName,
                             config,
-                            logger)
+                            logger,
+                            bedrockIdentityEnforcer)
             );
             if (channel.pipeline().get(SpigotChatSessionPacketFilter.HANDLER_NAME) == null) {
                 channel.pipeline().addBefore(

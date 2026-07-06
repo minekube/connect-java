@@ -38,6 +38,8 @@ import com.google.inject.Inject;
 import com.minekube.connect.api.ProxyConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
+import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
+import com.minekube.connect.bedrock.BedrockIdentityEnforcer.Decision;
 import com.minekube.connect.network.netty.LocalSession;
 import com.minekube.connect.util.LanguageManager;
 import com.velocitypowered.api.event.PostOrder;
@@ -54,6 +56,7 @@ import java.lang.reflect.Field;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import net.kyori.adventure.text.Component;
 
 public final class VelocityListener {
     private static final Field INITIAL_MINECRAFT_CONNECTION;
@@ -90,6 +93,7 @@ public final class VelocityListener {
     @Inject private ProxyConnectApi api;
     @Inject private LanguageManager languageManager;
     @Inject private ConnectLogger logger;
+    @Inject private BedrockIdentityEnforcer bedrockIdentityEnforcer;
 
     @Subscribe(order = PostOrder.EARLY)
     public void onPreLogin(PreLoginEvent event) {
@@ -106,6 +110,13 @@ public final class VelocityListener {
 
             LocalSession.context(channel, ctx -> {
                 if (!ctx.getPlayer().getAuth().isPassthrough()) {
+                    Decision decision = bedrockIdentityEnforcer.verify(ctx);
+                    if (!decision.allowed()) {
+                        bedrockIdentityEnforcer.reject(ctx, decision);
+                        event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
+                                Component.text(decision.message())));
+                        return;
+                    }
                     // Means the TunnelService has already authenticated the player
                     event.setResult(PreLoginEvent.PreLoginComponentResult.forceOfflineMode());
                     playerCache.put(event.getConnection(), ctx.getPlayer());

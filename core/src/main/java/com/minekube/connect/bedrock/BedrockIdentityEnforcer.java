@@ -1,5 +1,8 @@
 package com.minekube.connect.bedrock;
 
+import com.google.inject.Inject;
+import com.google.rpc.Code;
+import com.google.rpc.Status;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
@@ -27,6 +30,7 @@ public final class BedrockIdentityEnforcer {
     private final Supplier<Instant> now;
     private final BedrockIdentityReplayCache replayCache = new BedrockIdentityReplayCache();
 
+    @Inject
     public BedrockIdentityEnforcer(ConnectConfig config, ConnectLogger logger) {
         this(config, logger, Instant::now);
     }
@@ -40,6 +44,15 @@ public final class BedrockIdentityEnforcer {
     public Decision verify(LocalSession.Context context) {
         Objects.requireNonNull(context, "context");
         return verify(context.getPlayer());
+    }
+
+    public void reject(LocalSession.Context context, Decision decision) {
+        Objects.requireNonNull(context, "context");
+        Objects.requireNonNull(decision, "decision");
+        context.getSessionProposal().reject(Status.newBuilder()
+                .setCode(Code.PERMISSION_DENIED_VALUE)
+                .setMessage(decision.message())
+                .build());
     }
 
     public Decision verify(ConnectPlayer player) {
