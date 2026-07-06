@@ -138,7 +138,9 @@ public final class LocalSession {
         final Context context = new Context(
                 fromProto(sessionProposal.getSession()),
                 createAddress(sessionProposal.getSession().getPlayer().getAddr()),
-                sessionProposal
+                sessionProposal,
+                sessionProposal.getEndpointId(),
+                sessionProposal.getEndpointOrgId()
         );
 
         // Use platform-specific event loop if available (e.g., BungeeCord's event loops)
@@ -231,6 +233,8 @@ public final class LocalSession {
         final @NotNull ConnectPlayer player;
         final @NotNull InetSocketAddress spoofedAddress; // real client address
         final @NotNull SessionProposal sessionProposal;
+        final @NotNull String endpointId;
+        final @NotNull String endpointOrgId;
 
         AtomicReference<TunnelConn> tunnelConn = new AtomicReference<>(null);
     }

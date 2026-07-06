@@ -24,6 +24,12 @@ bedrock-identity:
   enforcement: disabled
   # Base64-encoded Ed25519 public key. Supports raw 32-byte and X.509 encoded keys after decoding.
   public-key: ""
+  # Additional Base64-encoded Ed25519 public keys accepted during key rotation.
+  public-keys: []
+  # Public metadata URL for Moxy verifier keys. Prefer this once Minekube publishes it.
+  metadata-url: ""
+  # Seconds to cache successful verifier metadata.
+  metadata-cache-seconds: 300
   # Expected Connect Edge Bedrock authentication policy.
   expected-policy: trusted_bedrock_xuid
 

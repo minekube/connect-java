@@ -26,6 +26,7 @@
 package com.minekube.connect.config;
 
 import com.minekube.connect.util.Utils;
+import java.util.Collections;
 import java.util.List;
 import lombok.Getter;
 
@@ -100,6 +101,18 @@ public class ConnectConfig {
          * Base64-encoded Ed25519 public key used to verify identity envelopes.
          */
         private String publicKey = "";
+        /**
+         * Additional Base64-encoded Ed25519 public keys accepted during rotation.
+         */
+        private List<String> publicKeys = Collections.emptyList();
+        /**
+         * Public metadata endpoint for current and previous verifier keys.
+         */
+        private String metadataUrl = "";
+        /**
+         * Local cache duration for successful metadata fetches.
+         */
+        private int metadataCacheSeconds = 300;
         /**
          * Expected Connect Edge Bedrock authentication policy.
          */

@@ -103,7 +103,9 @@ final class Libp2pSessionResponder {
                             .setRejected(SessionRejected.newBuilder().setReason(reason))
                             .build());
                     stream.close();
-                });
+                },
+                offer.getEndpointId(),
+                offer.getEndpointOrgId());
         Tunneler tunneler = new Tunneler(new SameStreamTunnelTransport(stream, sessionId ->
                 writeResponse(stream, SessionResponse.newBuilder()
                         .setSessionId(sessionId)

@@ -1,0 +1,33 @@
+package com.minekube.connect.watch;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import minekube.connect.v1alpha1.WatchServiceOuterClass.Authentication;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfile;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfileProperty;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
+import org.junit.jupiter.api.Test;
+
+class SessionProposalTest {
+    @Test
+    void parsesBedrockIdentityScopeSidecarFromLegacyWatchSession() {
+        Session session = Session.newBuilder()
+                .setId("session-1")
+                .setAuth(Authentication.newBuilder().setPassthrough(false))
+                .setPlayer(Player.newBuilder()
+                        .setAddr("127.0.0.1")
+                        .setProfile(GameProfile.newBuilder()
+                                .setId("00000000-0000-0000-0000-000000000000")
+                                .setName("Player")
+                                .addProperties(GameProfileProperty.newBuilder()
+                                        .setName("minekube:bedrock_identity_scope")
+                                        .setValue("{\"endpoint_id\":\"endpoint-id\",\"endpoint_org_id\":\"org-id\"}"))))
+                .build();
+
+        SessionProposal proposal = new SessionProposal(session, reason -> {});
+
+        assertEquals("endpoint-id", proposal.getEndpointId());
+        assertEquals("org-id", proposal.getEndpointOrgId());
+    }
+}

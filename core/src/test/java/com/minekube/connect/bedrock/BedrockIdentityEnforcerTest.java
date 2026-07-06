@@ -66,6 +66,61 @@ class BedrockIdentityEnforcerTest {
     }
 
     @Test
+    void requireModeAllowsEnvelopeSignedByAdditionalPublicKey() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        ConnectConfig config = config(
+                "require",
+                "",
+                "trusted_bedrock_xuid");
+        setField(config.getBedrockIdentity(), "publicKeys", Collections.singletonList(base64(keyPair.getPublic().getEncoded())));
+        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", config.getEndpoint());
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(config, mock(ConnectLogger.class), () -> NOW);
+
+        BedrockIdentityEnforcer.Decision decision = enforcer.verify(player("session-1", profileWithEnvelope(envelope)));
+
+        assertTrue(decision.allowed());
+        assertNotNull(decision.verifiedClaims());
+    }
+
+    @Test
+    void requireModeRejectsEndpointScopeMismatchWhenLocalScopeIsPresent() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        ConnectConfig config = config(
+                "require",
+                base64(keyPair.getPublic().getEncoded()),
+                "trusted_bedrock_xuid");
+        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", config.getEndpoint());
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(config, mock(ConnectLogger.class), () -> NOW);
+
+        BedrockIdentityEnforcer.Decision decision = enforcer.verify(
+                player("session-1", profileWithEnvelope(envelope)),
+                "other-endpoint-id",
+                "org-id");
+
+        assertFalse(decision.allowed());
+        assertTrue(decision.message().contains("Bedrock identity verification failed"));
+    }
+
+    @Test
+    void requireModeRejectsOrgScopeMismatchWhenLocalScopeIsPresent() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        ConnectConfig config = config(
+                "require",
+                base64(keyPair.getPublic().getEncoded()),
+                "trusted_bedrock_xuid");
+        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", config.getEndpoint());
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(config, mock(ConnectLogger.class), () -> NOW);
+
+        BedrockIdentityEnforcer.Decision decision = enforcer.verify(
+                player("session-1", profileWithEnvelope(envelope)),
+                "endpoint-id",
+                "other-org-id");
+
+        assertFalse(decision.allowed());
+        assertTrue(decision.message().contains("Bedrock identity verification failed"));
+    }
+
+    @Test
     void requireModeRejectsMissingIdentity() {
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
                 config("require", base64(new byte[32]), "trusted_bedrock_xuid"),
