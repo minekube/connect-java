@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.0](https://github.com/minekube/connect-java/compare/0.8.0...0.9.0) (2026-07-06)
+
+
+### Features
+
+* configure Bedrock identity enforcement ([664db94](https://github.com/minekube/connect-java/commit/664db945f0bc54f72ab686c59d14106d7b63c460))
+* enforce Bedrock identity envelopes ([5f42659](https://github.com/minekube/connect-java/commit/5f4265905ee083155433d011db98f357a22b7131))
+* enforce Bedrock identity envelopes ([63fbedb](https://github.com/minekube/connect-java/commit/63fbedb9d2b2b78e7ac4dc48b3717e0d337763de))
+* reject invalid Bedrock identity sessions ([b8e4c4c](https://github.com/minekube/connect-java/commit/b8e4c4c9f56ab69b82b9e930fe3ab99c94f68ede))
+
 ## [0.8.0](https://github.com/minekube/connect-java/compare/0.7.11...0.8.0) (2026-07-05)
 
 
