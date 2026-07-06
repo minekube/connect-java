@@ -42,9 +42,9 @@ public final class BedrockIdentityVerifier {
     private BedrockIdentityVerifier(Builder builder) {
         this.publicKey = Objects.requireNonNull(builder.publicKey, "publicKey");
         this.now = builder.now;
-        this.endpointId = requireNonEmpty(builder.endpointId, "endpointId");
+        this.endpointId = optionalNonEmpty(builder.endpointId, "endpointId");
         this.endpointName = requireNonEmpty(builder.endpointName, "endpointName");
-        this.orgId = requireNonEmpty(builder.orgId, "orgId");
+        this.orgId = optionalNonEmpty(builder.orgId, "orgId");
         this.sessionId = requireNonEmpty(builder.sessionId, "sessionId");
         this.protocol = requireNonEmpty(builder.protocol, "protocol");
         this.bedrockAuthPolicy = builder.bedrockAuthPolicy;
@@ -185,9 +185,9 @@ public final class BedrockIdentityVerifier {
     }
 
     private void validateScope(Envelope envelope) throws BedrockIdentityVerificationException {
-        if (!endpointId.equals(envelope.endpoint.id) ||
+        if ((endpointId != null && !endpointId.equals(envelope.endpoint.id)) ||
                 !endpointName.equals(envelope.endpoint.name) ||
-                !orgId.equals(envelope.endpoint.org_id) ||
+                (orgId != null && !orgId.equals(envelope.endpoint.org_id)) ||
                 !sessionId.equals(envelope.session.id) ||
                 !protocol.equals(envelope.session.protocol)) {
             throw new BedrockIdentityVerificationException("identity envelope scope mismatch");
@@ -236,6 +236,13 @@ public final class BedrockIdentityVerifier {
             throw new IllegalArgumentException(name + " is required");
         }
         return value;
+    }
+
+    private static String optionalNonEmpty(String value, String name) {
+        if (value == null) {
+            return null;
+        }
+        return requireNonEmpty(value, name);
     }
 
     private static boolean isEmpty(String value) {

@@ -15,6 +15,18 @@ allow-offline-mode-players: false
 #  - pvp-endpoint
 #  - someones-hub
 
+# Moxy can attach a signed Bedrock/Xbox identity envelope to Bedrock sessions.
+# Keep enforcement disabled unless Minekube provided the current public key.
+bedrock-identity:
+  # disabled: do not verify or reject
+  # warn: verify when public-key is configured and log failures, but allow the session
+  # require: reject Bedrock sessions with missing or invalid identity envelopes
+  enforcement: disabled
+  # Base64-encoded Ed25519 public key. Supports raw 32-byte and X.509 encoded keys after decoding.
+  public-key: ""
+  # Expected Connect Edge Bedrock authentication policy.
+  expected-policy: trusted_bedrock_xuid
+
 # The default locale for Connect. By default, Connect uses the system locale
 #default-locale: en_US
 

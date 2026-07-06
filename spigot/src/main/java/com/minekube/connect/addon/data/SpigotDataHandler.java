@@ -31,6 +31,8 @@ import static com.minekube.connect.util.ReflectionUtils.setValue;
 import com.google.gson.Gson;
 import com.minekube.connect.SpigotPlugin;
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
+import com.minekube.connect.bedrock.BedrockIdentityEnforcer.Decision;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.network.netty.LocalSession.Context;
 import com.minekube.connect.util.ClassNames;
@@ -45,16 +47,19 @@ public final class SpigotDataHandler extends CommonDataHandler {
     private final Context sessionCtx;
     private final String packetHandlerName;
     private final ConnectLogger logger;
+    private final BedrockIdentityEnforcer bedrockIdentityEnforcer;
 
     public SpigotDataHandler(
             Context sessionCtx,
             String packetHandlerName,
             ConnectConfig config,
-            ConnectLogger logger) {
+            ConnectLogger logger,
+            BedrockIdentityEnforcer bedrockIdentityEnforcer) {
         super(config);
         this.sessionCtx = sessionCtx;
         this.packetHandlerName = packetHandlerName;
         this.logger = logger;
+        this.bedrockIdentityEnforcer = bedrockIdentityEnforcer;
     }
 
     private void removeSelf() {
@@ -150,6 +155,9 @@ public final class SpigotDataHandler extends CommonDataHandler {
         }
         if (ClassNames.LOGIN_START_PACKET.isInstance(packet)) {
             debug("Processing LOGIN_START_PACKET for " + sessionCtx.getPlayer().getUsername());
+            if (!enforceBedrockIdentity()) {
+                return false;
+            }
 
             Object networkManager = ctx.channel().pipeline().get(packetHandlerName);
             Object packetListener = ClassNames.PACKET_LISTENER.get(networkManager);
@@ -227,6 +235,20 @@ public final class SpigotDataHandler extends CommonDataHandler {
             return false;
         }
         return true;
+    }
+
+    boolean enforceBedrockIdentity() {
+        if (bedrockIdentityEnforcer == null) {
+            return true;
+        }
+        Decision decision = bedrockIdentityEnforcer.verify(sessionCtx);
+        if (decision.allowed()) {
+            return true;
+        }
+        bedrockIdentityEnforcer.reject(sessionCtx, decision);
+        ctx.close();
+        removeSelf();
+        return false;
     }
 
     private static final Gson GSON = new Gson();

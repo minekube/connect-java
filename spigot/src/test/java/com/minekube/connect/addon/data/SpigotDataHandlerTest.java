@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.channel.local.LocalAddress;
-import java.net.InetSocketAddress;
 import java.lang.reflect.Method;
+import java.net.InetSocketAddress;
 import org.junit.jupiter.api.Test;
 
 class SpigotDataHandlerTest {
@@ -21,7 +21,7 @@ class SpigotDataHandlerTest {
 
     @Test
     void removeSelfIsIdempotentWhenHandshakeReplacementReentersPipeline() throws Exception {
-        SpigotDataHandler handler = new SpigotDataHandler(null, "packet-handler", null, null);
+        SpigotDataHandler handler = new SpigotDataHandler(null, "packet-handler", null, null, null);
         EmbeddedChannel channel = new EmbeddedChannel(handler);
         Method removeSelf = SpigotDataHandler.class.getDeclaredMethod("removeSelf");
         removeSelf.setAccessible(true);

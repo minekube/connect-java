@@ -84,6 +84,25 @@ class BedrockIdentityVerifierTest {
     }
 
     @Test
+    void verifiesWhenEndpointIdAndOrgIdAreNotLocallyConfigured() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id");
+        BedrockIdentityVerifier verifier = BedrockIdentityVerifier.builder()
+                .publicKey(keyPair.getPublic().getEncoded())
+                .now(NOW)
+                .endpointName("endpoint")
+                .sessionId("session-1")
+                .protocol("bedrock")
+                .bedrockAuthPolicy("trusted_bedrock_xuid")
+                .build();
+
+        BedrockIdentityClaims claims = verifier.verify(profileWithEnvelope(envelope));
+
+        assertEquals("endpoint-id", claims.getEndpointId());
+        assertEquals("org-id", claims.getOrgId());
+    }
+
+    @Test
     void rejectsPolicyMismatchWhenExpectedPolicyIsConfigured() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
         String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id");

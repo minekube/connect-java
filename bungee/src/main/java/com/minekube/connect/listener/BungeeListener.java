@@ -31,6 +31,8 @@ import com.google.inject.Inject;
 import com.minekube.connect.api.ProxyConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
+import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
+import com.minekube.connect.bedrock.BedrockIdentityEnforcer.Decision;
 import com.minekube.connect.network.netty.LocalSession;
 import com.minekube.connect.util.LanguageManager;
 import com.minekube.connect.util.ReflectionUtils;
@@ -64,6 +66,7 @@ public final class BungeeListener implements Listener {
     @Inject private ProxyConnectApi api;
     @Inject private LanguageManager languageManager;
     @Inject private ConnectLogger logger;
+    @Inject private BedrockIdentityEnforcer bedrockIdentityEnforcer;
 
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPreLogin(PreLoginEvent event) {
@@ -78,6 +81,13 @@ public final class BungeeListener implements Listener {
         Channel channel = wrapper.getHandle();
 
         LocalSession.context(channel, ctx -> {
+            Decision decision = bedrockIdentityEnforcer.verify(ctx);
+            if (!decision.allowed()) {
+                bedrockIdentityEnforcer.reject(ctx, decision);
+                event.setCancelReason(decision.message());
+                event.setCancelled(true);
+                return;
+            }
             connection.setOnlineMode(false);
             connection.setUniqueId(ctx.getPlayer().getUniqueId());
             ReflectionUtils.setValue(connection, PLAYER_NAME, ctx.getPlayer().getUsername());
