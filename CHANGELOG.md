@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/minekube/connect-java/compare/0.9.0...0.10.0) (2026-07-06)
+
+
+### Features
+
+* load bedrock identity verifier metadata ([8a95e28](https://github.com/minekube/connect-java/commit/8a95e28109a92ccada7ee9b105d55aefd062426f))
+
 ## [0.9.0](https://github.com/minekube/connect-java/compare/0.8.0...0.9.0) (2026-07-06)
 
 
