@@ -55,6 +55,11 @@ public class ConnectConfig {
     private Boolean allowOfflineModePlayers;
 
     /**
+     * Verification settings for Moxy-signed Bedrock identity envelopes.
+     */
+    private BedrockIdentityConfig bedrockIdentity = new BedrockIdentityConfig();
+
+    /**
      * Super endpoints are authorized to control this endpoint via Connect API.
      * e.g. disconnect players from this endpoint, send messages to players, etc.
      */
@@ -83,5 +88,21 @@ public class ConnectConfig {
          * The unique id that should be consistent for a server/proxy.
          */
         private String uuid;
+    }
+
+    @Getter
+    public static class BedrockIdentityConfig {
+        /**
+         * disabled, warn, or require.
+         */
+        private String enforcement = "disabled";
+        /**
+         * Base64-encoded Ed25519 public key used to verify identity envelopes.
+         */
+        private String publicKey = "";
+        /**
+         * Expected Connect Edge Bedrock authentication policy.
+         */
+        private String expectedPolicy = "trusted_bedrock_xuid";
     }
 }

@@ -34,4 +34,32 @@ class ConfigLoaderTest {
 
         assertEquals(Boolean.TRUE, config.getAllowOfflineModePlayers());
     }
+
+    @Test
+    void loadsBedrockIdentityEnforcementConfig() throws Exception {
+        Files.writeString(tempDir.resolve("config.yml"), String.join("\n",
+                "endpoint: codexp2p3",
+                "allow-offline-mode-players: false",
+                "bedrock-identity:",
+                "  enforcement: require",
+                "  public-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                "  expected-policy: trusted_bedrock_xuid",
+                "metrics:",
+                "  disabled: true",
+                "  uuid: 00000000-0000-0000-0000-000000000000",
+                "config-version: 1",
+                ""));
+
+        ConfigLoader loader = new ConfigLoader(
+                tempDir,
+                ConnectConfig.class,
+                new ConfigLoader.EndpointNameGenerator(new OkHttpClient()),
+                mock(ConnectLogger.class));
+
+        ConnectConfig config = loader.load();
+
+        assertEquals("require", config.getBedrockIdentity().getEnforcement());
+        assertEquals("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", config.getBedrockIdentity().getPublicKey());
+        assertEquals("trusted_bedrock_xuid", config.getBedrockIdentity().getExpectedPolicy());
+    }
 }
