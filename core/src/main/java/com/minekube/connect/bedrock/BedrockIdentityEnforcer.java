@@ -13,10 +13,12 @@ import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.config.ConnectConfig.BedrockIdentityConfig;
 import com.minekube.connect.network.netty.LocalSession;
 import java.time.Instant;
-import java.util.Base64;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Supplier;
+import javax.inject.Named;
+import okhttp3.OkHttpClient;
 
 public final class BedrockIdentityEnforcer {
     private static final String MODE_DISABLED = "disabled";
@@ -28,22 +30,35 @@ public final class BedrockIdentityEnforcer {
     private final ConnectConfig config;
     private final ConnectLogger logger;
     private final Supplier<Instant> now;
+    private final BedrockIdentityKeyProvider keyProvider;
     private final BedrockIdentityReplayCache replayCache = new BedrockIdentityReplayCache();
 
     @Inject
-    public BedrockIdentityEnforcer(ConnectConfig config, ConnectLogger logger) {
-        this(config, logger, Instant::now);
+    public BedrockIdentityEnforcer(
+            ConnectConfig config,
+            ConnectLogger logger,
+            @Named("defaultHttpClient") OkHttpClient httpClient) {
+        this(config, logger, Instant::now, new BedrockIdentityKeyProvider(config, httpClient));
     }
 
     BedrockIdentityEnforcer(ConnectConfig config, ConnectLogger logger, Supplier<Instant> now) {
+        this(config, logger, now, new BedrockIdentityKeyProvider(config, new OkHttpClient(), now));
+    }
+
+    BedrockIdentityEnforcer(
+            ConnectConfig config,
+            ConnectLogger logger,
+            Supplier<Instant> now,
+            BedrockIdentityKeyProvider keyProvider) {
         this.config = Objects.requireNonNull(config, "config");
         this.logger = Objects.requireNonNull(logger, "logger");
         this.now = Objects.requireNonNull(now, "now");
+        this.keyProvider = Objects.requireNonNull(keyProvider, "keyProvider");
     }
 
     public Decision verify(LocalSession.Context context) {
         Objects.requireNonNull(context, "context");
-        return verify(context.getPlayer());
+        return verify(context.getPlayer(), context.getEndpointId(), context.getEndpointOrgId());
     }
 
     public void reject(LocalSession.Context context, Decision decision) {
@@ -56,6 +71,10 @@ public final class BedrockIdentityEnforcer {
     }
 
     public Decision verify(ConnectPlayer player) {
+        return verify(player, "", "");
+    }
+
+    Decision verify(ConnectPlayer player, String endpointId, String endpointOrgId) {
         Objects.requireNonNull(player, "player");
         BedrockIdentityConfig bedrockIdentity = config.getBedrockIdentity();
         String mode = mode(bedrockIdentity);
@@ -63,12 +82,12 @@ public final class BedrockIdentityEnforcer {
             return Decision.allowed(null);
         }
 
-        if (MODE_WARN.equals(mode) && isEmpty(bedrockIdentity.getPublicKey())) {
+        if (MODE_WARN.equals(mode) && !hasConfiguredKeys(bedrockIdentity)) {
             return Decision.allowed(null);
         }
 
         try {
-            BedrockIdentityClaims claims = verifier(player, bedrockIdentity).verify(player.getGameProfile());
+            BedrockIdentityClaims claims = verifyWithKeys(player, bedrockIdentity, endpointId, endpointOrgId);
             return Decision.allowed(claims);
         } catch (RuntimeException | BedrockIdentityVerificationException e) {
             warn(player, safeReason(e));
@@ -79,17 +98,57 @@ public final class BedrockIdentityEnforcer {
         }
     }
 
-    private BedrockIdentityVerifier verifier(ConnectPlayer player, BedrockIdentityConfig bedrockIdentity) {
-        byte[] publicKey = Base64.getDecoder().decode(requirePublicKey(bedrockIdentity));
-        return BedrockIdentityVerifier.builder()
+    private BedrockIdentityClaims verifyWithKeys(
+            ConnectPlayer player,
+            BedrockIdentityConfig bedrockIdentity,
+            String endpointId,
+            String endpointOrgId) throws BedrockIdentityVerificationException {
+        List<byte[]> keys = keyProvider.keys();
+        if (keys.isEmpty()) {
+            throw new IllegalArgumentException("Bedrock identity public key is not configured");
+        }
+        BedrockIdentityVerificationException verificationError = null;
+        RuntimeException runtimeError = null;
+        for (byte[] publicKey : keys) {
+            try {
+                return verifier(publicKey, player, bedrockIdentity, endpointId, endpointOrgId)
+                        .verify(player.getGameProfile());
+            } catch (BedrockIdentityVerificationException e) {
+                verificationError = e;
+            } catch (RuntimeException e) {
+                runtimeError = e;
+            }
+        }
+        if (verificationError != null) {
+            throw verificationError;
+        }
+        if (runtimeError != null) {
+            throw runtimeError;
+        }
+        throw new IllegalArgumentException("Bedrock identity public key is not configured");
+    }
+
+    private BedrockIdentityVerifier verifier(
+            byte[] publicKey,
+            ConnectPlayer player,
+            BedrockIdentityConfig bedrockIdentity,
+            String endpointId,
+            String endpointOrgId) {
+        BedrockIdentityVerifier.Builder builder = BedrockIdentityVerifier.builder()
                 .publicKey(publicKey)
                 .now(now)
                 .endpointName(config.getEndpoint())
                 .sessionId(player.getSessionId())
                 .protocol(PROTOCOL_BEDROCK)
                 .bedrockAuthPolicy(bedrockIdentity.getExpectedPolicy())
-                .replayCache(replayCache)
-                .build();
+                .replayCache(replayCache);
+        if (!isEmpty(endpointId)) {
+            builder.endpointId(endpointId);
+        }
+        if (!isEmpty(endpointOrgId)) {
+            builder.orgId(endpointOrgId);
+        }
+        return builder.build();
     }
 
     private static String mode(BedrockIdentityConfig bedrockIdentity) {
@@ -99,11 +158,14 @@ public final class BedrockIdentityEnforcer {
         return bedrockIdentity.getEnforcement().toLowerCase(Locale.ROOT);
     }
 
-    private static String requirePublicKey(BedrockIdentityConfig bedrockIdentity) {
-        if (bedrockIdentity == null || isEmpty(bedrockIdentity.getPublicKey())) {
-            throw new IllegalArgumentException("Bedrock identity public key is not configured");
+    private static boolean hasConfiguredKeys(BedrockIdentityConfig bedrockIdentity) {
+        if (bedrockIdentity == null) {
+            return false;
         }
-        return bedrockIdentity.getPublicKey();
+        if (!isEmpty(bedrockIdentity.getPublicKey()) || !isEmpty(bedrockIdentity.getMetadataUrl())) {
+            return true;
+        }
+        return bedrockIdentity.getPublicKeys() != null && !bedrockIdentity.getPublicKeys().isEmpty();
     }
 
     private void warn(ConnectPlayer player, String reason) {

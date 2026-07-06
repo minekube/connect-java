@@ -43,6 +43,10 @@ class ConfigLoaderTest {
                 "bedrock-identity:",
                 "  enforcement: require",
                 "  public-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                "  public-keys:",
+                "    - AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+                "  metadata-url: https://connect-api.minekube.com/.well-known/minekube-connect/bedrock-identity-keys.json",
+                "  metadata-cache-seconds: 120",
                 "  expected-policy: trusted_bedrock_xuid",
                 "metrics:",
                 "  disabled: true",
@@ -60,6 +64,11 @@ class ConfigLoaderTest {
 
         assertEquals("require", config.getBedrockIdentity().getEnforcement());
         assertEquals("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", config.getBedrockIdentity().getPublicKey());
+        assertEquals("AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=", config.getBedrockIdentity().getPublicKeys().get(0));
+        assertEquals(
+                "https://connect-api.minekube.com/.well-known/minekube-connect/bedrock-identity-keys.json",
+                config.getBedrockIdentity().getMetadataUrl());
+        assertEquals(120, config.getBedrockIdentity().getMetadataCacheSeconds());
         assertEquals("trusted_bedrock_xuid", config.getBedrockIdentity().getExpectedPolicy());
     }
 }

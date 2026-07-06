@@ -45,6 +45,8 @@ class Libp2pSessionResponderTest {
         responder.handleOffer(stream, offer());
 
         assertEquals("session-1", proposalRef.get().getSession().getId());
+        assertEquals("endpoint-id", proposalRef.get().getEndpointId());
+        assertEquals("org-id", proposalRef.get().getEndpointOrgId());
         ArgumentCaptor<Object> outbound = ArgumentCaptor.forClass(Object.class);
         verify(stream).writeAndFlush(outbound.capture());
         SessionResponse response = P2PFrameCodec.read(
@@ -152,6 +154,8 @@ class Libp2pSessionResponderTest {
         return SessionOffer.newBuilder()
                 .setSessionId("session-1")
                 .setEndpoint("endpoint")
+                .setEndpointId("endpoint-id")
+                .setEndpointOrgId("org-id")
                 .setDeadlineUnixMs(System.currentTimeMillis() + 60_000)
                 .setPlayer(SessionPlayer.newBuilder()
                         .setAddr("127.0.0.1")

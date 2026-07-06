@@ -25,21 +25,42 @@
 
 package com.minekube.connect.watch;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-import lombok.Setter;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
 
-@RequiredArgsConstructor
 public class SessionProposal {
+    private static final Gson GSON = new Gson();
+    private static final String SCOPE_PROPERTY_NAME = "minekube:bedrock_identity_scope";
 
     @Getter
     private final Session session;
     private final Consumer<com.google.rpc.Status> reject;
+    @Getter
+    private final String endpointId;
+    @Getter
+    private final String endpointOrgId;
 
     private final AtomicReference<State> state = new AtomicReference<>(State.ACCEPTED);
+
+    public SessionProposal(Session session, Consumer<com.google.rpc.Status> reject) {
+        this(session, reject, "", "");
+    }
+
+    public SessionProposal(
+            Session session,
+            Consumer<com.google.rpc.Status> reject,
+            String endpointId,
+            String endpointOrgId) {
+        this.session = session;
+        this.reject = reject;
+        Scope scope = parseScope(session);
+        this.endpointId = firstNonEmpty(endpointId, scope.endpoint_id);
+        this.endpointOrgId = firstNonEmpty(endpointOrgId, scope.endpoint_org_id);
+    }
 
     public enum State {
         ACCEPTED,
@@ -61,5 +82,36 @@ public class SessionProposal {
         return "SessionProposal{" +
                 "session=" + session +
                 '}';
+    }
+
+    private static Scope parseScope(Session session) {
+        if (session == null ||
+                !session.hasPlayer() ||
+                !session.getPlayer().hasProfile()) {
+            return new Scope();
+        }
+        for (var property : session.getPlayer().getProfile().getPropertiesList()) {
+            if (SCOPE_PROPERTY_NAME.equals(property.getName())) {
+                try {
+                    Scope scope = GSON.fromJson(property.getValue(), Scope.class);
+                    return scope == null ? new Scope() : scope;
+                } catch (JsonSyntaxException ignored) {
+                    return new Scope();
+                }
+            }
+        }
+        return new Scope();
+    }
+
+    private static String firstNonEmpty(String preferred, String fallback) {
+        if (preferred != null && !preferred.isEmpty()) {
+            return preferred;
+        }
+        return fallback == null ? "" : fallback;
+    }
+
+    private static final class Scope {
+        String endpoint_id = "";
+        String endpoint_org_id = "";
     }
 }

@@ -18,6 +18,8 @@ class Libp2pSessionMapperTest {
         SessionOffer offer = SessionOffer.newBuilder()
                 .setSessionId("session-1")
                 .setEndpoint("endpoint")
+                .setEndpointId("endpoint-id")
+                .setEndpointOrgId("org-id")
                 .setAuth(SessionAuthentication.newBuilder().setPassthrough(false))
                 .setPlayer(SessionPlayer.newBuilder()
                         .setAddr("127.0.0.1")

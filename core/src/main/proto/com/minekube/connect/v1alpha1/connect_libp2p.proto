@@ -93,6 +93,8 @@ message SessionOffer {
   SessionPlayer player = 3;
   SessionAuthentication auth = 4;
   int64 deadline_unix_ms = 5;
+  string endpoint_id = 6;
+  string endpoint_org_id = 7;
 }
 
 message SessionPlayer {
