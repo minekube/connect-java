@@ -186,6 +186,31 @@ class WatcherRegisterTest {
     }
 
     @Test
+    void watchlessReadyRestoresHealthAfterTerminalEventWinsRace() throws Exception {
+        Fixture fixture = newFixture();
+        RunnableCaptor callbacks = new RunnableCaptor();
+        doAnswer(callbacks.capture()).when(fixture.libp2pEndpoint).start(
+                any(),
+                any(),
+                anyBoolean(),
+                any(Runnable.class),
+                any(Runnable.class));
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+        watcher.getValue().onOpen(WatchBootstrap.fromLists(
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("session", "status", "watchless")));
+
+        watcher.getValue().onCompleted();
+        callbacks.ready.run();
+
+        assertTrue(register.isHealthy());
+    }
+
+    @Test
     void watchlessFallbackReopensLegacyWatchSocket() throws Exception {
         Fixture fixture = newFixture();
         RunnableCaptor callbacks = new RunnableCaptor();
