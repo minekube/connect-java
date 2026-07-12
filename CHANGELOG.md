@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/minekube/connect-java/compare/0.10.0...0.11.0) (2026-07-12)
+
+
+### Features
+
+* **core:** expose watcher health endpoint ([#29](https://github.com/minekube/connect-java/issues/29)) ([0a3ec0c](https://github.com/minekube/connect-java/commit/0a3ec0c84f4f1d2126f070497b8f6ac81d6b207b))
+
 ## [0.10.0](https://github.com/minekube/connect-java/compare/0.9.0...0.10.0) (2026-07-06)
 
 
