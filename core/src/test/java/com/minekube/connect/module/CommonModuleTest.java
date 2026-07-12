@@ -67,7 +67,6 @@ class CommonModuleTest {
     void watchHttpClientKeepsConnectHeadersAndUsesWebSocketLiveness() throws Exception {
         CommonModule module = new CommonModule(tempDir);
         PlatformUtils platformUtils = platformUtils();
-
         OkHttpClient connectClient = module.connectOkHttpClient(
                 module.defaultOkHttpClient(),
                 platformUtils,
@@ -79,6 +78,7 @@ class CommonModuleTest {
 
         assertEquals(0, watchClient.readTimeoutMillis());
         assertEquals(30_000, watchClient.pingIntervalMillis());
+        assertEquals(0, connectClient.pingIntervalMillis());
 
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setBody("ok"));

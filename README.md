@@ -32,6 +32,10 @@ Environment variables:
   the Connect edge can challenge the endpoint to sign equivalent
   `/p2p-circuit/p2p/<endpoint-peer-id>` addresses that are better for other
   edge proxies to dial, such as private per-machine relay addresses.
+- `CONNECT_WATCH_HEALTH_ADDR`: optional `host:port` address for an HTTP watcher
+  health endpoint. `GET /healthz` returns `200` after the watcher opens and
+  while the negotiated watchless endpoint remains ready; it returns `503`
+  before opening, while reconnecting, and after stop, error, or completion.
 
 ## Working setups
 

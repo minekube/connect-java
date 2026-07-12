@@ -15,6 +15,8 @@ dependencies {
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.5")
     testImplementation("io.netty", "netty-transport", Versions.nettyVersion)
+    testImplementation("org.mockito:mockito-core:4.11.0")
+    testRuntimeOnly("com.velocitypowered", "velocity-api", velocityVersion)
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

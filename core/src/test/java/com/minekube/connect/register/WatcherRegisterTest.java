@@ -131,7 +131,7 @@ class WatcherRegisterTest {
 
         register.stop();
 
-        assertDoesNotThrow(() -> watcher.getValue().onOpen());
+        assertDoesNotThrow(() -> watcher.getValue().onOpen(emptyBootstrap()));
         assertNull(scheduler(register));
     }
 
@@ -172,16 +172,42 @@ class WatcherRegisterTest {
         register.start();
         ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
         verify(fixture.watchClient).watch(watcher.capture());
-
         watcher.getValue().onOpen(WatchBootstrap.fromLists(
                 List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
                 List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
                 List.of("session", "status", "watchless")));
+        assertTrue(register.isHealthy());
         callbacks.ready.run();
         watcher.getValue().onCompleted();
 
+        assertTrue(register.isHealthy());
         verify(webSocket).close(1000, "watchless endpoint mode enabled");
         verifyNoMoreInteractions(fixture.watchClient);
+    }
+
+    @Test
+    void watchlessReadyRestoresHealthAfterTerminalEventWinsRace() throws Exception {
+        Fixture fixture = newFixture();
+        RunnableCaptor callbacks = new RunnableCaptor();
+        doAnswer(callbacks.capture()).when(fixture.libp2pEndpoint).start(
+                any(),
+                any(),
+                anyBoolean(),
+                any(Runnable.class),
+                any(Runnable.class));
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+        watcher.getValue().onOpen(WatchBootstrap.fromLists(
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("/dns4/connect.example/tcp/4001/p2p/edge"),
+                List.of("session", "status", "watchless")));
+
+        watcher.getValue().onCompleted();
+        callbacks.ready.run();
+
+        assertTrue(register.isHealthy());
     }
 
     @Test
@@ -232,6 +258,80 @@ class WatcherRegisterTest {
     }
 
     @Test
+    void watcherHealthIsUnhealthyUntilWatchSocketOpens() throws Exception {
+        Fixture fixture = newFixture();
+        register = fixture.register;
+
+        assertFalse(register.isHealthy());
+
+        register.start();
+
+        assertFalse(register.isHealthy());
+
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+        watcher.getValue().onOpen(emptyBootstrap());
+
+        assertTrue(register.isHealthy());
+    }
+
+    @Test
+    void watcherHealthBecomesUnhealthyWhenWatchEnds() throws Exception {
+        Fixture fixture = newFixture();
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+        watcher.getValue().onOpen(emptyBootstrap());
+
+        watcher.getValue().onCompleted();
+
+        assertFalse(register.isHealthy());
+    }
+
+    @Test
+    void watcherHealthBecomesUnhealthyWhenWatchErrors() throws Exception {
+        Fixture fixture = newFixture();
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+        watcher.getValue().onOpen(emptyBootstrap());
+
+        watcher.getValue().onError(new RuntimeException("watch failed"));
+
+        assertFalse(register.isHealthy());
+    }
+
+    @Test
+    void watcherHealthBecomesUnhealthyWhenStopped() throws Exception {
+        Fixture fixture = newFixture();
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+        watcher.getValue().onOpen(emptyBootstrap());
+
+        register.stop();
+
+        assertFalse(register.isHealthy());
+    }
+
+    @Test
+    void lateOpenAfterStopDoesNotMarkWatcherHealthy() throws Exception {
+        Fixture fixture = newFixture();
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+
+        register.stop();
+        watcher.getValue().onOpen(emptyBootstrap());
+
+        assertFalse(register.isHealthy());
+    }
+
+    @Test
     void watcherRegisterDoesNotDeclareTimerFields() {
         assertNoTimerFields(WatcherRegister.class);
         for (Class<?> nestedClass : WatcherRegister.class.getDeclaredClasses()) {
@@ -273,6 +373,10 @@ class WatcherRegisterTest {
 
     private static WatcherRegister newRegister() throws Exception {
         return newFixture().register;
+    }
+
+    private static WatchBootstrap emptyBootstrap() {
+        return WatchBootstrap.fromLists(List.of(), List.of(), List.of());
     }
 
     private static Fixture newFixture() throws Exception {

@@ -70,6 +70,7 @@ public class WatcherRegister {
     private volatile boolean legacyWatchEnabled;
     private ExponentialBackOff backOffPolicy;
     private final AtomicBoolean started = new AtomicBoolean();
+    private final AtomicBoolean healthy = new AtomicBoolean();
 
     // Lazily created in start() so a stop()/start() cycle reuses cleanly,
     // and so the daemon thread isn't allocated if start() is never called.
@@ -78,7 +79,7 @@ public class WatcherRegister {
     private volatile ScheduledFuture<?> retryFuture;
 
     @Inject
-    public void start() {
+    public synchronized void start() {
         if (started.compareAndSet(false, true)) {
             legacyWatchEnabled = true;
             scheduler = Executors.newSingleThreadScheduledExecutor(
@@ -97,12 +98,21 @@ public class WatcherRegister {
         backOffPolicy.reset();
     }
 
-    public void stop() {
+    public boolean isHealthy() {
+        return healthy.get();
+    }
+
+    public synchronized void stop() {
         // Gate the whole teardown so a concurrent stop() races safely.
         // A stop() before start() is a no-op (started is already false).
         if (!started.compareAndSet(true, false)) {
             return;
         }
+        WatcherImpl currentWatcher = watcher;
+        if (currentWatcher != null) {
+            currentWatcher.ignoreTerminalEvents();
+        }
+        healthy.set(false);
         logger.info("Stopped watching for sessions");
         legacyWatchEnabled = false;
         if (retryFuture != null) {
@@ -114,9 +124,6 @@ public class WatcherRegister {
             scheduler = null;
         }
         if (ws != null) {
-            if (watcher != null) {
-                watcher.ignoreTerminalEvents();
-            }
             ws.close(1000, "watcher stopped");
             ws = null;
         }
@@ -155,21 +162,23 @@ public class WatcherRegister {
         }, millis, TimeUnit.MILLISECONDS);
     }
 
-    private void watch() {
+    private synchronized void watch() {
         if (!started.get() || !legacyWatchEnabled) {
             return;
         }
+        WatcherImpl currentWatcher = watcher;
+        if (currentWatcher != null) {
+            currentWatcher.ignoreTerminalEvents();
+        }
+        healthy.set(false);
         if (ws != null) {
-            if (watcher != null) {
-                watcher.ignoreTerminalEvents();
-            }
             ws.close(1000, "watcher is reconnecting");
         }
         watcher = new WatcherImpl();
         ws = watchClient.watch(watcher);
     }
 
-    private void enterWatchlessMode() {
+    private synchronized void enterWatchlessMode() {
         if (!started.get()) {
             return;
         }
@@ -182,6 +191,7 @@ public class WatcherRegister {
         if (currentWatcher != null) {
             currentWatcher.ignoreTerminalEvents();
         }
+        healthy.set(true);
         WebSocket currentWebSocket = ws;
         ws = null;
         watcher = null;
@@ -191,7 +201,7 @@ public class WatcherRegister {
         }
     }
 
-    private void enterLegacyWatchFallback() {
+    private synchronized void enterLegacyWatchFallback() {
         if (!started.get()) {
             return;
         }
@@ -209,6 +219,9 @@ public class WatcherRegister {
 
         @Override
         public void onOpen(WatchBootstrap bootstrap) {
+            if (!acceptOpen()) {
+                return;
+            }
             logger.translatedInfo("connect.watch.started");
             if (bootstrap.hasLibp2p()) {
                 if (bootstrap.supportsWatchlessLibp2p()) {
@@ -267,7 +280,7 @@ public class WatcherRegister {
 
         @Override
         public void onError(Throwable t) {
-            if (shouldIgnoreTerminalEvent()) {
+            if (!acceptTerminalEvent()) {
                 return;
             }
             logger.error("Connection error with WatchService: " +
@@ -282,7 +295,7 @@ public class WatcherRegister {
 
         @Override
         public void onCompleted() {
-            if (shouldIgnoreTerminalEvent()) {
+            if (!acceptTerminalEvent()) {
                 return;
             }
             cancelResetBackOffTimer();
@@ -313,8 +326,30 @@ public class WatcherRegister {
         }
 
         void ignoreTerminalEvents() {
-            ignoreTerminalEvents = true;
-            cancelResetBackOffTimer();
+            synchronized (WatcherRegister.this) {
+                ignoreTerminalEvents = true;
+                cancelResetBackOffTimer();
+            }
+        }
+
+        private boolean acceptOpen() {
+            synchronized (WatcherRegister.this) {
+                if (shouldIgnoreTerminalEvent()) {
+                    return false;
+                }
+                healthy.set(true);
+                return true;
+            }
+        }
+
+        private boolean acceptTerminalEvent() {
+            synchronized (WatcherRegister.this) {
+                if (shouldIgnoreTerminalEvent()) {
+                    return false;
+                }
+                healthy.set(false);
+                return true;
+            }
         }
 
         private boolean shouldIgnoreTerminalEvent() {

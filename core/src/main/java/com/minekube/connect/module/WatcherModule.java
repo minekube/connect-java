@@ -26,6 +26,7 @@
 package com.minekube.connect.module;
 
 import com.google.inject.AbstractModule;
+import com.minekube.connect.register.WatchHealthServer;
 import com.minekube.connect.register.WatcherRegister;
 
 public class WatcherModule extends AbstractModule {
@@ -33,5 +34,6 @@ public class WatcherModule extends AbstractModule {
     @Override
     protected void configure() {
         bind(WatcherRegister.class).asEagerSingleton();
+        bind(WatchHealthServer.class).asEagerSingleton();
     }
 }
