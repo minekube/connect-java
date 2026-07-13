@@ -61,8 +61,8 @@ public class ConnectConfig {
     private BedrockIdentityConfig bedrockIdentity = new BedrockIdentityConfig();
 
     /**
-     * Super endpoints are authorized to control this endpoint via Connect API.
-     * e.g. disconnect players from this endpoint, send messages to players, etc.
+     * Optional parent endpoint names sent to WatchService as Connect-Endpoint-Parents.
+     * Connect Java does not expose a public endpoint-control API.
      */
     private List<String> superEndpoints;
 

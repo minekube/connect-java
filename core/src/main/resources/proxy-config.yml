@@ -9,8 +9,8 @@ allow-offline-mode-players: false
 # The default locale for Connect. By default, Connect uses the system locale
 #default-locale: en_US
 
-# Super endpoints are authorized to control this endpoint via Connect API.
-# e.g. disconnect players from this endpoint, send messages to players, etc.
+# Optional parent endpoint names sent to WatchService as Connect-Endpoint-Parents.
+# This plugin does not expose a public endpoint-control API.
 #
 # You can add as many super endpoint names as you want.
 #super-endpoints:

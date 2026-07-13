@@ -75,9 +75,6 @@ own proxies as well as through the Connect network.
 You don't need to use own proxies since the Connect network already works like a global shared proxy
 where every Minecraft server/proxy can connect to.
 
-There will be public APIs available for you to manage your connected endpoints and players like
-sending players a message, moving them between your servers and so on.
-
 ## Special thanks
 
 **Special thanks goes to the [GeyserMC](https://github.com/GeyserMC) developers for their Floodgate
