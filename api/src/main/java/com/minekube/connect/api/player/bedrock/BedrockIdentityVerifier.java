@@ -160,6 +160,7 @@ public final class BedrockIdentityVerifier {
     }
 
     private static Envelope decode(String signedEnvelope) throws BedrockIdentityVerificationException {
+        // Gson coerces some scalar forms; validate Moxy v1's exact JSON token shapes first.
         validateStructure(signedEnvelope);
         try {
             Envelope envelope = GSON.fromJson(signedEnvelope, Envelope.class);
