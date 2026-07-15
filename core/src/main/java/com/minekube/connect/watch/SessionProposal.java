@@ -27,6 +27,9 @@ package com.minekube.connect.watch;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
+import com.minekube.connect.api.player.ConnectPlayer;
+import com.minekube.connect.api.player.bedrock.BedrockIdentityVerifier;
+import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import lombok.Getter;
@@ -39,6 +42,7 @@ public class SessionProposal {
 
     @Getter
     private final Session session;
+    private final AtomicReference<Session> admissionSession;
     private final Consumer<com.google.rpc.Status> reject;
     @Getter
     private final String endpointId;
@@ -58,7 +62,8 @@ public class SessionProposal {
             Consumer<com.google.rpc.Status> reject,
             String endpointId,
             String endpointOrgId) {
-        this.session = session;
+        this.session = withoutIdentityEnvelope(session);
+        this.admissionSession = new AtomicReference<>(hasIdentityEnvelope(session) ? session : null);
         this.reject = reject;
         Scope scope = parseScope(session);
         this.endpointId = firstNonEmpty(endpointId, scope.endpoint_id);
@@ -66,6 +71,11 @@ public class SessionProposal {
         this.protocol = session == null
                 ? SessionProtocol.SESSION_PROTOCOL_UNSPECIFIED
                 : session.getProtocol();
+    }
+
+    public ConnectPlayer stageAdmission(VerifiedBedrockIdentityRegistry identityRegistry) {
+        Session rawSession = admissionSession.getAndSet(null);
+        return identityRegistry.stage(rawSession == null ? session : rawSession);
     }
 
     public enum State {
@@ -107,6 +117,29 @@ public class SessionProposal {
             }
         }
         return new Scope();
+    }
+
+    private static Session withoutIdentityEnvelope(Session session) {
+        if (!hasIdentityEnvelope(session)) {
+            return session;
+        }
+        var profile = session.getPlayer().getProfile().toBuilder().clearProperties();
+        for (var property : session.getPlayer().getProfile().getPropertiesList()) {
+            if (!BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName())) {
+                profile.addProperties(property);
+            }
+        }
+        return session.toBuilder()
+                .setPlayer(session.getPlayer().toBuilder().setProfile(profile))
+                .build();
+    }
+
+    private static boolean hasIdentityEnvelope(Session session) {
+        if (session == null || !session.hasPlayer() || !session.getPlayer().hasProfile()) {
+            return false;
+        }
+        return session.getPlayer().getProfile().getPropertiesList().stream()
+                .anyMatch(property -> BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName()));
     }
 
     private static String firstNonEmpty(String preferred, String fallback) {

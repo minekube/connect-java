@@ -28,11 +28,7 @@ package com.minekube.connect.network.netty;
 import com.google.common.base.Preconditions;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
-import com.minekube.connect.api.player.Auth;
 import com.minekube.connect.api.player.ConnectPlayer;
-import com.minekube.connect.api.player.GameProfile;
-import com.minekube.connect.api.player.GameProfile.Property;
-import com.minekube.connect.player.ConnectPlayerImpl;
 import com.minekube.connect.tunnel.TunnelConn;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.watch.SessionProposal;
@@ -52,11 +48,9 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.time.Duration;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -83,27 +77,6 @@ public final class LocalSession {
     private final SessionProposal sessionProposal;
 
     private final AtomicBoolean connectOnce = new AtomicBoolean();
-
-    private static ConnectPlayer fromProto(Session s) {
-        Player p = s.getPlayer();
-        return new ConnectPlayerImpl(
-                s.getId(),
-                new GameProfile(
-                        p.getProfile().getName(),
-                        UUID.fromString(p.getProfile().getId()),
-                        p.getProfile().getPropertiesList().stream()
-                                .map(property -> new Property(
-                                        property.getName(),
-                                        property.getValue(),
-                                        property.getSignature()))
-                                .collect(Collectors.toList())
-                ),
-                new Auth(
-                        s.getAuth().getPassthrough()
-                ),
-                "" // TODO extract from http accept language header
-        );
-    }
 
     /**
      * Returns connection {@link Context} of a channel if available.
@@ -137,7 +110,7 @@ public final class LocalSession {
         }
 
         final Context context = new Context(
-                fromProto(sessionProposal.getSession()),
+                api.stageAdmission(sessionProposal),
                 createAddress(sessionProposal.getSession().getPlayer().getAddr()),
                 sessionProposal,
                 sessionProposal.getEndpointId(),

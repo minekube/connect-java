@@ -28,6 +28,9 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.UUID;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.Authentication;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfileProperty;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -64,6 +67,105 @@ class BedrockIdentityEnforcerTest {
         assertTrue(decision.allowed());
         assertNotNull(decision.verifiedClaims());
         assertEquals("2533274790395904", decision.verifiedClaims().getBedrockXuid());
+    }
+
+    @Test
+    void admissionPublishesClaimsWithoutExposingOrRetainingEnvelope() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        ConnectConfig config = config(
+                "require",
+                base64(keyPair.getPublic().getEncoded()),
+                "trusted_bedrock_xuid");
+        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", config.getEndpoint());
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        ConnectPlayer player = registry.stage(session(envelope));
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
+                config,
+                mock(ConnectLogger.class),
+                () -> NOW,
+                registry);
+
+        BedrockIdentityEnforcer.Decision decision = enforcer.verifyAdmission(
+                player,
+                "",
+                "",
+                SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+
+        assertTrue(decision.allowed());
+        assertNotNull(decision.verifiedClaims());
+        assertTrue(registry.get(player).isPresent());
+        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
+        assertFalse(player.getGameProfile().toString().contains("nonce-a"));
+    }
+
+    @Test
+    void disabledAdmissionDropsEnvelopeWithoutPublishingClaims() {
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        ConnectPlayer player = registry.stage(session("invalid-envelope-nonce-a"));
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
+                config("disabled", "", "trusted_bedrock_xuid"),
+                mock(ConnectLogger.class),
+                () -> NOW,
+                registry);
+
+        BedrockIdentityEnforcer.Decision decision = enforcer.verifyAdmission(
+                player,
+                "",
+                "",
+                SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+
+        assertTrue(decision.allowed());
+        assertEquals(null, decision.verifiedClaims());
+        assertTrue(registry.get(player).isEmpty());
+        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
+        assertFalse(player.getGameProfile().toString().contains("nonce-a"));
+    }
+
+    @Test
+    void warnFailedAdmissionDropsEnvelopeWithoutPublishingClaims() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        ConnectPlayer player = registry.stage(session("invalid-envelope-nonce-a"));
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
+                config("warn", base64(keyPair.getPublic().getEncoded()), "trusted_bedrock_xuid"),
+                mock(ConnectLogger.class),
+                () -> NOW,
+                registry);
+
+        BedrockIdentityEnforcer.Decision decision = enforcer.verifyAdmission(
+                player,
+                "",
+                "",
+                SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+
+        assertTrue(decision.allowed());
+        assertEquals(null, decision.verifiedClaims());
+        assertTrue(registry.get(player).isEmpty());
+        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
+        assertFalse(player.getGameProfile().toString().contains("nonce-a"));
+    }
+
+    @Test
+    void rejectedAdmissionDropsEnvelopeWithoutPublishingClaims() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        ConnectPlayer player = registry.stage(session("invalid-envelope-nonce-a"));
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
+                config("require", base64(keyPair.getPublic().getEncoded()), "trusted_bedrock_xuid"),
+                mock(ConnectLogger.class),
+                () -> NOW,
+                registry);
+
+        BedrockIdentityEnforcer.Decision decision = enforcer.verifyAdmission(
+                player,
+                "",
+                "",
+                SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+
+        assertFalse(decision.allowed());
+        assertTrue(registry.get(player).isEmpty());
+        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
+        assertFalse(player.getGameProfile().toString().contains("nonce-a"));
     }
 
     @Test
@@ -347,6 +449,24 @@ class BedrockIdentityEnforcerTest {
         signer.update(GSON.toJson(envelope).getBytes(StandardCharsets.UTF_8));
         envelope.signature = Base64.getUrlEncoder().withoutPadding().encodeToString(signer.sign());
         return GSON.toJson(envelope);
+    }
+
+    private static minekube.connect.v1alpha1.WatchServiceOuterClass.Session session(String envelope) {
+        return minekube.connect.v1alpha1.WatchServiceOuterClass.Session.newBuilder()
+                .setId("session-1")
+                .setAuth(Authentication.newBuilder().setPassthrough(false))
+                .setPlayer(Player.newBuilder()
+                        .setAddr("127.0.0.1")
+                        .setProfile(minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfile.newBuilder()
+                                .setId("f912bf90-8349-565f-9dc0-9891923c0cc3")
+                                .setName("BedrockSteve")
+                                .addProperties(GameProfileProperty.newBuilder()
+                                        .setName("textures")
+                                        .setValue("skin"))
+                                .addProperties(GameProfileProperty.newBuilder()
+                                        .setName(BedrockIdentityVerifier.PROPERTY_NAME)
+                                        .setValue(envelope))))
+                .build();
     }
 
     private static final class Envelope {

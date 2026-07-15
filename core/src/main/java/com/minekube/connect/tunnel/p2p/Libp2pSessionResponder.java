@@ -95,20 +95,23 @@ final class Libp2pSessionResponder {
             stream.close();
             return;
         }
+        String sessionId = offer.getSessionId();
+        String endpointId = offer.getEndpointId();
+        String endpointOrgId = offer.getEndpointOrgId();
         SessionProposal proposal = new SessionProposal(
                 Libp2pSessionMapper.toWatchSession(offer),
                 reason -> {
                     writeResponse(stream, SessionResponse.newBuilder()
-                            .setSessionId(offer.getSessionId())
+                            .setSessionId(sessionId)
                             .setRejected(SessionRejected.newBuilder().setReason(reason))
                             .build());
                     stream.close();
                 },
-                offer.getEndpointId(),
-                offer.getEndpointOrgId());
-        Tunneler tunneler = new Tunneler(new SameStreamTunnelTransport(stream, sessionId ->
+                endpointId,
+                endpointOrgId);
+        Tunneler tunneler = new Tunneler(new SameStreamTunnelTransport(stream, acceptedSessionId ->
                 writeResponse(stream, SessionResponse.newBuilder()
-                        .setSessionId(sessionId)
+                        .setSessionId(acceptedSessionId)
                         .setAccepted(SessionAccepted.newBuilder().setSameStreamData(true))
                         .build())));
         try {

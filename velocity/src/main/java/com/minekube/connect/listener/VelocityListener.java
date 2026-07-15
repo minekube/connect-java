@@ -50,12 +50,10 @@ import com.velocitypowered.api.event.connection.PreLoginEvent;
 import com.velocitypowered.api.event.player.GameProfileRequestEvent;
 import com.velocitypowered.api.proxy.InboundConnection;
 import com.velocitypowered.api.util.GameProfile;
-import com.velocitypowered.api.util.GameProfile.Property;
 import io.netty.channel.Channel;
 import java.lang.reflect.Field;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 import net.kyori.adventure.text.Component;
 
 public final class VelocityListener {
@@ -136,17 +134,8 @@ public final class VelocityListener {
         if (player != null) {
             playerCache.invalidate(event.getConnection());
             // Use the game profile received from WatchService for this connection
-            event.setGameProfile(gameProfileFromPlayer(event.getGameProfile(), player));
+            event.setGameProfile(VelocityGameProfiles.fromConnectPlayer(event.getGameProfile(), player));
         }
-    }
-
-    private GameProfile gameProfileFromPlayer(GameProfile base, ConnectPlayer player) {
-        return base
-                .withId(player.getUniqueId())
-                .withName(player.getUsername())
-                .addProperties(player.getGameProfile().getProperties().stream()
-                        .map(p -> new Property(p.getName(), p.getValue(), p.getSignature()))
-                        .collect(Collectors.toList()));
     }
 
     @Subscribe(order = PostOrder.LAST)

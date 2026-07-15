@@ -5,6 +5,7 @@ import com.google.rpc.Code;
 import com.google.rpc.Status;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
+import com.minekube.connect.api.player.GameProfile;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityReplayCache;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityVerificationException;
@@ -53,6 +54,14 @@ public final class BedrockIdentityEnforcer {
             ConnectConfig config,
             ConnectLogger logger,
             Supplier<Instant> now,
+            VerifiedBedrockIdentityRegistry identityRegistry) {
+        this(config, logger, now, new BedrockIdentityKeyProvider(config, new OkHttpClient(), now), identityRegistry);
+    }
+
+    BedrockIdentityEnforcer(
+            ConnectConfig config,
+            ConnectLogger logger,
+            Supplier<Instant> now,
             BedrockIdentityKeyProvider keyProvider) {
         this(config, logger, now, keyProvider, new VerifiedBedrockIdentityRegistry());
     }
@@ -72,9 +81,21 @@ public final class BedrockIdentityEnforcer {
 
     public Decision verify(LocalSession.Context context) {
         Objects.requireNonNull(context, "context");
-        ConnectPlayer player = context.getPlayer();
-        identityRegistry.remove(player);
-        Decision decision = verify(player, context.getEndpointId(), context.getEndpointOrgId(), context.getProtocol());
+        return verifyAdmission(
+                context.getPlayer(),
+                context.getEndpointId(),
+                context.getEndpointOrgId(),
+                context.getProtocol());
+    }
+
+    Decision verifyAdmission(
+            ConnectPlayer player,
+            String endpointId,
+            String endpointOrgId,
+            SessionProtocol protocol) {
+        GameProfile profile = identityRegistry.takeAdmissionProfile(player).orElse(player.getGameProfile());
+        identityRegistry.clearClaims(player);
+        Decision decision = verify(player, profile, endpointId, endpointOrgId, protocol);
         if (decision.verifiedClaims() != null) {
             identityRegistry.record(player, decision.verifiedClaims());
         }
@@ -91,15 +112,29 @@ public final class BedrockIdentityEnforcer {
     }
 
     public Decision verify(ConnectPlayer player) {
-        return verify(player, "", "", SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+        return verify(player, player.getGameProfile(), "", "", SessionProtocol.SESSION_PROTOCOL_BEDROCK);
     }
 
     Decision verify(ConnectPlayer player, String endpointId, String endpointOrgId) {
-        return verify(player, endpointId, endpointOrgId, SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+        return verify(
+                player,
+                player.getGameProfile(),
+                endpointId,
+                endpointOrgId,
+                SessionProtocol.SESSION_PROTOCOL_BEDROCK);
     }
 
     Decision verify(
             ConnectPlayer player,
+            String endpointId,
+            String endpointOrgId,
+            SessionProtocol protocol) {
+        return verify(player, player.getGameProfile(), endpointId, endpointOrgId, protocol);
+    }
+
+    Decision verify(
+            ConnectPlayer player,
+            GameProfile profile,
             String endpointId,
             String endpointOrgId,
             SessionProtocol protocol) {
@@ -111,7 +146,7 @@ public final class BedrockIdentityEnforcer {
             return Decision.allowed(null);
         }
 
-        boolean hasEnvelope = hasReservedEnvelope(player);
+        boolean hasEnvelope = hasReservedEnvelope(profile);
         if (protocol == SessionProtocol.SESSION_PROTOCOL_JAVA) {
             if (!hasEnvelope) {
                 return Decision.allowed(null);
@@ -134,7 +169,12 @@ public final class BedrockIdentityEnforcer {
         }
 
         try {
-            BedrockIdentityClaims claims = verifyWithKeys(player, bedrockIdentity, endpointId, endpointOrgId);
+            BedrockIdentityClaims claims = verifyWithKeys(
+                    player,
+                    profile,
+                    bedrockIdentity,
+                    endpointId,
+                    endpointOrgId);
             return Decision.allowed(claims);
         } catch (RuntimeException | BedrockIdentityVerificationException e) {
             warn(player, safeReason(e));
@@ -152,6 +192,7 @@ public final class BedrockIdentityEnforcer {
 
     private BedrockIdentityClaims verifyWithKeys(
             ConnectPlayer player,
+            GameProfile profile,
             BedrockIdentityConfig bedrockIdentity,
             String endpointId,
             String endpointOrgId) throws BedrockIdentityVerificationException {
@@ -164,7 +205,7 @@ public final class BedrockIdentityEnforcer {
         for (byte[] publicKey : keys) {
             try {
                 return verifier(publicKey, player, bedrockIdentity, endpointId, endpointOrgId)
-                        .verify(player.getGameProfile());
+                        .verify(profile);
             } catch (BedrockIdentityVerificationException e) {
                 verificationError = e;
             } catch (RuntimeException e) {
@@ -240,8 +281,8 @@ public final class BedrockIdentityEnforcer {
         return value == null || value.isEmpty();
     }
 
-    private static boolean hasReservedEnvelope(ConnectPlayer player) {
-        return player.getGameProfile().getProperties().stream()
+    private static boolean hasReservedEnvelope(GameProfile profile) {
+        return profile.getProperties().stream()
                 .anyMatch(property -> BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName()));
     }
 

@@ -26,11 +26,12 @@
 package com.minekube.connect.listener;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.destroystokyo.paper.profile.ProfileProperty;
 import com.minekube.connect.api.player.GameProfile;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -40,7 +41,12 @@ class PaperProfilePropertiesTest {
         GameProfile connectProfile = new GameProfile(
                 "RoboFlax2",
                 UUID.fromString("c66dfcbc-4bd2-4a29-8c76-eadf80faa08a"),
-                Collections.singletonList(new GameProfile.Property("textures", "skin-value", "skin-signature"))
+                Arrays.asList(
+                        new GameProfile.Property("textures", "skin-value", "skin-signature"),
+                        new GameProfile.Property(
+                                "minekube:bedrock_identity",
+                                "signed-envelope-replay-nonce-a",
+                                ""))
         );
 
         ProfileProperty texture = PaperProfileProperties.fromConnectProfile(connectProfile)
@@ -51,5 +57,9 @@ class PaperProfilePropertiesTest {
         assertEquals("skin-value", texture.getValue());
         assertEquals("skin-signature", texture.getSignature());
         assertTrue(texture.isSigned());
+        assertFalse(PaperProfileProperties.fromConnectProfile(connectProfile).stream()
+                .anyMatch(property -> "minekube:bedrock_identity".equals(property.getName())));
+        assertFalse(PaperProfileProperties.fromConnectProfile(connectProfile).toString()
+                .contains("replay-nonce-a"));
     }
 }

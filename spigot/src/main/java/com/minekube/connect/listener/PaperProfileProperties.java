@@ -26,6 +26,7 @@
 package com.minekube.connect.listener;
 
 import com.destroystokyo.paper.profile.ProfileProperty;
+import com.minekube.connect.api.player.bedrock.BedrockIdentityProfiles;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -35,7 +36,8 @@ final class PaperProfileProperties {
 
     static Set<ProfileProperty> fromConnectProfile(com.minekube.connect.api.player.GameProfile connectProfile) {
         Set<ProfileProperty> properties = new HashSet<>();
-        for (com.minekube.connect.api.player.GameProfile.Property property : connectProfile.getProperties()) {
+        for (com.minekube.connect.api.player.GameProfile.Property property :
+                BedrockIdentityProfiles.withoutEnvelope(connectProfile).getProperties()) {
             String signature = property.getSignature();
             properties.add(signature == null || signature.isEmpty()
                     ? new ProfileProperty(property.getName(), property.getValue())

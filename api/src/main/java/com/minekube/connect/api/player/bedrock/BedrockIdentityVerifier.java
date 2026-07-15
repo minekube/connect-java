@@ -122,8 +122,7 @@ public final class BedrockIdentityVerifier {
                 envelope.principal.linked_java_uuid,
                 envelope.principal.linked_java_name,
                 Instant.ofEpochMilli(envelope.session.issued_at_unix_ms),
-                Instant.ofEpochMilli(envelope.session.expires_at_unix_ms),
-                envelope.session.nonce);
+                Instant.ofEpochMilli(envelope.session.expires_at_unix_ms));
     }
 
     private static void validateProfile(Envelope envelope, GameProfile profile)

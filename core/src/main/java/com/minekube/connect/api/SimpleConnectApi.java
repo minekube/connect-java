@@ -33,6 +33,7 @@ import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
 import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
+import com.minekube.connect.watch.SessionProposal;
 import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
@@ -87,7 +88,12 @@ public class SimpleConnectApi implements ConnectApi {
     }
 
     public ConnectPlayer addPlayer(ConnectPlayer player) {
-        return players.put(player.getUniqueId(), player);
+        ConnectPlayer publicPlayer = verifiedBedrockIdentities.publicPlayer(player);
+        return players.put(publicPlayer.getUniqueId(), publicPlayer);
+    }
+
+    public ConnectPlayer stageAdmission(SessionProposal proposal) {
+        return proposal.stageAdmission(verifiedBedrockIdentities);
     }
 
     @Override

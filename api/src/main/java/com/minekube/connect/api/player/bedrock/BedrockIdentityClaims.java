@@ -20,5 +20,4 @@ public class BedrockIdentityClaims {
     String linkedJavaName;
     Instant issuedAt;
     Instant expiresAt;
-    String nonce;
 }

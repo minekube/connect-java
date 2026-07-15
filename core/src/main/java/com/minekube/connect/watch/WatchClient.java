@@ -125,11 +125,12 @@ public class WatchClient {
                     return;
                 }
 
+                String sessionId = res.getSession().getId();
                 SessionProposal prop = new SessionProposal(
                         res.getSession(),
                         reason -> {
                             Builder rejection = SessionRejection.newBuilder()
-                                    .setId(res.getSession().getId());
+                                    .setId(sessionId);
                             if (reason != null) {
                                 rejection.setReason(reason);
                             }

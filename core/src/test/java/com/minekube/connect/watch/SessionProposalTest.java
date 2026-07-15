@@ -1,6 +1,7 @@
 package com.minekube.connect.watch;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Authentication;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfile;
@@ -47,5 +48,29 @@ class SessionProposalTest {
 
         assertEquals("endpoint-id", proposal.getEndpointId());
         assertEquals("org-id", proposal.getEndpointOrgId());
+    }
+
+    @Test
+    void publicSessionAndLoggingExcludeRawIdentityEnvelope() {
+        Session session = Session.newBuilder()
+                .setId("session-1")
+                .setPlayer(Player.newBuilder()
+                        .setProfile(GameProfile.newBuilder()
+                                .setId("f912bf90-8349-565f-9dc0-9891923c0cc3")
+                                .setName("BedrockSteve")
+                                .addProperties(GameProfileProperty.newBuilder()
+                                        .setName("textures")
+                                        .setValue("skin"))
+                                .addProperties(GameProfileProperty.newBuilder()
+                                        .setName("minekube:bedrock_identity")
+                                        .setValue("signed-envelope-replay-nonce-a"))))
+                .build();
+
+        SessionProposal proposal = new SessionProposal(session, reason -> {});
+
+        assertEquals(1, proposal.getSession().getPlayer().getProfile().getPropertiesCount());
+        assertEquals("textures", proposal.getSession().getPlayer().getProfile().getProperties(0).getName());
+        assertFalse(proposal.getSession().toString().contains("replay-nonce-a"));
+        assertFalse(proposal.toString().contains("replay-nonce-a"));
     }
 }

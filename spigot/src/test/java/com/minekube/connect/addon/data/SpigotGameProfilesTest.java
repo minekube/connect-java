@@ -26,12 +26,13 @@
 package com.minekube.connect.addon.data;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.minekube.connect.api.player.GameProfile;
 import com.minekube.connect.util.SpigotGameProfiles;
 import com.mojang.authlib.properties.Property;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -42,7 +43,12 @@ class SpigotGameProfilesTest {
         GameProfile connectProfile = new GameProfile(
                 "RoboFlax2",
                 uuid,
-                Collections.singletonList(new GameProfile.Property("textures", "skin-value", "skin-signature"))
+                Arrays.asList(
+                        new GameProfile.Property("textures", "skin-value", "skin-signature"),
+                        new GameProfile.Property(
+                                "minekube:bedrock_identity",
+                                "signed-envelope-replay-nonce-a",
+                                ""))
         );
 
         com.mojang.authlib.GameProfile profile = SpigotGameProfiles.fromConnectProfile(connectProfile);
@@ -53,5 +59,7 @@ class SpigotGameProfilesTest {
         assertEquals("skin-value", texture.getValue());
         assertEquals("skin-signature", texture.getSignature());
         assertTrue(texture.hasSignature());
+        assertFalse(profile.getProperties().containsKey("minekube:bedrock_identity"));
+        assertFalse(profile.toString().contains("replay-nonce-a"));
     }
 }

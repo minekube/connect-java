@@ -1,5 +1,7 @@
 package com.minekube.connect.bedrock;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,6 +13,10 @@ import com.minekube.connect.player.ConnectPlayerImpl;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.UUID;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.Authentication;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfileProperty;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
 import org.junit.jupiter.api.Test;
 
 class VerifiedBedrockIdentityRegistryTest {
@@ -35,6 +41,30 @@ class VerifiedBedrockIdentityRegistryTest {
         assertTrue(registry.get(player).isEmpty());
     }
 
+    @Test
+    void stagesEnvelopeOnlyForPrivateSingleUseAdmission() {
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+
+        ConnectPlayer player = registry.stage(session(false));
+
+        assertEquals(1, player.getGameProfile().getProperties().size());
+        assertEquals("textures", player.getGameProfile().getProperties().get(0).getName());
+        assertFalse(player.getGameProfile().toString().contains("replay-nonce-a"));
+        GameProfile admissionProfile = registry.takeAdmissionProfile(player).orElseThrow();
+        assertTrue(admissionProfile.toString().contains("replay-nonce-a"));
+        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
+    }
+
+    @Test
+    void dropsEnvelopeInsteadOfStagingItForPassthroughSessions() {
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+
+        ConnectPlayer player = registry.stage(session(true));
+
+        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
+        assertFalse(player.getGameProfile().toString().contains("replay-nonce-a"));
+    }
+
     private static ConnectPlayer player(String sessionId) {
         return new ConnectPlayerImpl(
                 sessionId,
@@ -43,7 +73,7 @@ class VerifiedBedrockIdentityRegistryTest {
                 "");
     }
 
-    private static BedrockIdentityClaims claims(String sessionId) {
+    static BedrockIdentityClaims claims(String sessionId) {
         Instant issuedAt = Instant.parse("2026-07-15T12:00:00Z");
         return new BedrockIdentityClaims(
                 "minekube-connect",
@@ -60,7 +90,24 @@ class VerifiedBedrockIdentityRegistryTest {
                 null,
                 null,
                 issuedAt,
-                issuedAt.plusSeconds(300),
-                "nonce-a");
+                issuedAt.plusSeconds(300));
+    }
+
+    static Session session(boolean passthrough) {
+        return Session.newBuilder()
+                .setId("session-1")
+                .setAuth(Authentication.newBuilder().setPassthrough(passthrough))
+                .setPlayer(Player.newBuilder()
+                        .setAddr("127.0.0.1")
+                        .setProfile(minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfile.newBuilder()
+                                .setId("f912bf90-8349-565f-9dc0-9891923c0cc3")
+                                .setName("BedrockSteve")
+                                .addProperties(GameProfileProperty.newBuilder()
+                                        .setName("textures")
+                                        .setValue("skin"))
+                                .addProperties(GameProfileProperty.newBuilder()
+                                        .setName("minekube:bedrock_identity")
+                                        .setValue("signed-envelope-replay-nonce-a"))))
+                .build();
     }
 }
