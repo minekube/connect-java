@@ -92,7 +92,8 @@ public final class BedrockIdentityEnforcer {
                 context.getPlayer(),
                 context.getEndpointId(),
                 context.getEndpointOrgId(),
-                context.getProtocol());
+                context.getProtocol(),
+                context.getVerifiedBedrockIdentities());
     }
 
     Decision verifyAdmission(
@@ -100,11 +101,21 @@ public final class BedrockIdentityEnforcer {
             String endpointId,
             String endpointOrgId,
             SessionProtocol protocol) {
-        GameProfile profile = identityRegistry.takeAdmissionProfile(player).orElse(player.getGameProfile());
-        identityRegistry.clearClaims(player);
+        return verifyAdmission(player, endpointId, endpointOrgId, protocol, identityRegistry);
+    }
+
+    private Decision verifyAdmission(
+            ConnectPlayer player,
+            String endpointId,
+            String endpointOrgId,
+            SessionProtocol protocol,
+            VerifiedBedrockIdentityRegistry admissionRegistry) {
+        Objects.requireNonNull(admissionRegistry, "admissionRegistry");
+        GameProfile profile = admissionRegistry.takeAdmissionProfile(player).orElse(player.getGameProfile());
+        admissionRegistry.clearClaims(player);
         Decision decision = verify(player, profile, endpointId, endpointOrgId, protocol);
         if (decision.verifiedClaims() != null) {
-            identityRegistry.record(player, decision.verifiedClaims());
+            admissionRegistry.record(player, decision.verifiedClaims());
         }
         return decision;
     }

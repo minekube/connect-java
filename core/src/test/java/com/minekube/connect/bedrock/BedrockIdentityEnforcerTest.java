@@ -3,11 +3,13 @@ package com.minekube.connect.bedrock;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.google.gson.Gson;
 import com.minekube.connect.api.logger.ConnectLogger;
@@ -16,6 +18,7 @@ import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.GameProfile;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityVerifier;
 import com.minekube.connect.config.ConnectConfig;
+import com.minekube.connect.network.netty.LocalSession;
 import com.minekube.connect.player.ConnectPlayerImpl;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -50,6 +53,42 @@ class BedrockIdentityEnforcerTest {
 
         assertNotNull(constructor.newInstance(
                 new ConnectConfig(), mock(ConnectLogger.class), new OkHttpClient()));
+    }
+
+    @Test
+    void legacyConstructorUsesContextAdmissionRegistry() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        ConnectConfig config = config(
+                "require",
+                base64(keyPair.getPublic().getEncoded()),
+                "trusted_bedrock_xuid");
+        String envelope = signedEnvelope(
+                keyPair,
+                VALID_NONCE,
+                "session-1",
+                config.getEndpoint(),
+                "minekube-connect-test",
+                Instant.now());
+        VerifiedBedrockIdentityRegistry admissionRegistry = new VerifiedBedrockIdentityRegistry();
+        try {
+            ConnectPlayer player = admissionRegistry.stage(session(envelope));
+            LocalSession.Context context = mock(LocalSession.Context.class);
+            when(context.getPlayer()).thenReturn(player);
+            when(context.getEndpointId()).thenReturn("endpoint-id");
+            when(context.getEndpointOrgId()).thenReturn("org-id");
+            when(context.getProtocol()).thenReturn(SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+            when(context.getVerifiedBedrockIdentities()).thenReturn(admissionRegistry);
+            BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
+                    config, mock(ConnectLogger.class), new OkHttpClient());
+
+            BedrockIdentityEnforcer.Decision decision = enforcer.verify(context);
+
+            assertTrue(decision.allowed());
+            assertNotNull(decision.verifiedClaims());
+            assertSame(decision.verifiedClaims(), admissionRegistry.get(player).orElseThrow());
+        } finally {
+            admissionRegistry.close();
+        }
     }
 
     @Test
@@ -521,6 +560,16 @@ class BedrockIdentityEnforcerTest {
             String sessionId,
             String endpointName,
             String issuer) throws Exception {
+        return signedEnvelope(keyPair, nonce, sessionId, endpointName, issuer, NOW);
+    }
+
+    private static String signedEnvelope(
+            KeyPair keyPair,
+            String nonce,
+            String sessionId,
+            String endpointName,
+            String issuer,
+            Instant issuedAt) throws Exception {
         Envelope envelope = new Envelope();
         envelope.version = 1;
         envelope.issuer = issuer;
@@ -531,8 +580,8 @@ class BedrockIdentityEnforcerTest {
         envelope.session = new Session();
         envelope.session.id = sessionId;
         envelope.session.protocol = "bedrock";
-        envelope.session.issued_at_unix_ms = NOW.toEpochMilli();
-        envelope.session.expires_at_unix_ms = NOW.plusSeconds(300).toEpochMilli();
+        envelope.session.issued_at_unix_ms = issuedAt.toEpochMilli();
+        envelope.session.expires_at_unix_ms = issuedAt.plusSeconds(300).toEpochMilli();
         envelope.session.nonce = nonce;
         envelope.policy = new Policy();
         envelope.policy.bedrock_auth_mode = "trusted_bedrock_xuid";
