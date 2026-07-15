@@ -41,5 +41,6 @@ class ConnectPlatformBedrockIdentityLifecycleTest {
 
         assertTrue(cleanupExecutor.isShutdown());
         assertTrue(cleanupExecutor.getQueue().isEmpty());
+        System.out.println("PLATFORM disable: coordinatorExecutorShutdown=true, pendingCleanupTasks=0");
     }
 }

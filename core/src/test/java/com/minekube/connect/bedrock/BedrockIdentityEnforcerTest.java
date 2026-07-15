@@ -161,6 +161,8 @@ class BedrockIdentityEnforcerTest {
             BedrockIdentityEnforcer.Decision decision = slowAdmission.finish(verification);
             assertFalse(decision.allowed());
             assertTrue(registry.get(slowAdmission.player).isEmpty());
+            System.out.println("SLOW verification + expiry: cleanupCompletedWhileBlocked=true, "
+                    + "staleVerificationAllowed=false, staleClaimsPublished=false");
         }
     }
 
@@ -178,6 +180,8 @@ class BedrockIdentityEnforcerTest {
             BedrockIdentityEnforcer.Decision decision = slowAdmission.finish(verification);
             assertFalse(decision.allowed());
             assertTrue(registry.get(slowAdmission.player).isEmpty());
+            System.out.println("SLOW verification + close: closeCompletedWhileBlocked=true, "
+                    + "staleVerificationAllowed=false, staleClaimsPublished=false");
         }
     }
 
@@ -195,6 +199,9 @@ class BedrockIdentityEnforcerTest {
             assertFalse(decision.allowed());
             assertTrue(registry.get(slowAdmission.player).isEmpty());
             assertFalse(replacement.getGameProfile().toString().contains(VALID_NONCE));
+            System.out.println("SLOW verification + replacement: replacementCompletedWhileBlocked=true, "
+                    + "staleVerificationAllowed=false, staleClaimsPublished=false, "
+                    + "replacementPrivateEnvelope=false");
         }
     }
 

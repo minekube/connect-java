@@ -1,6 +1,8 @@
 package com.minekube.connect.tunnel.p2p;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -9,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.rpc.Code;
+import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
 import com.minekube.connect.tunnel.Tunneler;
@@ -37,6 +40,50 @@ import org.mockito.ArgumentCaptor;
 class Libp2pSessionResponderTest {
     private static final String ALLOWED_PEER = "12D3KooWNXa3WQenRYKVJCHxcadnp3JPcxRALCqk97qpMiqAG1tt";
     private static final String OTHER_PEER = "12D3KooWEzZpASrUwA3s8CM3UCDCCYjQzfh91ZyJnxRqaZ9xTi31";
+
+    @Test
+    void privateOfferUsesCoordinatorTokenAndSanitizedProposal() throws Exception {
+        Stream stream = mock(Stream.class);
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(registry);
+        AtomicReference<SessionProposal> proposalRef = new AtomicReference<>();
+        AtomicReference<ConnectPlayer> playerRef = new AtomicReference<>();
+        SessionOffer source = offer();
+        SessionOffer privateOffer = source.toBuilder()
+                .setPlayer(source.getPlayer().toBuilder()
+                        .setProfile(source.getPlayer().getProfile().toBuilder()
+                                .addProperties(SessionGameProfileProperty.newBuilder()
+                                        .setName("minekube:bedrock_identity")
+                                        .setValue("signed-envelope-replay-nonce-a"))))
+                .build();
+        Libp2pSessionResponder responder = new Libp2pSessionResponder(
+                "endpoint",
+                System::currentTimeMillis,
+                Collections.emptySet(),
+                (proposal, tunneler) -> {
+                    proposalRef.set(proposal);
+                    playerRef.set(coordinator.stage(proposal));
+                    tunneler.tunnel(proposal.getSession(), new NoopHandler());
+                },
+                coordinator);
+
+        try {
+            responder.handleOffer(stream, privateOffer);
+
+            assertNotNull(proposalRef.get().getAdmissionToken());
+            assertFalse(proposalRef.get().getSession().toString()
+                    .contains("signed-envelope-replay-nonce-a"));
+            assertFalse(playerRef.get().getGameProfile().toString()
+                    .contains("signed-envelope-replay-nonce-a"));
+            SessionResponse response = writtenResponse(stream);
+            assertTrue(response.hasAccepted());
+            System.out.println("LIBP2P admission: session=" + response.getSessionId()
+                    + ", result=ACCEPTED, sameStream=" + response.getAccepted().getSameStreamData()
+                    + ", token=opaque, proposalPrivateEnvelope=false, stagedPlayerPrivateEnvelope=false");
+        } finally {
+            coordinator.close();
+        }
+    }
 
     @Test
     void sendsAcceptedWhenLocalSessionOpensSameStreamTunnel() throws Exception {

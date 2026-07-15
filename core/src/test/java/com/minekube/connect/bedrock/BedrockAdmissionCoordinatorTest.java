@@ -1,10 +1,15 @@
 package com.minekube.connect.bedrock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
+import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.api.player.ConnectPlayer;
+import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.watch.SessionProposal;
 import java.lang.reflect.Field;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -13,6 +18,40 @@ import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 import org.junit.jupiter.api.Test;
 
 class BedrockAdmissionCoordinatorTest {
+    @Test
+    void admissionTokenCanVerifyExactlyOnce() {
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(
+                new VerifiedBedrockIdentityRegistry(), cleanupExecutor());
+        SessionProposal proposal = coordinator.proposal(
+                VerifiedBedrockIdentityRegistryTest.session(false), reason -> {}, "", "");
+        ConnectPlayer player = coordinator.stage(proposal);
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
+                new ConnectConfig(), mock(ConnectLogger.class), java.time.Instant::now);
+
+        try {
+            BedrockIdentityEnforcer.Decision first = coordinator.verify(
+                    player,
+                    proposal.getAdmissionToken(),
+                    enforcer,
+                    "",
+                    "",
+                    SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+            BedrockIdentityEnforcer.Decision replay = coordinator.verify(
+                    player,
+                    proposal.getAdmissionToken(),
+                    enforcer,
+                    "",
+                    "",
+                    SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+
+            assertTrue(first.allowed());
+            assertFalse(replay.allowed());
+            System.out.println("TOKEN consumption: firstVerification=allowed, secondVerification=rejected");
+        } finally {
+            coordinator.close();
+        }
+    }
+
     @Test
     void proposalGenerationsAreOpaqueAndMonotonic() throws Exception {
         ScheduledThreadPoolExecutor cleanupExecutor = cleanupExecutor();
@@ -30,6 +69,7 @@ class BedrockAdmissionCoordinatorTest {
             tokenFields[0].setAccessible(true);
             assertTrue(tokenFields[0].getLong(first.getAdmissionToken())
                     < tokenFields[0].getLong(second.getAdmissionToken()));
+            System.out.println("TOKEN shape: fields=1, fieldType=long, newerGeneration=true");
         } finally {
             coordinator.close();
         }
