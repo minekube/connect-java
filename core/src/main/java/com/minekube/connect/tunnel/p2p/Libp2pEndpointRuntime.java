@@ -28,6 +28,7 @@ import com.google.inject.name.Named;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.bedrock.BedrockIdentityReadiness;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.network.netty.LocalSession;
 import com.minekube.connect.platform.util.PlatformUtils;
@@ -76,6 +77,7 @@ final class Libp2pEndpointRuntime {
     private final ConnectLogger logger;
     private final PlatformInjector platformInjector;
     private final SimpleConnectApi api;
+    private final BedrockIdentityReadiness bedrockIdentityReadiness;
     private final String endpointInstanceId = newEndpointInstanceId();
     private final AtomicLong sequence = new AtomicLong();
 
@@ -97,7 +99,8 @@ final class Libp2pEndpointRuntime {
             PlatformUtils platformUtils,
             ConnectLogger logger,
             PlatformInjector platformInjector,
-            SimpleConnectApi api) {
+            SimpleConnectApi api,
+            BedrockIdentityReadiness bedrockIdentityReadiness) {
         this.dataDirectory = dataDirectory;
         this.connectConfig = connectConfig;
         this.connectToken = connectToken;
@@ -105,6 +108,7 @@ final class Libp2pEndpointRuntime {
         this.logger = logger;
         this.platformInjector = platformInjector;
         this.api = api;
+        this.bedrockIdentityReadiness = bedrockIdentityReadiness;
     }
 
     @Inject
@@ -265,7 +269,7 @@ final class Libp2pEndpointRuntime {
                                 : connectConfig.getSuperEndpoints(),
                         offlineMode,
                         authType,
-                        libp2pConfig.capabilities(),
+                        bedrockIdentityReadiness.capabilities(libp2pConfig.capabilities()),
                         this::currentCapacity);
                 client = new PeerRegistrationClient(handshake);
                 PeerRegisterResult result = await(client.install(
@@ -337,6 +341,21 @@ final class Libp2pEndpointRuntime {
             return thread;
         });
         registerAndWatch(offlineMode, authType);
+        registrationExecutor.scheduleWithFixedDelay(
+                this::refreshRegistrationReadiness, 5, 5, TimeUnit.SECONDS);
+    }
+
+    private void refreshRegistrationReadiness() {
+        if (!bedrockIdentityReadiness.refresh()) {
+            return;
+        }
+        ActiveRegistration registration;
+        synchronized (this) {
+            registration = activeRegistration;
+        }
+        if (registration != null) {
+            registration.close();
+        }
     }
 
     private void scheduleRegisterRetry(OfflineMode offlineMode, EndpointAuthType authType, long delaySeconds) {

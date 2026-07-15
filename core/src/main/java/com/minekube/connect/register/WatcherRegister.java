@@ -31,6 +31,7 @@ import com.google.rpc.Status;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.bedrock.BedrockIdentityReadiness;
 import com.minekube.connect.network.netty.LocalSession;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
@@ -62,6 +63,7 @@ public class WatcherRegister {
     @Inject private ConnectLogger logger;
     @Inject private SimpleConnectApi api;
     @Inject private Libp2pEndpoint libp2pEndpoint;
+    @Inject private BedrockIdentityReadiness bedrockIdentityReadiness;
 
     // volatile: written from injection thread (start/stop) and read from the
     // scheduler thread (retry) and OkHttp dispatcher (WatcherImpl callbacks).
@@ -90,6 +92,7 @@ public class WatcherRegister {
                     .setMaxIntervalMillis(60000 * 5) // 5 minutes
                     .setMultiplier(1.5) // 50% increase per back off
                     .build();
+            scheduler.scheduleWithFixedDelay(this::refreshWatchReadiness, 5, 5, TimeUnit.SECONDS);
             watch();
         }
     }
@@ -100,6 +103,12 @@ public class WatcherRegister {
 
     public boolean isHealthy() {
         return healthy.get();
+    }
+
+    private void refreshWatchReadiness() {
+        if (bedrockIdentityReadiness != null && bedrockIdentityReadiness.refresh()) {
+            watch();
+        }
     }
 
     public synchronized void stop() {

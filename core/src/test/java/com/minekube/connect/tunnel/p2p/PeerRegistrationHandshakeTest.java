@@ -2,6 +2,7 @@ package com.minekube.connect.tunnel.p2p;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.protobuf.ByteString;
@@ -38,7 +39,7 @@ class PeerRegistrationHandshakeTest {
                 Collections.singletonList("parent"),
                 OfflineMode.OFFLINE_MODE_ALLOWED,
                 EndpointAuthType.ENDPOINT_AUTH_TYPE_PROXIED,
-                Arrays.asList("session", "status"),
+                Arrays.asList("session", "status", "bedrock-identity-v1"),
                 PeerCapacity.newBuilder().setMaxSessions(100).setActiveSessions(3).build());
 
         String relayAddr = "/dns4/relay.example/tcp/4001/p2p/relay/p2p-circuit/p2p/" + identity.peerId();
@@ -85,6 +86,23 @@ class PeerRegistrationHandshakeTest {
         assertTrue(publicKey.verify(
                 PeerRecordSigningPayload.bytes(record),
                 commit.getSignature().toByteArray()));
+    }
+
+    @Test
+    void doesNotInventBedrockIdentityCapability() throws Exception {
+        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
+        PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
+                identity,
+                "endpoint",
+                "token",
+                "instance",
+                Collections.emptyList(),
+                OfflineMode.OFFLINE_MODE_ALLOWED,
+                Arrays.asList("session", "status"),
+                PeerCapacity.newBuilder().setMaxSessions(100).setActiveSessions(3).build());
+
+        assertFalse(handshake.init(Collections.emptyList()).getCapabilitiesList()
+                .contains(PeerRegistrationHandshake.BEDROCK_IDENTITY_V1_CAPABILITY));
     }
 
     @Test

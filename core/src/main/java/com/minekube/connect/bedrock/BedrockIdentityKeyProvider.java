@@ -3,45 +3,61 @@ package com.minekube.connect.bedrock;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 import com.minekube.connect.config.ConnectConfig;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
-final class BedrockIdentityKeyProvider {
+public final class BedrockIdentityKeyProvider {
     private static final Gson GSON = new Gson();
+    private static final long METADATA_BODY_LIMIT_BYTES = 64 * 1024;
+    private static final long METADATA_CALL_TIMEOUT_SECONDS = 5;
+    private static final long METADATA_FAILURE_BACKOFF_SECONDS = 5;
 
     private final ConnectConfig config;
     private final OkHttpClient httpClient;
     private final Supplier<Instant> now;
     private CachedKeys cachedKeys;
+    private Instant nextRefreshAt = Instant.MIN;
 
-    BedrockIdentityKeyProvider(ConnectConfig config, OkHttpClient httpClient) {
+    public BedrockIdentityKeyProvider(ConnectConfig config, OkHttpClient httpClient) {
         this(config, httpClient, Instant::now);
     }
 
     BedrockIdentityKeyProvider(ConnectConfig config, OkHttpClient httpClient, Supplier<Instant> now) {
         this.config = Objects.requireNonNull(config, "config");
-        this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
+        this.httpClient = Objects.requireNonNull(httpClient, "httpClient").newBuilder()
+                .callTimeout(METADATA_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .build();
         this.now = Objects.requireNonNull(now, "now");
     }
 
-    List<byte[]> keys() {
+    synchronized List<byte[]> keys() {
         List<byte[]> staticKeys = staticKeys();
         String metadataUrl = config.getBedrockIdentity().getMetadataUrl();
         if (metadataUrl == null || metadataUrl.isEmpty()) {
             return staticKeys;
         }
-        if (cachedKeys != null && now.get().isBefore(cachedKeys.expiresAt)) {
+        Instant current = now.get();
+        if (cachedKeys != null && current.isBefore(cachedKeys.expiresAt)) {
             return cachedKeys.keys;
+        }
+        if (current.isBefore(nextRefreshAt)) {
+            return staleKeys(current);
         }
         try {
             RemoteKeys remoteKeys = fetchKeys(metadataUrl);
@@ -50,17 +66,26 @@ final class BedrockIdentityKeyProvider {
                 if (cacheSeconds <= 0) {
                     cacheSeconds = 300;
                 }
-                Instant fetchedAt = now.get();
+                Instant fetchedAt = current;
                 cachedKeys = new CachedKeys(remoteKeys.keys, fetchedAt.plusSeconds(cacheSeconds),
                         fetchedAt.plusSeconds(cacheSeconds + metadataMaxStaleSeconds()));
                 return remoteKeys.keys;
             }
         } catch (IOException | JsonSyntaxException | IllegalArgumentException ignored) {
-            if (cachedKeys != null && !cachedKeys.keys.isEmpty() && now.get().isBefore(cachedKeys.staleUntil)) {
-                return cachedKeys.keys;
-            }
+            nextRefreshAt = failureBackoffUntil(current);
+            return staleKeys(current);
         }
-        return staticKeys;
+        return Collections.emptyList();
+    }
+
+    synchronized boolean hasUsableKeys() {
+        List<byte[]> keys = keys();
+        String metadataUrl = config.getBedrockIdentity().getMetadataUrl();
+        if (metadataUrl == null || metadataUrl.isEmpty()) {
+            return !keys.isEmpty();
+        }
+        Instant current = now.get();
+        return cachedKeys != null && !cachedKeys.keys.isEmpty() && current.isBefore(cachedKeys.staleUntil);
     }
 
     private RemoteKeys fetchKeys(String metadataUrl) throws IOException {
@@ -73,7 +98,7 @@ final class BedrockIdentityKeyProvider {
             if (body == null) {
                 throw new IOException("metadata body is empty");
             }
-            VerifierMetadata metadata = GSON.fromJson(body.charStream(), VerifierMetadata.class);
+            VerifierMetadata metadata = GSON.fromJson(readBody(body), VerifierMetadata.class);
             if (metadata == null || !"Ed25519".equals(metadata.algorithm) ||
                     !config.getBedrockIdentity().getExpectedIssuer().equals(metadata.issuer)) {
                 throw new IllegalArgumentException("metadata scope is invalid");
@@ -87,6 +112,37 @@ final class BedrockIdentityKeyProvider {
             }
             return new RemoteKeys(keys, metadata.cache_max_age_seconds);
         }
+    }
+
+    private String readBody(ResponseBody body) throws IOException {
+        try (InputStream input = body.byteStream(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096];
+            int total = 0;
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                total += read;
+                if (total > METADATA_BODY_LIMIT_BYTES) {
+                    throw new IOException("metadata body exceeds limit");
+                }
+                output.write(buffer, 0, read);
+            }
+            return output.toString(StandardCharsets.UTF_8);
+        }
+    }
+
+    private List<byte[]> staleKeys(Instant current) {
+        if (cachedKeys != null && !cachedKeys.keys.isEmpty() && current.isBefore(cachedKeys.staleUntil)) {
+            return cachedKeys.keys;
+        }
+        return Collections.emptyList();
+    }
+
+    private Instant failureBackoffUntil(Instant current) {
+        Instant retryAt = current.plusSeconds(METADATA_FAILURE_BACKOFF_SECONDS);
+        if (cachedKeys != null && retryAt.isAfter(cachedKeys.staleUntil)) {
+            return cachedKeys.staleUntil;
+        }
+        return retryAt;
     }
 
     private List<byte[]> staticKeys() {
@@ -104,8 +160,14 @@ final class BedrockIdentityKeyProvider {
         if (encoded == null || encoded.isEmpty()) {
             return;
         }
-        byte[] decoded = Base64.getDecoder().decode(encoded);
-        keys.add(decoded);
+        try {
+            byte[] decoded = Base64.getDecoder().decode(encoded);
+            if (decoded.length == 32 || decoded.length == 44) {
+                keys.add(decoded);
+            }
+        } catch (IllegalArgumentException ignored) {
+            // Invalid configured material is not a usable verifier key.
+        }
     }
 
     private static void addMetadataKey(List<byte[]> keys, String encoded) {

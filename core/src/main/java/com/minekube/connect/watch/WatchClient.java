@@ -28,6 +28,8 @@ package com.minekube.connect.watch;
 import com.google.inject.Inject;
 import com.google.inject.name.Named;
 import com.google.protobuf.InvalidProtocolBufferException;
+import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
+import com.minekube.connect.bedrock.BedrockIdentityReadiness;
 import com.minekube.connect.config.ConnectConfig;
 import java.io.IOException;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionRejection;
@@ -54,18 +56,30 @@ public class WatchClient {
 
     private final OkHttpClient httpClient;
     private final ConnectConfig config;
+    private final BedrockIdentityReadiness bedrockIdentityReadiness;
 
     @Inject
-    public WatchClient(@Named("watchHttpClient") OkHttpClient httpClient, ConnectConfig config) {
+    public WatchClient(
+            @Named("watchHttpClient") OkHttpClient httpClient,
+            ConnectConfig config,
+            BedrockIdentityReadiness bedrockIdentityReadiness) {
         this.httpClient = httpClient;
         this.config = config;
+        this.bedrockIdentityReadiness = bedrockIdentityReadiness;
+    }
+
+    public WatchClient(@Named("watchHttpClient") OkHttpClient httpClient, ConnectConfig config) {
+        this(httpClient, config, new BedrockIdentityReadiness(
+                config, new BedrockIdentityKeyProvider(config, new OkHttpClient())));
     }
 
     public WebSocket watch(Watcher watcher) {
         Request.Builder request = new Request.Builder()
                 .url(WATCH_URL)
-                .header(ENDPOINT_HEADER, config.getEndpoint())
-                .header(CAPABILITIES_HEADER, BEDROCK_IDENTITY_V1_CAPABILITY);
+                .header(ENDPOINT_HEADER, config.getEndpoint());
+        if (bedrockIdentityReadiness.isReady()) {
+            request.header(CAPABILITIES_HEADER, BEDROCK_IDENTITY_V1_CAPABILITY);
+        }
 
         if (config.getAllowOfflineModePlayers() != null) {
             request = request.header(ENDPOINT_OFFLINE_MODE_HEADER,

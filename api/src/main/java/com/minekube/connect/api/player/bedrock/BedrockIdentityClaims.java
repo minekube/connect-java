@@ -18,7 +18,7 @@ public class BedrockIdentityClaims {
     String protocol;
     String bedrockAuthPolicy;
     String principalType;
-    String bedrockXuid;
+    transient String bedrockXuid;
     String bedrockUsername;
     String bedrockDerivedUuid;
     String linkedJavaUuid;
@@ -143,5 +143,29 @@ public class BedrockIdentityClaims {
     @Deprecated
     public String getNonce() {
         return null;
+    }
+
+    /**
+     * Returns the sensitive, trusted Bedrock XUID for in-process plugin authorization only.
+     * Do not log, serialize, forward, or expose this value to untrusted consumers.
+     *
+     * @return canonical XUID from the verified signed envelope
+     */
+    public String getBedrockXuid() {
+        return bedrockXuid;
+    }
+
+    @Override
+    public String toString() {
+        return "BedrockIdentityClaims(issuer=" + issuer
+                + ", endpointId=" + endpointId
+                + ", orgId=" + orgId
+                + ", sessionId=" + sessionId
+                + ", protocol=" + protocol
+                + ", bedrockAuthPolicy=" + bedrockAuthPolicy
+                + ", principalType=" + principalType
+                + ", issuedAt=" + issuedAt
+                + ", expiresAt=" + expiresAt
+                + ")";
     }
 }

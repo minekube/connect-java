@@ -2,13 +2,19 @@ package com.minekube.connect.bedrock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 import com.minekube.connect.config.ConnectConfig;
 import java.lang.reflect.Field;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import okhttp3.OkHttpClient;
 import okhttp3.mockwebserver.MockResponse;
@@ -54,7 +60,7 @@ class BedrockIdentityKeyProviderTest {
     }
 
     @Test
-    void fallsBackToStaticKeysWhenMetadataFetchFails() throws Exception {
+    void failsClosedWhenConfiguredMetadataCannotBeInitiallyValidated() throws Exception {
         byte[] fallback = filledKey((byte) 5);
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setResponseCode(503));
@@ -63,7 +69,7 @@ class BedrockIdentityKeyProviderTest {
 
             BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(config, new OkHttpClient());
 
-            assertKeys(provider.keys(), fallback);
+            assertTrue(provider.keys().isEmpty());
         }
     }
 
@@ -102,6 +108,80 @@ class BedrockIdentityKeyProviderTest {
             now.set(now.get().plusSeconds(2));
             assertKeys(provider.keys(), current);
             now.set(now.get().plusSeconds(10));
+            assertTrue(provider.keys().isEmpty());
+        }
+    }
+
+    @Test
+    void rejectsRedirectAndOversizedMetadataBeforeCaching() throws Exception {
+        byte[] current = filledKey((byte) 7);
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setResponseCode(302).setHeader("Location", "/redirected"));
+            server.enqueue(new MockResponse().setBody(metadata("minekube-connect", current, 120) + " ".repeat(65_537)));
+            ConnectConfig config = config(server.url("/keys.json").toString());
+            BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(config, new OkHttpClient());
+
+            assertTrue(provider.keys().isEmpty());
+            assertTrue(new BedrockIdentityKeyProvider(config, new OkHttpClient()).keys().isEmpty());
+            assertEquals(2, server.getRequestCount());
+        }
+    }
+
+    @Test
+    void limitsMetadataCallsToFiveSeconds() throws Exception {
+        byte[] current = filledKey((byte) 8);
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse()
+                    .setBody(metadata("minekube-connect", current, 120))
+                    .setHeadersDelay(6, TimeUnit.SECONDS));
+            BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(
+                    config(server.url("/keys.json").toString()), new OkHttpClient());
+
+            assertTimeoutPreemptively(Duration.ofMillis(5_500), () -> assertTrue(provider.keys().isEmpty()));
+        }
+    }
+
+    @Test
+    void sharesOneExpiredMetadataRefreshAcrossConcurrentCallers() throws Exception {
+        byte[] current = filledKey((byte) 9);
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse()
+                    .setBody(metadata("minekube-connect", current, 120))
+                    .setHeadersDelay(250, TimeUnit.MILLISECONDS));
+            BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(
+                    config(server.url("/keys.json").toString()), new OkHttpClient());
+            ExecutorService executor = Executors.newFixedThreadPool(8);
+            try {
+                for (int i = 0; i < 8; i++) {
+                    executor.submit(provider::keys);
+                }
+            } finally {
+                executor.shutdown();
+                assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+            }
+            assertEquals(1, server.getRequestCount());
+        }
+    }
+
+    @Test
+    void backsOffFailedRefreshesAndFailsClosedAfterHardStaleDeadline() throws Exception {
+        byte[] current = filledKey((byte) 10);
+        AtomicReference<Instant> now = new AtomicReference<>(Instant.parse("2026-07-15T12:00:00Z"));
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setBody(metadata("minekube-connect", current, 1)));
+            server.enqueue(new MockResponse().setResponseCode(503));
+            server.enqueue(new MockResponse().setResponseCode(503));
+            ConnectConfig config = config(server.url("/keys.json").toString());
+            setField(config.getBedrockIdentity(), "metadataMaxStaleSeconds", 10);
+            BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(
+                    config, new OkHttpClient(), now::get);
+
+            assertKeys(provider.keys(), current);
+            now.set(now.get().plusSeconds(2));
+            assertKeys(provider.keys(), current);
+            assertKeys(provider.keys(), current);
+            assertEquals(2, server.getRequestCount());
+            now.set(Instant.parse("2026-07-15T12:00:12Z"));
             assertTrue(provider.keys().isEmpty());
         }
     }

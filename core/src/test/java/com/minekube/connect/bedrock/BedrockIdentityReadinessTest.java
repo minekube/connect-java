@@ -1,0 +1,67 @@
+package com.minekube.connect.bedrock;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.minekube.connect.config.ConnectConfig;
+import java.lang.reflect.Field;
+import java.util.Base64;
+import okhttp3.OkHttpClient;
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
+import org.junit.jupiter.api.Test;
+
+class BedrockIdentityReadinessTest {
+    @Test
+    void requiresNonDisabledEnforcementAndValidatedStaticKey() {
+        ConnectConfig disabled = config("disabled");
+        setField(disabled.getBedrockIdentity(), "publicKey", encodedKey((byte) 1));
+        assertFalse(new BedrockIdentityReadiness(disabled,
+                new BedrockIdentityKeyProvider(disabled, new OkHttpClient())).isReady());
+
+        ConnectConfig malformed = config("require");
+        setField(malformed.getBedrockIdentity(), "publicKey", "not-base64");
+        assertFalse(new BedrockIdentityReadiness(malformed,
+                new BedrockIdentityKeyProvider(malformed, new OkHttpClient())).isReady());
+
+        ConnectConfig valid = config("require");
+        setField(valid.getBedrockIdentity(), "publicKey", encodedKey((byte) 2));
+        assertTrue(new BedrockIdentityReadiness(valid,
+                new BedrockIdentityKeyProvider(valid, new OkHttpClient())).isReady());
+    }
+
+    @Test
+    void metadataRequiresInitialSuccessfulValidationBeforeAdvertising() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setResponseCode(503));
+            ConnectConfig config = config("require");
+            setField(config.getBedrockIdentity(), "metadataUrl", server.url("/keys").toString());
+            setField(config.getBedrockIdentity(), "publicKey", encodedKey((byte) 3));
+
+            assertFalse(new BedrockIdentityReadiness(config,
+                    new BedrockIdentityKeyProvider(config, new OkHttpClient())).isReady());
+        }
+    }
+
+    private static ConnectConfig config(String enforcement) {
+        ConnectConfig config = new ConnectConfig();
+        setField(config.getBedrockIdentity(), "enforcement", enforcement);
+        return config;
+    }
+
+    private static String encodedKey(byte value) {
+        byte[] key = new byte[32];
+        java.util.Arrays.fill(key, value);
+        return Base64.getEncoder().encodeToString(key);
+    }
+
+    private static void setField(Object target, String name, Object value) {
+        try {
+            Field field = target.getClass().getDeclaredField(name);
+            field.setAccessible(true);
+            field.set(target, value);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
+    }
+}

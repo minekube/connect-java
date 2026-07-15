@@ -108,9 +108,6 @@ final class PeerRegistrationHandshake {
         this.offlineMode = Objects.requireNonNull(offlineMode, "offlineMode");
         this.authType = Objects.requireNonNull(authType, "authType");
         this.capabilities = new ArrayList<>(Objects.requireNonNull(capabilities, "capabilities"));
-        if (!this.capabilities.contains(BEDROCK_IDENTITY_V1_CAPABILITY)) {
-            this.capabilities.add(BEDROCK_IDENTITY_V1_CAPABILITY);
-        }
         this.capacitySupplier = Objects.requireNonNull(capacitySupplier, "capacitySupplier");
     }
 

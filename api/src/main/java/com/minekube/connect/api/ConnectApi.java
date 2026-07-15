@@ -68,7 +68,8 @@ public interface ConnectApi {
     /**
      * Returns claims from a Moxy-signed Bedrock identity envelope that Connect verified for the
      * player's current session. Java, disabled, warn-failed, rejected, and disconnected sessions
-     * return empty.
+     * return empty. The claims' XUID accessor is sensitive trusted identity material intended only
+     * for in-process authorization; callers must not log, serialize, forward, or expose it.
      *
      * @param player a player object returned by this API for the currently connected session
      * @return immutable verified claims, or empty when no verified claims exist for the session
