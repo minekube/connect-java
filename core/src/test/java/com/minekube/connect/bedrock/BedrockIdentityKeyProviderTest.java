@@ -223,11 +223,11 @@ class BedrockIdentityKeyProviderTest {
             server.enqueue(new MockResponse().setBody(metadata("minekube-connect", current, 1)));
             server.enqueue(new MockResponse().setResponseCode(503));
             server.enqueue(new MockResponse().setResponseCode(503));
-            ConnectConfig config = config(server.url("/keys.json").toString());
+            ConnectConfig config = config(httpsUrl(server, "/keys.json"));
             setField(config.getBedrockIdentity(), "metadataMaxStaleSeconds", 10);
             BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(
                     config,
-                    new OkHttpClient(),
+                    httpsTestClient(server),
                     () -> server.getRequestCount() >= 2
                             ? afterSecondRequest.get()
                             : beforeRequest.get());
