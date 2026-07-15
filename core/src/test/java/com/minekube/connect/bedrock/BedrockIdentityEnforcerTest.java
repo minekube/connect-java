@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -20,6 +21,7 @@ import com.minekube.connect.api.player.bedrock.BedrockIdentityVerifier;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.network.netty.LocalSession;
 import com.minekube.connect.player.ConnectPlayerImpl;
+import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
@@ -31,11 +33,24 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Authentication;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfileProperty;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
+import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
+import okhttp3.Protocol;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -87,6 +102,83 @@ class BedrockIdentityEnforcerTest {
             assertSame(decision.verifiedClaims(), admissionRegistry.get(player).orElseThrow());
         } finally {
             admissionRegistry.close();
+        }
+    }
+
+    @Test
+    void slowMetadataVerificationDoesNotBlockUnrelatedStageOrRemove() throws Exception {
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        try (SlowAdmission slowAdmission = new SlowAdmission(registry)) {
+            Future<BedrockIdentityEnforcer.Decision> verification = slowAdmission.start();
+
+            ConnectPlayer unrelated = slowAdmission.completeWhileBlocked(() -> registry.stage(
+                    session("unrelated-envelope").toBuilder().setId("session-2").build()));
+            slowAdmission.completeWhileBlocked(() -> {
+                registry.remove(unrelated);
+                return null;
+            });
+
+            BedrockIdentityEnforcer.Decision decision = slowAdmission.finish(verification);
+            assertTrue(decision.allowed());
+            assertNotNull(decision.verifiedClaims());
+            assertSame(decision.verifiedClaims(), registry.get(slowAdmission.player).orElseThrow());
+        }
+    }
+
+    @Test
+    void slowMetadataVerificationDoesNotBlockExpiryAndCannotPublishAfterIt() throws Exception {
+        AtomicReference<Runnable> expiry = new AtomicReference<>();
+        ScheduledExecutorService cleanupExecutor = mock(ScheduledExecutorService.class);
+        when(cleanupExecutor.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class)))
+                .thenAnswer(invocation -> {
+                    expiry.set(invocation.getArgument(0));
+                    return mock(ScheduledFuture.class);
+                });
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry(cleanupExecutor);
+        try (SlowAdmission slowAdmission = new SlowAdmission(registry)) {
+            Future<BedrockIdentityEnforcer.Decision> verification = slowAdmission.start();
+
+            slowAdmission.completeWhileBlocked(() -> {
+                expiry.get().run();
+                return null;
+            });
+
+            BedrockIdentityEnforcer.Decision decision = slowAdmission.finish(verification);
+            assertFalse(decision.allowed());
+            assertTrue(registry.get(slowAdmission.player).isEmpty());
+        }
+    }
+
+    @Test
+    void slowMetadataVerificationDoesNotBlockCloseAndCannotPublishAfterIt() throws Exception {
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        try (SlowAdmission slowAdmission = new SlowAdmission(registry)) {
+            Future<BedrockIdentityEnforcer.Decision> verification = slowAdmission.start();
+
+            slowAdmission.completeWhileBlocked(() -> {
+                registry.close();
+                return null;
+            });
+
+            BedrockIdentityEnforcer.Decision decision = slowAdmission.finish(verification);
+            assertFalse(decision.allowed());
+            assertTrue(registry.get(slowAdmission.player).isEmpty());
+        }
+    }
+
+    @Test
+    void replacementDuringSlowMetadataVerificationCannotPublishStaleClaims() throws Exception {
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        try (SlowAdmission slowAdmission = new SlowAdmission(registry)) {
+            Future<BedrockIdentityEnforcer.Decision> verification = slowAdmission.start();
+
+            ConnectPlayer replacement = slowAdmission.completeWhileBlocked(
+                    () -> registry.stage(session(slowAdmission.envelope)));
+
+            BedrockIdentityEnforcer.Decision decision = slowAdmission.finish(verification);
+            assertFalse(decision.allowed());
+            assertTrue(registry.get(slowAdmission.player).isEmpty());
+            assertTrue(registry.takeAdmissionProfile(replacement).isPresent());
         }
     }
 
@@ -545,6 +637,17 @@ class BedrockIdentityEnforcerTest {
         return Base64.getEncoder().encodeToString(data);
     }
 
+    private static String metadata(KeyPair keyPair) {
+        byte[] encoded = keyPair.getPublic().getEncoded();
+        byte[] rawPublicKey = Arrays.copyOfRange(encoded, encoded.length - 32, encoded.length);
+        return "{"
+                + "\"issuer\":\"minekube-connect-test\","
+                + "\"algorithm\":\"Ed25519\","
+                + "\"current_public_key\":\"" + base64(rawPublicKey) + "\","
+                + "\"cache_max_age_seconds\":120"
+                + "}";
+    }
+
     private static String signedEnvelope(
             KeyPair keyPair,
             String nonce,
@@ -657,5 +760,83 @@ class BedrockIdentityEnforcerTest {
         String bedrock_xuid;
         String bedrock_username;
         String bedrock_derived_uuid;
+    }
+
+    private static final class SlowAdmission implements AutoCloseable {
+        private final VerifiedBedrockIdentityRegistry registry;
+        private final CountDownLatch fetchStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseFetch = new CountDownLatch(1);
+        private final ExecutorService executor = Executors.newFixedThreadPool(2);
+        private final ConnectPlayer player;
+        private final String envelope;
+        private final BedrockIdentityEnforcer enforcer;
+        private final LocalSession.Context context;
+
+        private SlowAdmission(VerifiedBedrockIdentityRegistry registry) throws Exception {
+            this.registry = registry;
+            KeyPair keyPair = ed25519KeyPair();
+            ConnectConfig config = config("require", "", "trusted_bedrock_xuid");
+            setField(config.getBedrockIdentity(), "metadataUrl", "https://metadata.example/keys");
+            envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", config.getEndpoint());
+            player = registry.stage(session(envelope));
+            OkHttpClient httpClient = new OkHttpClient.Builder()
+                    .addInterceptor(chain -> {
+                        fetchStarted.countDown();
+                        try {
+                            if (!releaseFetch.await(5, TimeUnit.SECONDS)) {
+                                throw new IOException("metadata test release timed out");
+                            }
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new IOException("metadata test interrupted", e);
+                        }
+                        return new Response.Builder()
+                                .request(chain.request())
+                                .protocol(Protocol.HTTP_1_1)
+                                .code(200)
+                                .message("OK")
+                                .body(ResponseBody.create(
+                                        MediaType.get("application/json"),
+                                        metadata(keyPair)))
+                                .build();
+                    })
+                    .build();
+            BedrockIdentityKeyProvider keyProvider = new BedrockIdentityKeyProvider(config, httpClient, () -> NOW);
+            enforcer = new BedrockIdentityEnforcer(
+                    config,
+                    mock(ConnectLogger.class),
+                    () -> NOW,
+                    keyProvider,
+                    registry);
+            context = mock(LocalSession.Context.class);
+            when(context.getPlayer()).thenReturn(player);
+            when(context.getEndpointId()).thenReturn("endpoint-id");
+            when(context.getEndpointOrgId()).thenReturn("org-id");
+            when(context.getProtocol()).thenReturn(SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+        }
+
+        private Future<BedrockIdentityEnforcer.Decision> start() throws Exception {
+            Future<BedrockIdentityEnforcer.Decision> verification = executor.submit(() -> enforcer.verify(context));
+            assertTrue(fetchStarted.await(2, TimeUnit.SECONDS));
+            return verification;
+        }
+
+        private <T> T completeWhileBlocked(Callable<T> operation) throws Exception {
+            return executor.submit(operation).get(500, TimeUnit.MILLISECONDS);
+        }
+
+        private BedrockIdentityEnforcer.Decision finish(
+                Future<BedrockIdentityEnforcer.Decision> verification) throws Exception {
+            releaseFetch.countDown();
+            return verification.get(2, TimeUnit.SECONDS);
+        }
+
+        @Override
+        public void close() throws Exception {
+            releaseFetch.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(2, TimeUnit.SECONDS);
+            registry.close();
+        }
     }
 }

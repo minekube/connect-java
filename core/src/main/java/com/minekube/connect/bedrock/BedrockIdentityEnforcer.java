@@ -128,6 +128,10 @@ public final class BedrockIdentityEnforcer {
         return verify(player, profile, endpointId, endpointOrgId, protocol);
     }
 
+    Decision invalidatedAdmission() {
+        return Decision.rejected(REJECT_MESSAGE);
+    }
+
     public void reject(LocalSession.Context context, Decision decision) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(decision, "decision");
