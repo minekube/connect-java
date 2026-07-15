@@ -50,6 +50,16 @@ class BedrockIdentityVerifierTest {
     }
 
     @Test
+    void rejectsSignedEnvelopeWithQuotedVersion() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id")
+                .replace("\"version\":1", "\"version\":\"1\"");
+
+        assertThrows(BedrockIdentityVerificationException.class,
+                () -> verifier(keyPair, "session-1").verify(profileWithEnvelope(envelope)));
+    }
+
+    @Test
     void rejectsTamperedEnvelopeSignature() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
         String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id")

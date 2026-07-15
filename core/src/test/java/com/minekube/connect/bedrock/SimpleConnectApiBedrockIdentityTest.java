@@ -5,17 +5,41 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
+import com.minekube.connect.api.player.Auth;
+import com.minekube.connect.api.player.GameProfile;
+import com.minekube.connect.player.ConnectPlayerImpl;
 import com.minekube.connect.watch.SessionProposal;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class SimpleConnectApiBedrockIdentityTest {
+    @Test
+    void sameUuidReplacementRemovesDisplacedSessionClaims() {
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        SimpleConnectApi api = new SimpleConnectApi(mock(ConnectLogger.class), registry);
+        UUID uuid = UUID.randomUUID();
+        ConnectPlayer first = player("session-a", uuid);
+        ConnectPlayer second = player("session-b", uuid);
+        registry.record(first, VerifiedBedrockIdentityRegistryTest.claims("session-a"));
+        registry.record(second, VerifiedBedrockIdentityRegistryTest.claims("session-b"));
+
+        api.addPlayer(first);
+        api.addPlayer(second);
+
+        assertFalse(registry.get(first).isPresent());
+        assertTrue(registry.get(second).isPresent());
+        api.playerRemoved(uuid);
+        assertFalse(registry.get(second).isPresent());
+    }
     @Test
     void exposesOnlySanitizedPlayerAndNonceFreeVerifiedClaims() {
         VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
@@ -93,5 +117,10 @@ class SimpleConnectApiBedrockIdentityTest {
         api.discardAdmission(player);
 
         assertFalse(registry.takeAdmissionProfile(player).isPresent());
+    }
+
+    private static ConnectPlayer player(String sessionId, UUID uuid) {
+        return new ConnectPlayerImpl(sessionId,
+                new GameProfile("BedrockSteve", uuid, Collections.emptyList()), new Auth(false), "");
     }
 }

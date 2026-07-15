@@ -89,7 +89,11 @@ public class SimpleConnectApi implements ConnectApi {
 
     public ConnectPlayer addPlayer(ConnectPlayer player) {
         ConnectPlayer publicPlayer = verifiedBedrockIdentities.publicPlayer(player);
-        return players.put(publicPlayer.getUniqueId(), publicPlayer);
+        ConnectPlayer previous = players.put(publicPlayer.getUniqueId(), publicPlayer);
+        if (previous != null && previous != publicPlayer) {
+            verifiedBedrockIdentities.remove(previous);
+        }
+        return previous;
     }
 
     public ConnectPlayer stageAdmission(SessionProposal proposal) {
@@ -119,7 +123,13 @@ public class SimpleConnectApi implements ConnectApi {
     }
 
     public void playerRemoved(UUID uuid) {
-        pendingRemove.invalidate(uuid);
+        ConnectPlayer pendingPlayer = pendingRemove.getIfPresent(uuid);
+        if (pendingPlayer != null) {
+            pendingRemove.invalidate(uuid);
+            verifiedBedrockIdentities.remove(pendingPlayer);
+            players.remove(uuid, pendingPlayer);
+            return;
+        }
         ConnectPlayer player = players.remove(uuid);
         if (player != null) {
             verifiedBedrockIdentities.remove(player);

@@ -35,6 +35,11 @@ class BedrockIdentityReadinessTest {
         setField(valid.getBedrockIdentity(), "publicKey", encodedKey((byte) 2));
         assertTrue(new BedrockIdentityReadiness(valid,
                 new BedrockIdentityKeyProvider(valid, new OkHttpClient())).isReady());
+
+        ConnectConfig unknownMode = config("bogus");
+        setField(unknownMode.getBedrockIdentity(), "publicKey", encodedKey((byte) 4));
+        assertFalse(new BedrockIdentityReadiness(unknownMode,
+                new BedrockIdentityKeyProvider(unknownMode, new OkHttpClient())).isReady());
     }
 
     @Test

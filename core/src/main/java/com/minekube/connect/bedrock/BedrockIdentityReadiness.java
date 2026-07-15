@@ -4,7 +4,6 @@ import com.minekube.connect.config.ConnectConfig;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -58,9 +57,7 @@ public final class BedrockIdentityReadiness {
     }
 
     private boolean currentReady() {
-        String enforcement = config.getBedrockIdentity().getEnforcement();
-        return enforcement != null
-                && !"disabled".equals(enforcement.toLowerCase(Locale.ROOT))
+        return BedrockIdentityConfiguration.from(config.getBedrockIdentity()).isUsable()
                 && keyProvider.hasUsableKeys();
     }
 }

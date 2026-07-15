@@ -17,6 +17,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import okhttp3.OkHttpClient;
+import okhttp3.Request;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.Test;
@@ -58,12 +59,25 @@ class BedrockIdentityKeyProviderTest {
                             + "\"previous_public_keys\":[\"" + Base64.getEncoder().encodeToString(previous) + "\"],"
                             + "\"cache_max_age_seconds\":120"
                             + "}"));
-            ConnectConfig config = config(server.url("/.well-known/minekube-connect/bedrock-identity-keys.json").toString());
+            ConnectConfig config = config(httpsUrl(server, "/.well-known/minekube-connect/bedrock-identity-keys.json"));
 
-            BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(config, new OkHttpClient());
+            BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(config, httpsTestClient(server));
 
             assertKeys(provider.keys(), current, previous);
             assertEquals("/.well-known/minekube-connect/bedrock-identity-keys.json", server.takeRequest().getPath());
+        }
+    }
+
+    @Test
+    void rejectsPlaintextMetadataUrlBeforeFetching() throws Exception {
+        byte[] current = filledKey((byte) 11);
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setBody(metadata("minekube-connect", current, 120)));
+            BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(
+                    config(server.url("/keys.json").toString()), new OkHttpClient());
+
+            assertTrue(provider.keys().isEmpty());
+            assertEquals(0, server.getRequestCount());
         }
     }
 
@@ -72,10 +86,10 @@ class BedrockIdentityKeyProviderTest {
         byte[] fallback = filledKey((byte) 5);
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setResponseCode(503));
-            ConnectConfig config = config(server.url("/keys.json").toString());
+            ConnectConfig config = config(httpsUrl(server, "/keys.json"));
             setField(config.getBedrockIdentity(), "publicKey", Base64.getEncoder().encodeToString(fallback));
 
-            BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(config, new OkHttpClient());
+            BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(config, httpsTestClient(server));
 
             assertTrue(provider.keys().isEmpty());
         }
@@ -91,7 +105,7 @@ class BedrockIdentityKeyProviderTest {
                     + "\"cache_max_age_seconds\":120"
                     + "}"));
             BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(
-                    config(server.url("/keys.json").toString()), new OkHttpClient());
+                    config(httpsUrl(server, "/keys.json")), httpsTestClient(server));
 
             assertTrue(provider.keys().isEmpty());
         }
@@ -105,11 +119,11 @@ class BedrockIdentityKeyProviderTest {
             server.enqueue(new MockResponse().setBody(metadata("minekube-connect", current, 1)));
             server.enqueue(new MockResponse().setBody(metadata("unexpected", current, 1)));
             server.enqueue(new MockResponse().setBody(metadata("unexpected", current, 1)));
-            ConnectConfig config = config(server.url("/keys.json").toString());
+            ConnectConfig config = config(httpsUrl(server, "/keys.json"));
             setField(config.getBedrockIdentity(), "metadataMaxStaleSeconds", 10);
             BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(
                     config,
-                    new OkHttpClient(),
+                    httpsTestClient(server),
                     now::get);
 
             assertKeys(provider.keys(), current);
@@ -126,11 +140,11 @@ class BedrockIdentityKeyProviderTest {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setResponseCode(302).setHeader("Location", "/redirected"));
             server.enqueue(new MockResponse().setBody(metadata("minekube-connect", current, 120) + " ".repeat(65_537)));
-            ConnectConfig config = config(server.url("/keys.json").toString());
-            BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(config, new OkHttpClient());
+            ConnectConfig config = config(httpsUrl(server, "/keys.json"));
+            BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(config, httpsTestClient(server));
 
             assertTrue(provider.keys().isEmpty());
-            assertTrue(new BedrockIdentityKeyProvider(config, new OkHttpClient()).keys().isEmpty());
+            assertTrue(new BedrockIdentityKeyProvider(config, httpsTestClient(server)).keys().isEmpty());
             assertEquals(2, server.getRequestCount());
         }
     }
@@ -143,7 +157,7 @@ class BedrockIdentityKeyProviderTest {
                     .setBody(metadata("minekube-connect", current, 120))
                     .setHeadersDelay(6, TimeUnit.SECONDS));
             BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(
-                    config(server.url("/keys.json").toString()), new OkHttpClient());
+                    config(httpsUrl(server, "/keys.json")), httpsTestClient(server));
 
             assertTimeoutPreemptively(Duration.ofMillis(5_500), () -> assertTrue(provider.keys().isEmpty()));
         }
@@ -157,7 +171,7 @@ class BedrockIdentityKeyProviderTest {
                     .setBody(metadata("minekube-connect", current, 120))
                     .setHeadersDelay(250, TimeUnit.MILLISECONDS));
             BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(
-                    config(server.url("/keys.json").toString()), new OkHttpClient());
+                    config(httpsUrl(server, "/keys.json")), httpsTestClient(server));
             ExecutorService executor = Executors.newFixedThreadPool(8);
             try {
                 for (int i = 0; i < 8; i++) {
@@ -179,10 +193,10 @@ class BedrockIdentityKeyProviderTest {
             server.enqueue(new MockResponse().setBody(metadata("minekube-connect", current, 1)));
             server.enqueue(new MockResponse().setResponseCode(503));
             server.enqueue(new MockResponse().setResponseCode(503));
-            ConnectConfig config = config(server.url("/keys.json").toString());
+            ConnectConfig config = config(httpsUrl(server, "/keys.json"));
             setField(config.getBedrockIdentity(), "metadataMaxStaleSeconds", 10);
             BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(
-                    config, new OkHttpClient(), now::get);
+                    config, httpsTestClient(server), now::get);
 
             assertKeys(provider.keys(), current);
             now.set(now.get().plusSeconds(10));
@@ -235,6 +249,22 @@ class BedrockIdentityKeyProviderTest {
         ConnectConfig config = new ConnectConfig();
         setField(config.getBedrockIdentity(), "metadataUrl", metadataUrl);
         return config;
+    }
+
+    private static String httpsUrl(MockWebServer server, String path) {
+        return server.url(path).toString().replaceFirst("^http:", "https:");
+    }
+
+    private static OkHttpClient httpsTestClient(MockWebServer server) {
+        return new OkHttpClient.Builder().addInterceptor(chain -> {
+            Request request = chain.request();
+            String path = request.url().encodedPath();
+            if (request.url().encodedQuery() != null) {
+                path += "?" + request.url().encodedQuery();
+            }
+            return new OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).followRedirects(false)
+                    .build().newCall(request.newBuilder().url(server.url(path)).build()).execute();
+        }).build();
     }
 
     private static byte[] filledKey(byte value) {

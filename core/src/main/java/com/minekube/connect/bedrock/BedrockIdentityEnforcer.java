@@ -15,7 +15,6 @@ import com.minekube.connect.config.ConnectConfig.BedrockIdentityConfig;
 import com.minekube.connect.network.netty.LocalSession;
 import java.time.Instant;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Supplier;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
@@ -139,10 +138,12 @@ public final class BedrockIdentityEnforcer {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(protocol, "protocol");
         BedrockIdentityConfig bedrockIdentity = config.getBedrockIdentity();
-        String mode = mode(bedrockIdentity);
-        if (MODE_DISABLED.equals(mode)) {
+        BedrockIdentityConfiguration identityConfiguration = BedrockIdentityConfiguration.from(bedrockIdentity);
+        if (identityConfiguration.isDisabled()) {
             return Decision.allowed(null);
         }
+
+        String mode = identityConfiguration.mode() == BedrockIdentityConfiguration.Mode.WARN ? MODE_WARN : MODE_REQUIRE;
 
         boolean hasEnvelope = hasReservedEnvelope(profile);
         if (protocol == SessionProtocol.SESSION_PROTOCOL_JAVA) {
@@ -165,6 +166,9 @@ public final class BedrockIdentityEnforcer {
         if (hasEnvelope && (!hasScopeValue(endpointId) || !hasScopeValue(endpointOrgId))) {
             return rejectOrWarn(player, mode, "authenticated endpoint scope is incomplete");
         }
+        if (!identityConfiguration.isUsable()) {
+            return Decision.rejected(REJECT_MESSAGE);
+        }
 
         if (MODE_WARN.equals(mode) && !hasConfiguredKeys(bedrockIdentity)) {
             return Decision.allowed(null);
@@ -174,7 +178,7 @@ public final class BedrockIdentityEnforcer {
             BedrockIdentityClaims claims = verifyWithKeys(
                     player,
                     profile,
-                    bedrockIdentity,
+                    identityConfiguration,
                     endpointId,
                     endpointOrgId);
             return Decision.allowed(claims);
@@ -195,7 +199,7 @@ public final class BedrockIdentityEnforcer {
     private BedrockIdentityClaims verifyWithKeys(
             ConnectPlayer player,
             GameProfile profile,
-            BedrockIdentityConfig bedrockIdentity,
+            BedrockIdentityConfiguration identityConfiguration,
             String endpointId,
             String endpointOrgId) throws BedrockIdentityVerificationException {
         List<byte[]> keys = keyProvider.keys();
@@ -206,7 +210,7 @@ public final class BedrockIdentityEnforcer {
         RuntimeException runtimeError = null;
         for (byte[] publicKey : keys) {
             try {
-                return verifier(publicKey, player, bedrockIdentity, endpointId, endpointOrgId)
+                return verifier(publicKey, player, identityConfiguration, endpointId, endpointOrgId)
                         .verify(profile);
             } catch (BedrockIdentityVerificationException e) {
                 verificationError = e;
@@ -226,7 +230,7 @@ public final class BedrockIdentityEnforcer {
     private BedrockIdentityVerifier verifier(
             byte[] publicKey,
             ConnectPlayer player,
-            BedrockIdentityConfig bedrockIdentity,
+            BedrockIdentityConfiguration identityConfiguration,
             String endpointId,
             String endpointOrgId) {
         BedrockIdentityVerifier.Builder builder = BedrockIdentityVerifier.builder()
@@ -237,17 +241,10 @@ public final class BedrockIdentityEnforcer {
                 .orgId(endpointOrgId)
                 .sessionId(player.getSessionId())
                 .protocol(PROTOCOL_BEDROCK)
-                .bedrockAuthPolicy(bedrockIdentity.getExpectedPolicy())
-                .expectedIssuer(bedrockIdentity.getExpectedIssuer())
+                .bedrockAuthPolicy(identityConfiguration.policy())
+                .expectedIssuer(identityConfiguration.issuer())
                 .replayCache(replayCache);
         return builder.build();
-    }
-
-    private static String mode(BedrockIdentityConfig bedrockIdentity) {
-        if (bedrockIdentity == null || isEmpty(bedrockIdentity.getEnforcement())) {
-            return MODE_DISABLED;
-        }
-        return bedrockIdentity.getEnforcement().toLowerCase(Locale.ROOT);
     }
 
     private static boolean hasConfiguredKeys(BedrockIdentityConfig bedrockIdentity) {

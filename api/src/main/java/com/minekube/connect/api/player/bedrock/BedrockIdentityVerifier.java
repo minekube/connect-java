@@ -27,6 +27,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 
 public final class BedrockIdentityVerifier {
     public static final String PROPERTY_NAME = "minekube:bedrock_identity";
@@ -46,6 +47,7 @@ public final class BedrockIdentityVerifier {
     private static final Set<String> PRINCIPAL_FIELDS = Set.of(
             "type", "bedrock_xuid", "bedrock_username", "bedrock_derived_uuid",
             "linked_java_uuid", "linked_java_name");
+    private static final Pattern INTEGER = Pattern.compile("-?(?:0|[1-9][0-9]*)");
 
     private final PublicKey publicKey;
     private final Supplier<Instant> now;
@@ -195,13 +197,35 @@ public final class BedrockIdentityVerifier {
             }
             Set<String> nestedFields = nestedFields(object, field);
             if (nestedFields == null) {
-                reader.skipValue();
+                validateScalar(reader, object, field);
             } else {
                 validateObject(reader, field, nestedFields);
             }
         }
         reader.endObject();
     }
+
+    private static void validateScalar(JsonReader reader, String object, String field)
+            throws IOException, BedrockIdentityVerificationException {
+        JsonToken token = reader.peek();
+        if (integerField(object, field)) {
+            if (token != JsonToken.NUMBER || !INTEGER.matcher(reader.nextString()).matches()) {
+                throw new BedrockIdentityVerificationException("decode envelope: invalid integer field");
+            }
+            return;
+        }
+        if (token != JsonToken.STRING) {
+            throw new BedrockIdentityVerificationException("decode envelope: invalid string field");
+        }
+        reader.nextString();
+    }
+
+    private static boolean integerField(String object, String field) {
+        return ("envelope".equals(object) && "version".equals(field))
+                || ("session".equals(object)
+                && ("issued_at_unix_ms".equals(field) || "expires_at_unix_ms".equals(field)));
+    }
+
 
     private static Set<String> nestedFields(String object, String field) {
         if (!"envelope".equals(object)) {

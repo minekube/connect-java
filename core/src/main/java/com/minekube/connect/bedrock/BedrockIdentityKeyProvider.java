@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -91,7 +92,7 @@ public final class BedrockIdentityKeyProvider {
     }
 
     private RemoteKeys fetchKeys(String metadataUrl) throws IOException {
-        Request request = new Request.Builder().url(metadataUrl).get().build();
+        Request request = new Request.Builder().url(validMetadataUrl(metadataUrl)).get().build();
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 throw new IOException("metadata status " + response.code());
@@ -114,6 +115,15 @@ public final class BedrockIdentityKeyProvider {
             }
             return new RemoteKeys(keys, metadata.cache_max_age_seconds);
         }
+    }
+
+    private static HttpUrl validMetadataUrl(String configured) {
+        HttpUrl url = HttpUrl.parse(configured);
+        if (url == null || !"https".equals(url.scheme()) || !url.username().isEmpty()
+                || !url.password().isEmpty() || url.fragment() != null) {
+            throw new IllegalArgumentException("metadata URL must be HTTPS without userinfo or fragment");
+        }
+        return url;
     }
 
     private String readBody(ResponseBody body) throws IOException {
