@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
+import com.google.gson.Gson;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
@@ -23,6 +24,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -46,12 +48,9 @@ class SimpleConnectApiBedrockIdentityTest {
                     VerifiedBedrockIdentityRegistryTest.session(false),
                     reason -> {}));
 
-            assertTrue(player instanceof ConnectPlayerImpl);
-            assertFalse(Modifier.isPublic(player.getClass().getModifiers()));
-            assertTrue(Arrays.stream(player.getClass().getDeclaredMethods())
-                    .noneMatch(method -> Modifier.isPublic(method.getModifiers())));
-            assertFalse(player.getGameProfile().toString().contains("signed-envelope"));
-            assertFalse(player.getGameProfile().toString().contains("private-endpoint-id"));
+            assertNoPrivateIdentityReachable(player);
+            api.addPlayer(player);
+            assertNoPrivateIdentityReachable(api.getPlayer(player.getUniqueId()));
         } finally {
             registry.close();
         }
@@ -160,5 +159,28 @@ class SimpleConnectApiBedrockIdentityTest {
     private static ConnectPlayer player(String sessionId, UUID uuid) {
         return new ConnectPlayerImpl(sessionId,
                 new GameProfile("BedrockSteve", uuid, Collections.emptyList()), new Auth(false), "");
+    }
+
+    private static void assertNoPrivateIdentityReachable(ConnectPlayer player) {
+        assertSame(ConnectPlayerImpl.class, player.getClass());
+        assertTrue(Modifier.isFinal(player.getClass().getModifiers()));
+        assertTrue(Arrays.stream(player.getClass().getDeclaredFields())
+                .noneMatch(field ->
+                        VerifiedBedrockIdentityRegistry.class.isAssignableFrom(field.getType()) ||
+                                Map.class.isAssignableFrom(field.getType()) ||
+                                field.getName().contains("admission") ||
+                                field.getName().contains("claims") ||
+                                field.getName().contains("registry")));
+
+        String serialized = new Gson().toJson(player);
+        for (String privateValue : List.of(
+                "signed-envelope",
+                "replay-nonce-a",
+                "private-endpoint-id",
+                "VerifiedBedrockIdentityRegistry",
+                "admissionProfiles",
+                "identities")) {
+            assertFalse(serialized.contains(privateValue));
+        }
     }
 }

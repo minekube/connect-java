@@ -89,12 +89,14 @@ public final class BedrockIdentityEnforcer {
     public Decision verify(LocalSession.Context context) {
         Objects.requireNonNull(context, "context");
         ConnectPlayer player = context.getPlayer();
-        if (player instanceof StagedBedrockIdentityPlayer) {
-            return ((StagedBedrockIdentityPlayer) player).verifyAdmission(
-                    this,
-                    context.getEndpointId(),
-                    context.getEndpointOrgId(),
-                    context.getProtocol());
+        Decision stagedDecision = VerifiedBedrockIdentityRegistry.verifyStagedAdmission(
+                player,
+                this,
+                context.getEndpointId(),
+                context.getEndpointOrgId(),
+                context.getProtocol());
+        if (stagedDecision != null) {
+            return stagedDecision;
         }
         return verifyAdmission(
                 player,

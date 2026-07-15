@@ -32,7 +32,7 @@ import java.util.UUID;
 import lombok.Data;
 
 @Data
-public class ConnectPlayerImpl implements ConnectPlayer {
+public final class ConnectPlayerImpl implements ConnectPlayer {
     private final String sessionId;
     private final GameProfile gameProfile;
     private final Auth auth;

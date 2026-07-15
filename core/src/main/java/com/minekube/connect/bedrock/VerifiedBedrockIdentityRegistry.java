@@ -9,6 +9,7 @@ import com.minekube.connect.api.player.bedrock.BedrockIdentityVerifier;
 import com.minekube.connect.player.ConnectPlayerImpl;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -20,10 +21,13 @@ import java.util.concurrent.TimeUnit;
 import javax.inject.Singleton;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 
 @Singleton
 public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
     private static final long ADMISSION_PROFILE_TTL_SECONDS = 30;
+    private static final Map<ConnectPlayer, VerifiedBedrockIdentityRegistry> ADMISSION_OWNERS =
+            new IdentityHashMap<>();
 
     private final Map<String, BedrockIdentityClaims> identities = new ConcurrentHashMap<>();
     private final Map<String, AdmissionProfile> admissionProfiles = new ConcurrentHashMap<>();
@@ -59,22 +63,26 @@ public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
         ConnectPlayer publicPlayer = publicPlayer(rawPlayer);
         String sessionId = rawPlayer.getSessionId();
         identities.remove(sessionId);
-        cancelCleanup(admissionProfiles.remove(sessionId));
+        removeAdmissionProfile(sessionId);
         if (hasPrivateIdentity(rawProfile)) {
             Object cleanupToken = new Object();
-            AdmissionProfile admissionProfile = new AdmissionProfile(copy(rawProfile), cleanupToken);
+            AdmissionProfile admissionProfile = new AdmissionProfile(
+                    copy(rawProfile), cleanupToken, publicPlayer, this);
             admissionProfiles.put(sessionId, admissionProfile);
+            registerAdmissionOwner(publicPlayer, this);
             try {
                 admissionProfile.cleanup = cleanupExecutor.schedule(
                         () -> expire(sessionId, cleanupToken),
                         ADMISSION_PROFILE_TTL_SECONDS,
                         TimeUnit.SECONDS);
             } catch (RuntimeException e) {
-                admissionProfiles.remove(sessionId, admissionProfile);
+                if (admissionProfiles.remove(sessionId, admissionProfile)) {
+                    clearAdmissionProfile(admissionProfile);
+                }
                 throw e;
             }
         }
-        return new StagedBedrockIdentityPlayer(publicPlayer, this);
+        return publicPlayer;
     }
 
     public ConnectPlayer publicPlayer(ConnectPlayer player) {
@@ -93,7 +101,7 @@ public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
     synchronized Optional<GameProfile> takeAdmissionProfile(ConnectPlayer player) {
         Objects.requireNonNull(player, "player");
         AdmissionProfile admissionProfile = admissionProfiles.remove(player.getSessionId());
-        cancelCleanup(admissionProfile);
+        clearAdmissionProfile(admissionProfile);
         return admissionProfile == null
                 ? Optional.empty()
                 : Optional.of(admissionProfile.profile);
@@ -122,7 +130,7 @@ public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
     public synchronized void remove(ConnectPlayer player) {
         Objects.requireNonNull(player, "player");
         identities.remove(player.getSessionId());
-        cancelCleanup(admissionProfiles.remove(player.getSessionId()));
+        removeAdmissionProfile(player.getSessionId());
     }
 
     @Override
@@ -131,7 +139,7 @@ public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
             return;
         }
         closed = true;
-        admissionProfiles.values().forEach(VerifiedBedrockIdentityRegistry::cancelCleanup);
+        admissionProfiles.values().forEach(VerifiedBedrockIdentityRegistry::clearAdmissionProfile);
         admissionProfiles.clear();
         identities.clear();
         cleanupExecutor.shutdownNow();
@@ -152,9 +160,11 @@ public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
     }
 
     private synchronized void expire(String sessionId, Object cleanupToken) {
-        admissionProfiles.computeIfPresent(
-                sessionId,
-                (ignored, current) -> current.cleanupToken == cleanupToken ? null : current);
+        AdmissionProfile current = admissionProfiles.get(sessionId);
+        if (current != null && current.cleanupToken == cleanupToken &&
+                admissionProfiles.remove(sessionId, current)) {
+            clearAdmissionProfile(current);
+        }
     }
 
     private void ensureOpen() {
@@ -166,6 +176,61 @@ public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
     private static void cancelCleanup(AdmissionProfile admissionProfile) {
         if (admissionProfile != null && admissionProfile.cleanup != null) {
             admissionProfile.cleanup.cancel(false);
+        }
+    }
+
+    static BedrockIdentityEnforcer.Decision verifyStagedAdmission(
+            ConnectPlayer player,
+            BedrockIdentityEnforcer enforcer,
+            String endpointId,
+            String endpointOrgId,
+            SessionProtocol protocol) {
+        VerifiedBedrockIdentityRegistry owner;
+        synchronized (ADMISSION_OWNERS) {
+            owner = ADMISSION_OWNERS.remove(player);
+        }
+        return owner == null
+                ? null
+                : owner.verifyOwnedAdmission(player, enforcer, endpointId, endpointOrgId, protocol);
+    }
+
+    private synchronized BedrockIdentityEnforcer.Decision verifyOwnedAdmission(
+            ConnectPlayer player,
+            BedrockIdentityEnforcer enforcer,
+            String endpointId,
+            String endpointOrgId,
+            SessionProtocol protocol) {
+        GameProfile profile = takeAdmissionProfile(player).orElse(player.getGameProfile());
+        clearClaims(player);
+        BedrockIdentityEnforcer.Decision decision = enforcer.verifyAdmissionSnapshot(
+                player, profile, endpointId, endpointOrgId, protocol);
+        if (decision.verifiedClaims() != null) {
+            record(player, decision.verifiedClaims());
+        }
+        return decision;
+    }
+
+    private void removeAdmissionProfile(String sessionId) {
+        clearAdmissionProfile(admissionProfiles.remove(sessionId));
+    }
+
+    private static void registerAdmissionOwner(
+            ConnectPlayer player,
+            VerifiedBedrockIdentityRegistry owner) {
+        synchronized (ADMISSION_OWNERS) {
+            ADMISSION_OWNERS.put(player, owner);
+        }
+    }
+
+    private static void clearAdmissionProfile(AdmissionProfile admissionProfile) {
+        if (admissionProfile == null) {
+            return;
+        }
+        cancelCleanup(admissionProfile);
+        synchronized (ADMISSION_OWNERS) {
+            if (ADMISSION_OWNERS.get(admissionProfile.player) == admissionProfile.owner) {
+                ADMISSION_OWNERS.remove(admissionProfile.player);
+            }
         }
     }
 
@@ -183,11 +248,19 @@ public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
     private static final class AdmissionProfile {
         private final GameProfile profile;
         private final Object cleanupToken;
+        private final ConnectPlayer player;
+        private final VerifiedBedrockIdentityRegistry owner;
         private ScheduledFuture<?> cleanup;
 
-        private AdmissionProfile(GameProfile profile, Object cleanupToken) {
+        private AdmissionProfile(
+                GameProfile profile,
+                Object cleanupToken,
+                ConnectPlayer player,
+                VerifiedBedrockIdentityRegistry owner) {
             this.profile = profile;
             this.cleanupToken = cleanupToken;
+            this.player = player;
+            this.owner = owner;
         }
     }
 }
