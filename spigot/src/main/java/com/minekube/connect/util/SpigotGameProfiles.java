@@ -27,6 +27,7 @@ package com.minekube.connect.util;
 
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
+import com.minekube.connect.api.player.bedrock.BedrockIdentityProfiles;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -37,6 +38,7 @@ public final class SpigotGameProfiles {
     }
 
     public static GameProfile fromConnectProfile(com.minekube.connect.api.player.GameProfile connectProfile) {
+        connectProfile = BedrockIdentityProfiles.withoutEnvelope(connectProfile);
         GameProfile profile = newGameProfile(connectProfile);
         if (profile != null) {
             return profile;

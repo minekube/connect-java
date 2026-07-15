@@ -8,10 +8,33 @@ import minekube.connect.v1alpha1.ConnectLibp2P.SessionGameProfileProperty;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionOffer;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionPlayer;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport.Type;
 import org.junit.jupiter.api.Test;
 
 class Libp2pSessionMapperTest {
+
+    @Test
+    void preservesTrustedProtocolMarkerFromLibp2pOffer() {
+        SessionOffer offer = SessionOffer.newBuilder()
+                .setProtocol(SessionProtocol.SESSION_PROTOCOL_BEDROCK)
+                .build();
+
+        assertEquals(SessionProtocol.SESSION_PROTOCOL_BEDROCK,
+                Libp2pSessionMapper.toWatchSession(offer).getProtocol());
+        assertEquals(SessionProtocol.SESSION_PROTOCOL_UNSPECIFIED,
+                Libp2pSessionMapper.toWatchSession(SessionOffer.getDefaultInstance()).getProtocol());
+    }
+
+    @Test
+    void preservesUnknownProtocolMarkerValueFromLibp2pOffer() {
+        SessionOffer offer = SessionOffer.newBuilder().setProtocolValue(99).build();
+
+        Session session = Libp2pSessionMapper.toWatchSession(offer);
+
+        assertEquals(99, session.getProtocolValue());
+        assertEquals(SessionProtocol.UNRECOGNIZED, session.getProtocol());
+    }
 
     @Test
     void mapsLibp2pOfferToExistingWatchSessionShape() {

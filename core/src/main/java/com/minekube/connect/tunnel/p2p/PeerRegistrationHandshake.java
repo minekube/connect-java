@@ -31,8 +31,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
-import minekube.connect.v1alpha1.ConnectLibp2P.EndpointPeerRecord;
 import minekube.connect.v1alpha1.ConnectLibp2P.EndpointAuthType;
+import minekube.connect.v1alpha1.ConnectLibp2P.EndpointPeerRecord;
 import minekube.connect.v1alpha1.ConnectLibp2P.OfflineMode;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerCapacity;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterChallenge;
@@ -40,6 +40,7 @@ import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterCommit;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterInit;
 
 final class PeerRegistrationHandshake {
+    static final String BEDROCK_IDENTITY_V1_CAPABILITY = "bedrock-identity-v1";
     private final EndpointPeerIdentity identity;
     private final String endpoint;
     private final String token;

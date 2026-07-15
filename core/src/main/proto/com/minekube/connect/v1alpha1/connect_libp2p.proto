@@ -5,6 +5,7 @@ syntax = "proto3";
 package minekube.connect.v1alpha1;
 
 import "google/rpc/status.proto";
+import "com/minekube/connect/v1alpha1/watch_service.proto";
 
 message PeerRegisterInit {
   string endpoint = 1;
@@ -95,6 +96,8 @@ message SessionOffer {
   int64 deadline_unix_ms = 5;
   string endpoint_id = 6;
   string endpoint_org_id = 7;
+  // Mirrors the authenticated legacy Session protocol discriminator.
+  SessionProtocol protocol = 8;
 }
 
 message SessionPlayer {

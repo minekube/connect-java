@@ -2,11 +2,17 @@ package com.minekube.connect.api.player.bedrock;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
 import com.minekube.connect.api.player.GameProfile;
+import java.io.IOException;
+import java.io.StringReader;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.Signature;
 import java.security.interfaces.EdECPublicKey;
@@ -16,8 +22,12 @@ import java.security.spec.NamedParameterSpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 
 public final class BedrockIdentityVerifier {
     public static final String PROPERTY_NAME = "minekube:bedrock_identity";
@@ -28,6 +38,16 @@ public final class BedrockIdentityVerifier {
     private static final String PRINCIPAL_BEDROCK_XUID = "bedrock_xuid";
     private static final String PRINCIPAL_BEDROCK_LINKED_JAVA = "bedrock_linked_java";
     private static final Gson GSON = new Gson();
+    private static final Set<String> ENVELOPE_FIELDS = Set.of(
+            "version", "issuer", "endpoint", "session", "policy", "principal", "signature");
+    private static final Set<String> ENDPOINT_FIELDS = Set.of("id", "name", "org_id");
+    private static final Set<String> SESSION_FIELDS = Set.of(
+            "id", "protocol", "issued_at_unix_ms", "expires_at_unix_ms", "nonce");
+    private static final Set<String> POLICY_FIELDS = Set.of("bedrock_auth_mode");
+    private static final Set<String> PRINCIPAL_FIELDS = Set.of(
+            "type", "bedrock_xuid", "bedrock_username", "bedrock_derived_uuid",
+            "linked_java_uuid", "linked_java_name");
+    private static final Pattern INTEGER = Pattern.compile("-?(?:0|[1-9][0-9]*)");
 
     private final PublicKey publicKey;
     private final Supplier<Instant> now;
@@ -37,6 +57,7 @@ public final class BedrockIdentityVerifier {
     private final String sessionId;
     private final String protocol;
     private final String bedrockAuthPolicy;
+    private final String expectedIssuer;
     private final BedrockIdentityReplayCache replayCache;
 
     private BedrockIdentityVerifier(Builder builder) {
@@ -48,6 +69,7 @@ public final class BedrockIdentityVerifier {
         this.sessionId = requireNonEmpty(builder.sessionId, "sessionId");
         this.protocol = requireNonEmpty(builder.protocol, "protocol");
         this.bedrockAuthPolicy = builder.bedrockAuthPolicy;
+        this.expectedIssuer = optionalNonEmpty(builder.expectedIssuer, "expectedIssuer");
         this.replayCache = builder.replayCache;
     }
 
@@ -57,23 +79,41 @@ public final class BedrockIdentityVerifier {
 
     public BedrockIdentityClaims verify(GameProfile profile) throws BedrockIdentityVerificationException {
         Objects.requireNonNull(profile, "profile");
+        String signedEnvelope = null;
         for (GameProfile.Property property : profile.getProperties()) {
             if (PROPERTY_NAME.equals(property.getName())) {
-                return verify(property.getValue());
+                if (signedEnvelope != null) {
+                    throw new BedrockIdentityVerificationException("duplicate " + PROPERTY_NAME + " profile property");
+                }
+                signedEnvelope = property.getValue();
             }
+        }
+        if (signedEnvelope != null) {
+            return verify(signedEnvelope, profile);
         }
         throw new BedrockIdentityVerificationException("missing " + PROPERTY_NAME + " profile property");
     }
 
     public BedrockIdentityClaims verify(String signedEnvelope) throws BedrockIdentityVerificationException {
+        return verify(signedEnvelope, null);
+    }
+
+    private BedrockIdentityClaims verify(String signedEnvelope, GameProfile profile)
+            throws BedrockIdentityVerificationException {
         Envelope envelope = decode(signedEnvelope);
         verifySignature(envelope);
         validate(envelope);
         validateScope(envelope);
+        if (profile != null) {
+            validateProfile(envelope, profile);
+        }
 
         long nowUnixMs = now.get().toEpochMilli();
         if (nowUnixMs >= envelope.session.expires_at_unix_ms) {
             throw new BedrockIdentityVerificationException("identity envelope expired");
+        }
+        if (envelope.session.issued_at_unix_ms > nowUnixMs + 60_000) {
+            throw new BedrockIdentityVerificationException("identity envelope issued too far in the future");
         }
         if (replayCache != null && !replayCache.accept(
                 envelope.endpoint.id,
@@ -99,11 +139,29 @@ public final class BedrockIdentityVerifier {
                 envelope.principal.linked_java_uuid,
                 envelope.principal.linked_java_name,
                 Instant.ofEpochMilli(envelope.session.issued_at_unix_ms),
-                Instant.ofEpochMilli(envelope.session.expires_at_unix_ms),
-                envelope.session.nonce);
+                Instant.ofEpochMilli(envelope.session.expires_at_unix_ms));
+    }
+
+    private static void validateProfile(Envelope envelope, GameProfile profile)
+            throws BedrockIdentityVerificationException {
+        UUID expectedUuid;
+        if (PRINCIPAL_BEDROCK_LINKED_JAVA.equals(envelope.principal.type)) {
+            expectedUuid = UUID.fromString(envelope.principal.linked_java_uuid);
+            if (!expectedUuid.equals(profile.getUniqueId()) ||
+                    !envelope.principal.linked_java_name.equalsIgnoreCase(profile.getUsername())) {
+                throw new BedrockIdentityVerificationException("identity envelope profile mismatch");
+            }
+        } else {
+            expectedUuid = UUID.fromString(envelope.principal.bedrock_derived_uuid);
+            if (!expectedUuid.equals(profile.getUniqueId())) {
+                throw new BedrockIdentityVerificationException("identity envelope profile mismatch");
+            }
+        }
     }
 
     private static Envelope decode(String signedEnvelope) throws BedrockIdentityVerificationException {
+        // Gson coerces some scalar forms; validate Moxy v1's exact JSON token shapes first.
+        validateStructure(signedEnvelope);
         try {
             Envelope envelope = GSON.fromJson(signedEnvelope, Envelope.class);
             if (envelope == null) {
@@ -112,6 +170,79 @@ public final class BedrockIdentityVerifier {
             return envelope;
         } catch (JsonSyntaxException e) {
             throw new BedrockIdentityVerificationException("decode envelope", e);
+        }
+    }
+
+    private static void validateStructure(String signedEnvelope) throws BedrockIdentityVerificationException {
+        try (JsonReader reader = new JsonReader(new StringReader(signedEnvelope))) {
+            validateObject(reader, "envelope", ENVELOPE_FIELDS);
+            if (reader.peek() != JsonToken.END_DOCUMENT) {
+                throw new BedrockIdentityVerificationException("decode envelope: trailing JSON value");
+            }
+        } catch (IOException | IllegalStateException e) {
+            throw new BedrockIdentityVerificationException("decode envelope", e);
+        }
+    }
+
+    private static void validateObject(JsonReader reader, String object, Set<String> allowedFields)
+            throws IOException, BedrockIdentityVerificationException {
+        reader.beginObject();
+        Set<String> seenFields = new HashSet<>();
+        while (reader.hasNext()) {
+            String field = reader.nextName();
+            if (!seenFields.add(field)) {
+                throw new BedrockIdentityVerificationException("decode envelope: duplicate field");
+            }
+            if (!allowedFields.contains(field)) {
+                throw new BedrockIdentityVerificationException("decode envelope: unknown field");
+            }
+            Set<String> nestedFields = nestedFields(object, field);
+            if (nestedFields == null) {
+                validateScalar(reader, object, field);
+            } else {
+                validateObject(reader, field, nestedFields);
+            }
+        }
+        reader.endObject();
+    }
+
+    private static void validateScalar(JsonReader reader, String object, String field)
+            throws IOException, BedrockIdentityVerificationException {
+        JsonToken token = reader.peek();
+        if (integerField(object, field)) {
+            if (token != JsonToken.NUMBER || !INTEGER.matcher(reader.nextString()).matches()) {
+                throw new BedrockIdentityVerificationException("decode envelope: invalid integer field");
+            }
+            return;
+        }
+        if (token != JsonToken.STRING) {
+            throw new BedrockIdentityVerificationException("decode envelope: invalid string field");
+        }
+        reader.nextString();
+    }
+
+    private static boolean integerField(String object, String field) {
+        return ("envelope".equals(object) && "version".equals(field))
+                || ("session".equals(object)
+                && ("issued_at_unix_ms".equals(field) || "expires_at_unix_ms".equals(field)));
+    }
+
+
+    private static Set<String> nestedFields(String object, String field) {
+        if (!"envelope".equals(object)) {
+            return null;
+        }
+        switch (field) {
+            case "endpoint":
+                return ENDPOINT_FIELDS;
+            case "session":
+                return SESSION_FIELDS;
+            case "policy":
+                return POLICY_FIELDS;
+            case "principal":
+                return PRINCIPAL_FIELDS;
+            default:
+                return null;
         }
     }
 
@@ -144,7 +275,7 @@ public final class BedrockIdentityVerifier {
         if (envelope.version != VERSION) {
             throw new BedrockIdentityVerificationException("unsupported identity envelope version " + envelope.version);
         }
-        if (envelope.endpoint == null ||
+        if (isEmpty(envelope.issuer) || envelope.endpoint == null ||
                 isEmpty(envelope.endpoint.id) ||
                 isEmpty(envelope.endpoint.name) ||
                 isEmpty(envelope.endpoint.org_id)) {
@@ -156,7 +287,12 @@ public final class BedrockIdentityVerifier {
                 isEmpty(envelope.session.nonce)) {
             throw new BedrockIdentityVerificationException("identity envelope session scope is incomplete");
         }
-        if (envelope.session.expires_at_unix_ms <= envelope.session.issued_at_unix_ms) {
+        if (!validNonce(envelope.session.nonce)) {
+            throw new BedrockIdentityVerificationException("identity envelope nonce is invalid");
+        }
+        if (envelope.session.issued_at_unix_ms <= 0 ||
+                envelope.session.expires_at_unix_ms <= envelope.session.issued_at_unix_ms ||
+                envelope.session.expires_at_unix_ms - envelope.session.issued_at_unix_ms > 300_000) {
             throw new BedrockIdentityVerificationException("identity envelope expiry must be after issue time");
         }
         if (envelope.policy == null || !validPolicy(envelope.policy.bedrock_auth_mode)) {
@@ -165,16 +301,21 @@ public final class BedrockIdentityVerifier {
         if (envelope.principal == null) {
             throw new BedrockIdentityVerificationException("identity envelope principal is incomplete");
         }
+        if (!canonicalPositiveXuid(envelope.principal.bedrock_xuid) ||
+                isEmpty(envelope.principal.bedrock_username) ||
+                !derivedUuid(envelope.principal.bedrock_xuid).equals(envelope.principal.bedrock_derived_uuid)) {
+            throw new BedrockIdentityVerificationException("Bedrock principal identity is invalid");
+        }
         if (PRINCIPAL_BEDROCK_XUID.equals(envelope.principal.type)) {
-            if (isEmpty(envelope.principal.bedrock_xuid)) {
-                throw new BedrockIdentityVerificationException("bedrock_xuid principal requires xuid");
+            if (!POLICY_TRUSTED_BEDROCK_XUID.equals(envelope.policy.bedrock_auth_mode) ||
+                    !isEmpty(envelope.principal.linked_java_uuid) || !isEmpty(envelope.principal.linked_java_name)) {
+                throw new BedrockIdentityVerificationException("bedrock_xuid principal requires trusted_bedrock_xuid policy");
             }
             return;
         }
         if (PRINCIPAL_BEDROCK_LINKED_JAVA.equals(envelope.principal.type)) {
-            if (isEmpty(envelope.principal.bedrock_xuid) ||
-                    isEmpty(envelope.principal.linked_java_uuid) ||
-                    isEmpty(envelope.principal.linked_java_name)) {
+            if (isEmpty(envelope.principal.linked_java_uuid) ||
+                    isEmpty(envelope.principal.linked_java_name) || !validUuid(envelope.principal.linked_java_uuid)) {
                 throw new BedrockIdentityVerificationException(
                         "bedrock_linked_java principal requires xuid and linked Java identity");
             }
@@ -185,6 +326,9 @@ public final class BedrockIdentityVerifier {
     }
 
     private void validateScope(Envelope envelope) throws BedrockIdentityVerificationException {
+        if (expectedIssuer != null && !expectedIssuer.equals(envelope.issuer)) {
+            throw new BedrockIdentityVerificationException("identity envelope issuer mismatch");
+        }
         if ((endpointId != null && !endpointId.equals(envelope.endpoint.id)) ||
                 !endpointName.equals(envelope.endpoint.name) ||
                 (orgId != null && !orgId.equals(envelope.endpoint.org_id)) ||
@@ -199,6 +343,19 @@ public final class BedrockIdentityVerifier {
 
     private static boolean validPolicy(String policy) {
         return POLICY_LINKED_JAVA_ONLY.equals(policy) || POLICY_TRUSTED_BEDROCK_XUID.equals(policy);
+    }
+
+    private static boolean validNonce(String nonce) {
+        if (nonce.length() != 22 || nonce.indexOf('=') >= 0) {
+            return false;
+        }
+        try {
+            byte[] decoded = Base64.getUrlDecoder().decode(nonce);
+            return decoded.length == 16 && nonce.equals(
+                    Base64.getUrlEncoder().withoutPadding().encodeToString(decoded));
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 
     private static PublicKey parsePublicKey(byte[] publicKey) {
@@ -249,6 +406,43 @@ public final class BedrockIdentityVerifier {
         return value == null || value.isEmpty();
     }
 
+    private static boolean canonicalPositiveXuid(String value) {
+        if (isEmpty(value) || value.charAt(0) == '0' || !value.chars().allMatch(Character::isDigit)) {
+            return false;
+        }
+        try {
+            return Long.parseLong(value) > 0;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean validUuid(String value) {
+        try {
+            return !new UUID(0, 0).equals(UUID.fromString(value));
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    private static String derivedUuid(String xuid) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-1")
+                    .digest(("FloodgateXUID:" + xuid).getBytes(StandardCharsets.UTF_8));
+            hash[6] = (byte) ((hash[6] & 0x0f) | 0x50);
+            hash[8] = (byte) ((hash[8] & 0x3f) | 0x80);
+            long most = 0;
+            long least = 0;
+            for (int i = 0; i < 8; i++) {
+                most = (most << 8) | (hash[i] & 0xffL);
+                least = (least << 8) | (hash[i + 8] & 0xffL);
+            }
+            return new UUID(most, least).toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-1 unavailable", e);
+        }
+    }
+
     public static final class Builder {
         private PublicKey publicKey;
         private Supplier<Instant> now = Instant::now;
@@ -258,6 +452,7 @@ public final class BedrockIdentityVerifier {
         private String sessionId;
         private String protocol;
         private String bedrockAuthPolicy;
+        private String expectedIssuer;
         private BedrockIdentityReplayCache replayCache;
 
         public Builder publicKey(byte[] publicKey) {
@@ -303,6 +498,17 @@ public final class BedrockIdentityVerifier {
 
         public Builder bedrockAuthPolicy(String bedrockAuthPolicy) {
             this.bedrockAuthPolicy = requireNonEmpty(bedrockAuthPolicy, "bedrockAuthPolicy");
+            return this;
+        }
+
+        /**
+         * Sets the signed issuer required during verification.
+         *
+         * @param expectedIssuer expected signed issuer, or {@code null} to skip issuer equality
+         * @return this builder
+         */
+        public Builder expectedIssuer(String expectedIssuer) {
+            this.expectedIssuer = expectedIssuer;
             return this;
         }
 

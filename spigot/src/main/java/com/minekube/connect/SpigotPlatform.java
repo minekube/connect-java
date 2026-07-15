@@ -31,16 +31,23 @@ import com.google.inject.Module;
 import com.minekube.connect.api.ConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class SpigotPlatform extends ConnectPlatform {
     @Inject private JavaPlugin plugin;
 
-    @Inject
     public SpigotPlatform(ConnectApi api, PlatformInjector platformInjector,
                           ConnectLogger logger, Injector injector) {
         super(api, platformInjector, logger, injector);
+    }
+
+    @Inject
+    public SpigotPlatform(ConnectApi api, PlatformInjector platformInjector,
+                          ConnectLogger logger, Injector injector,
+                          BedrockAdmissionCoordinator admissionCoordinator) {
+        super(api, platformInjector, logger, injector, admissionCoordinator);
     }
 
     @Override

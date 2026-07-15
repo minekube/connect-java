@@ -29,6 +29,7 @@ import com.google.rpc.Code;
 import com.google.rpc.Status;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.network.netty.LocalSession.Context;
 import com.minekube.connect.tunnel.TunnelConn;
 import com.minekube.connect.tunnel.Tunneler;
@@ -38,10 +39,8 @@ import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import java.util.concurrent.atomic.AtomicLong;
-import lombok.RequiredArgsConstructor;
 import org.jetbrains.annotations.NotNull;
 
-@RequiredArgsConstructor
 public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<ByteBuf> {
     private static final String FORCE_TUNNEL_SERVICE_ADDR = System.getenv(
             "CONNECT_FORCE_TUNNEL_SERVICE_ADDR");
@@ -50,20 +49,54 @@ public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<Byte
     private final ConnectLogger logger;
     private final Tunneler tunneler;
     private final SimpleConnectApi api;
+    private final BedrockAdmissionCoordinator admissionCoordinator;
     private final AtomicLong backendToTunnelPackets = new AtomicLong();
     private final AtomicLong backendToTunnelBytes = new AtomicLong();
     private TunnelConn tunnelConn;
+
+    public LocalChannelInboundHandler(
+            Context context,
+            ConnectLogger logger,
+            Tunneler tunneler,
+            SimpleConnectApi api) {
+        this(context, logger, tunneler, api, null);
+    }
+
+    public LocalChannelInboundHandler(
+            Context context,
+            ConnectLogger logger,
+            Tunneler tunneler,
+            SimpleConnectApi api,
+            BedrockAdmissionCoordinator admissionCoordinator) {
+        this.context = context;
+        this.logger = logger;
+        this.tunneler = tunneler;
+        this.api = api;
+        this.admissionCoordinator = admissionCoordinator;
+    }
 
     public static void onChannelClosed(Context context,
                                        SimpleConnectApi api,
                                        ConnectLogger logger
     ) {
+        onChannelClosed(context, api, logger, null);
+    }
+
+    public static void onChannelClosed(
+            Context context,
+            SimpleConnectApi api,
+            ConnectLogger logger,
+            BedrockAdmissionCoordinator admissionCoordinator) {
         // Surround with try-catch to prevent exceptions when server shutdown and classes are unloaded before
         // we could use them.
         try {
             TunnelConn tunnelConn = context.getTunnelConn().getAndSet(null);
             if (tunnelConn != null) {
                 tunnelConn.close();
+            }
+
+            if (admissionCoordinator != null) {
+                admissionCoordinator.discard(context.getPlayer());
             }
 
             if (api.setPendingRemove(context.getPlayer())) {
@@ -100,6 +133,9 @@ public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<Byte
                         + "backendToTunnelPackets={} backendToTunnelBytes={} cause={}",
                 playerName(), sessionId(), ctx.channel().localAddress(), ctx.channel().remoteAddress(),
                 backendToTunnelPackets.get(), backendToTunnelBytes.get(), cause.toString());
+        if (admissionCoordinator != null) {
+            admissionCoordinator.discard(context.getPlayer());
+        }
         // Reject session proposal in case we are still able to and connection was stopped very early.
         rejectProposal(context, StatusProto.fromThrowable(cause));
         ctx.close();
@@ -154,7 +190,7 @@ public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<Byte
                     backendToTunnelPackets.get(), backendToTunnelBytes.get(),
                     activeTunnelConn != null && activeTunnelConn.opened());
         }
-        onChannelClosed(context, api, logger);
+        onChannelClosed(context, api, logger, admissionCoordinator);
         super.channelInactive(ctx);
     }
 

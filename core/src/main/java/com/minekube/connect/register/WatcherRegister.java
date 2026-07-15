@@ -31,6 +31,9 @@ import com.google.rpc.Status;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
+import com.minekube.connect.bedrock.BedrockIdentityReadiness;
+import com.minekube.connect.bedrock.BedrockIdentityReadiness.Transport;
 import com.minekube.connect.network.netty.LocalSession;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
@@ -42,6 +45,7 @@ import com.minekube.connect.watch.SessionProposal.State;
 import com.minekube.connect.watch.WatchBootstrap;
 import com.minekube.connect.watch.WatchClient;
 import com.minekube.connect.watch.Watcher;
+import io.grpc.protobuf.StatusProto;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import java.io.IOException;
 import java.time.Duration;
@@ -62,6 +66,8 @@ public class WatcherRegister {
     @Inject private ConnectLogger logger;
     @Inject private SimpleConnectApi api;
     @Inject private Libp2pEndpoint libp2pEndpoint;
+    @Inject private BedrockIdentityReadiness bedrockIdentityReadiness;
+    @Inject private BedrockAdmissionCoordinator admissionCoordinator;
 
     // volatile: written from injection thread (start/stop) and read from the
     // scheduler thread (retry) and OkHttp dispatcher (WatcherImpl callbacks).
@@ -90,6 +96,7 @@ public class WatcherRegister {
                     .setMaxIntervalMillis(60000 * 5) // 5 minutes
                     .setMultiplier(1.5) // 50% increase per back off
                     .build();
+            scheduler.scheduleWithFixedDelay(this::refreshWatchReadiness, 5, 5, TimeUnit.SECONDS);
             watch();
         }
     }
@@ -100,6 +107,12 @@ public class WatcherRegister {
 
     public boolean isHealthy() {
         return healthy.get();
+    }
+
+    private void refreshWatchReadiness() {
+        if (bedrockIdentityReadiness != null && bedrockIdentityReadiness.refresh(Transport.WATCH)) {
+            watch();
+        }
     }
 
     public synchronized void stop() {
@@ -214,6 +227,14 @@ public class WatcherRegister {
         watch();
     }
 
+    private void reject(SessionProposal proposal, Status reason) {
+        if (admissionCoordinator == null) {
+            proposal.reject(reason);
+        } else {
+            admissionCoordinator.reject(proposal, reason);
+        }
+    }
+
     private class WatcherImpl implements Watcher {
         private volatile boolean ignoreTerminalEvents;
 
@@ -247,7 +268,7 @@ public class WatcherRegister {
                     && proposal.getSession().getTunnelTransportsCount() == 0) {
                 logger.info("Got session proposal with empty tunnel service address " +
                         "from WatchService, rejecting it");
-                proposal.reject(Status.newBuilder()
+                reject(proposal, Status.newBuilder()
                         .setCode(Code.INVALID_ARGUMENT_VALUE)
                         .setMessage("tunnel service address must not be empty")
                         .build());
@@ -256,7 +277,7 @@ public class WatcherRegister {
             if (proposal.getSession().getPlayer().getAddr().isEmpty()) {
                 logger.info("Got session proposal with empty player address " +
                         "from WatchService, rejecting it");
-                proposal.reject(Status.newBuilder()
+                reject(proposal, Status.newBuilder()
                         .setCode(Code.INVALID_ARGUMENT_VALUE)
                         .setMessage("player address must not be empty")
                         .build());
@@ -271,11 +292,17 @@ public class WatcherRegister {
                 return;
             }
 
-            tunneler.prepare(proposal.getSession());
-            new LocalSession(logger, api, tunneler,
-                    platformInjector.getServerSocketAddress(),
-                    proposal
-            ).connect();
+            try {
+                tunneler.prepare(proposal.getSession());
+                new LocalSession(logger, api, tunneler,
+                        platformInjector.getServerSocketAddress(),
+                        proposal,
+                        admissionCoordinator
+                ).connect();
+            } catch (RuntimeException | Error e) {
+                reject(proposal, StatusProto.fromThrowable(e));
+                throw e;
+            }
         }
 
         @Override

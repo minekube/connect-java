@@ -39,6 +39,8 @@ import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.packet.PacketHandlers;
+import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
+import com.minekube.connect.bedrock.BedrockIdentityReadiness;
 import com.minekube.connect.config.ConfigHolder;
 import com.minekube.connect.config.ConfigLoader;
 import com.minekube.connect.config.ConfigLoader.EndpointNameGenerator;
@@ -121,6 +123,22 @@ public class CommonModule extends AbstractModule {
     @Named("defaultHttpClient")
     public OkHttpClient defaultOkHttpClient() {
         return HttpUtils.defaultOkHttpClient();
+    }
+
+    @Provides
+    @Singleton
+    public BedrockIdentityKeyProvider bedrockIdentityKeyProvider(
+            ConnectConfig config,
+            @Named("defaultHttpClient") OkHttpClient httpClient) {
+        return new BedrockIdentityKeyProvider(config, httpClient);
+    }
+
+    @Provides
+    @Singleton
+    public BedrockIdentityReadiness bedrockIdentityReadiness(
+            ConnectConfig config,
+            BedrockIdentityKeyProvider keyProvider) {
+        return new BedrockIdentityReadiness(config, keyProvider);
     }
 
     @Provides

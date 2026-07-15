@@ -28,6 +28,10 @@ package com.minekube.connect.watch;
 import com.google.inject.Inject;
 import com.google.inject.name.Named;
 import com.google.protobuf.InvalidProtocolBufferException;
+import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
+import com.minekube.connect.bedrock.BedrockIdentityReadiness;
+import com.minekube.connect.bedrock.BedrockIdentityReadiness.Transport;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.config.ConnectConfig;
 import java.io.IOException;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionRejection;
@@ -47,22 +51,40 @@ public class WatchClient {
     private static final String ENDPOINT_HEADER = "Connect-Endpoint";
     private static final String ENDPOINT_OFFLINE_MODE_HEADER = ENDPOINT_HEADER + "-Offline-Mode";
     private static final String ENDPOINT_PARENTS_HEADER = ENDPOINT_HEADER + "-Parents";
+    private static final String CAPABILITIES_HEADER = "Connect-Capabilities";
+    private static final String BEDROCK_IDENTITY_V1_CAPABILITY = "bedrock-identity-v1";
     private static final String WATCH_URL = System.getenv().getOrDefault(
             "CONNECT_WATCH_URL", "wss://watch-connect.minekube.net");
 
     private final OkHttpClient httpClient;
     private final ConnectConfig config;
+    private final BedrockIdentityReadiness bedrockIdentityReadiness;
+    private final BedrockAdmissionCoordinator admissionCoordinator;
 
     @Inject
-    public WatchClient(@Named("watchHttpClient") OkHttpClient httpClient, ConnectConfig config) {
+    public WatchClient(
+            @Named("watchHttpClient") OkHttpClient httpClient,
+            ConnectConfig config,
+            BedrockIdentityReadiness bedrockIdentityReadiness,
+            BedrockAdmissionCoordinator admissionCoordinator) {
         this.httpClient = httpClient;
         this.config = config;
+        this.bedrockIdentityReadiness = bedrockIdentityReadiness;
+        this.admissionCoordinator = admissionCoordinator;
+    }
+
+    public WatchClient(@Named("watchHttpClient") OkHttpClient httpClient, ConnectConfig config) {
+        this(httpClient, config, new BedrockIdentityReadiness(
+                config, new BedrockIdentityKeyProvider(config, new OkHttpClient())), null);
     }
 
     public WebSocket watch(Watcher watcher) {
         Request.Builder request = new Request.Builder()
                 .url(WATCH_URL)
                 .header(ENDPOINT_HEADER, config.getEndpoint());
+        if (bedrockIdentityReadiness.observe(Transport.WATCH)) {
+            request.header(CAPABILITIES_HEADER, BEDROCK_IDENTITY_V1_CAPABILITY);
+        }
 
         if (config.getAllowOfflineModePlayers() != null) {
             request = request.header(ENDPOINT_OFFLINE_MODE_HEADER,
@@ -122,21 +144,22 @@ public class WatchClient {
                     return;
                 }
 
-                SessionProposal prop = new SessionProposal(
-                        res.getSession(),
-                        reason -> {
-                            Builder rejection = SessionRejection.newBuilder()
-                                    .setId(res.getSession().getId());
+                String sessionId = res.getSession().getId();
+                java.util.function.Consumer<com.google.rpc.Status> rejectProposal = reason -> {
+                            Builder responseRejection = SessionRejection.newBuilder()
+                                    .setId(sessionId);
                             if (reason != null) {
-                                rejection.setReason(reason);
+                                responseRejection.setReason(reason);
                             }
                             webSocket.send(ByteString.of(WatchRequest.newBuilder()
-                                    .setSessionRejection(rejection)
+                                    .setSessionRejection(responseRejection)
                                     .build()
                                     .toByteArray()
                             ));
-                        }
-                );
+                        };
+                SessionProposal prop = admissionCoordinator == null
+                        ? new SessionProposal(res.getSession(), rejectProposal)
+                        : admissionCoordinator.proposal(res.getSession(), rejectProposal, "", "");
                 watcher.onProposal(prop);
             }
 

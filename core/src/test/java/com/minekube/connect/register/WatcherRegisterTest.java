@@ -19,6 +19,12 @@ import static org.mockito.Mockito.when;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
+import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
+import com.minekube.connect.bedrock.BedrockIdentityReadiness;
+import com.minekube.connect.bedrock.BedrockIdentityReadiness.Transport;
+import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
+import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.watch.SessionProposal;
@@ -28,16 +34,20 @@ import com.minekube.connect.watch.Watcher;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Timer;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.mockito.ArgumentCaptor;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfile;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfileProperty;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport.Type;
+import okhttp3.OkHttpClient;
 import okhttp3.WebSocket;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -97,6 +107,30 @@ class WatcherRegisterTest {
         assertNotSame(firstScheduler, secondScheduler);
         assertTrue(firstScheduler.isShutdown());
         assertFalse(secondScheduler.isShutdown());
+    }
+
+    @Test
+    void readinessTransitionReconnectsWatchAndWithdrawsThePreviousRegistration() throws Exception {
+        Fixture fixture = newFixture();
+        ConnectConfig config = identityConfig();
+        BedrockIdentityReadiness readiness = new BedrockIdentityReadiness(
+                config,
+                new BedrockIdentityKeyProvider(config, new OkHttpClient()));
+        readiness.observe(Transport.WATCH);
+        inject(fixture.register, "bedrockIdentityReadiness", readiness);
+        WebSocket webSocket = mock(WebSocket.class);
+        when(fixture.watchClient.watch(any(Watcher.class))).thenReturn(webSocket);
+        register = fixture.register;
+        register.start();
+
+        invokeRefreshWatchReadiness(register);
+        verify(fixture.watchClient).watch(any(Watcher.class));
+
+        setField(config.getBedrockIdentity(), "enforcement", "disabled");
+        invokeRefreshWatchReadiness(register);
+
+        verify(fixture.watchClient, times(2)).watch(any(Watcher.class));
+        verify(webSocket).close(1000, "watcher is reconnecting");
     }
 
     @Test
@@ -371,6 +405,39 @@ class WatcherRegisterTest {
         verify(fixture.platformInjector).getServerSocketAddress();
     }
 
+    @Test
+    void invalidWatchProposalCancelsPrivateAdmissionImmediately() throws Exception {
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(
+                new VerifiedBedrockIdentityRegistry());
+        try {
+            Fixture fixture = newFixture(coordinator);
+            register = fixture.register;
+            register.start();
+            ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+            verify(fixture.watchClient).watch(watcher.capture());
+            Session session = Session.newBuilder()
+                    .setId("session-1")
+                    .setPlayer(Player.newBuilder()
+                            .setAddr("127.0.0.1")
+                            .setProfile(GameProfile.newBuilder()
+                                    .setId("00000000-0000-0000-0000-000000000001")
+                                    .setName("Player")
+                                    .addProperties(GameProfileProperty.newBuilder()
+                                            .setName("minekube:bedrock_identity")
+                                            .setValue("signed-envelope"))))
+                    .build();
+            SessionProposal proposal = coordinator.proposal(session, reason -> {}, "", "");
+
+            watcher.getValue().onProposal(proposal);
+
+            Field admissions = BedrockAdmissionCoordinator.class.getDeclaredField("admissions");
+            admissions.setAccessible(true);
+            assertTrue(((Map<?, ?>) admissions.get(coordinator)).isEmpty());
+        } finally {
+            coordinator.close();
+        }
+    }
+
     private static WatcherRegister newRegister() throws Exception {
         return newFixture().register;
     }
@@ -380,6 +447,10 @@ class WatcherRegisterTest {
     }
 
     private static Fixture newFixture() throws Exception {
+        return newFixture(null);
+    }
+
+    private static Fixture newFixture(BedrockAdmissionCoordinator admissionCoordinator) throws Exception {
         WatcherRegister register = new WatcherRegister();
         WatchClient watchClient = mock(WatchClient.class);
         when(watchClient.watch(any(Watcher.class))).thenReturn(mock(WebSocket.class));
@@ -388,8 +459,11 @@ class WatcherRegisterTest {
         inject(register, "tunneler", mock(Tunneler.class));
         inject(register, "platformInjector", mock(PlatformInjector.class));
         inject(register, "logger", mock(ConnectLogger.class));
-        inject(register, "api", mock(SimpleConnectApi.class));
+        inject(register, "api", new SimpleConnectApi(mock(ConnectLogger.class)));
         inject(register, "libp2pEndpoint", mock(Libp2pEndpoint.class));
+        if (admissionCoordinator != null) {
+            inject(register, "admissionCoordinator", admissionCoordinator);
+        }
         when(((PlatformInjector) getField(register, "platformInjector")).getServerSocketAddress())
                 .thenReturn(new InetSocketAddress("127.0.0.1", 25565));
         return new Fixture(register, watchClient, (Tunneler) getField(register, "tunneler"),
@@ -402,6 +476,20 @@ class WatcherRegisterTest {
         Field field = WatcherRegister.class.getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(register, value);
+    }
+
+    private static ConnectConfig identityConfig() throws Exception {
+        ConnectConfig config = new ConnectConfig();
+        setField(config.getBedrockIdentity(), "enforcement", "require");
+        setField(config.getBedrockIdentity(), "publicKey",
+                Base64.getEncoder().encodeToString(new byte[32]));
+        return config;
+    }
+
+    private static void setField(Object target, String fieldName, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
     }
 
     private static ScheduledExecutorService scheduler(WatcherRegister register) throws Exception {
@@ -420,6 +508,12 @@ class WatcherRegisterTest {
 
     private static void invokeRetry(WatcherRegister register) throws Exception {
         Method method = WatcherRegister.class.getDeclaredMethod("retry");
+        method.setAccessible(true);
+        method.invoke(register);
+    }
+
+    private static void invokeRefreshWatchReadiness(WatcherRegister register) throws Exception {
+        Method method = WatcherRegister.class.getDeclaredMethod("refreshWatchReadiness");
         method.setAccessible(true);
         method.invoke(register);
     }

@@ -31,6 +31,7 @@ import static com.minekube.connect.util.ReflectionUtils.setValue;
 import com.google.gson.Gson;
 import com.minekube.connect.SpigotPlugin;
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.api.player.bedrock.BedrockIdentityProfiles;
 import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
 import com.minekube.connect.bedrock.BedrockIdentityEnforcer.Decision;
 import com.minekube.connect.config.ConnectConfig;
@@ -265,9 +266,13 @@ public final class SpigotDataHandler extends CommonDataHandler {
                 .append('\0')
                 .append(sessionCtx.getPlayer().getUniqueId().toString().replaceAll("-", ""))
                 .append('\0');
-        GSON.toJson(UnaryOperator.identity().apply(
-                sessionCtx.getPlayer().getGameProfile().getProperties()), data);
+        data.append(forwardedPropertiesJson(sessionCtx.getPlayer().getGameProfile()));
         return data.toString();
+    }
+
+    static String forwardedPropertiesJson(com.minekube.connect.api.player.GameProfile profile) {
+        return GSON.toJson(UnaryOperator.identity().apply(
+                BedrockIdentityProfiles.withoutEnvelope(profile).getProperties()));
     }
 
     private String getPlayerRemoteAddressAsString() {

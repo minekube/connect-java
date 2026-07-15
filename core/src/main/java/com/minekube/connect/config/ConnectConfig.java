@@ -94,27 +94,36 @@ public class ConnectConfig {
     @Getter
     public static class BedrockIdentityConfig {
         /**
-         * disabled, warn, or require.
+         * Exact enforcement mode: disabled, warn, or require. Any other value is invalid.
          */
         private String enforcement = "disabled";
         /**
-         * Base64-encoded Ed25519 public key used to verify identity envelopes.
+         * Base64-encoded Ed25519 public key used when no metadata URL is configured.
          */
         private String publicKey = "";
         /**
-         * Additional Base64-encoded Ed25519 public keys accepted during rotation.
+         * Additional Base64-encoded Ed25519 keys used when no metadata URL is configured.
          */
         private List<String> publicKeys = Collections.emptyList();
         /**
-         * Public metadata endpoint for current and previous verifier keys.
+         * Authoritative HTTPS metadata endpoint for current and previous verifier keys.
+         * Userinfo, fragments, and redirects are rejected; static keys are not a fallback.
          */
         private String metadataUrl = "";
         /**
-         * Local cache duration for successful metadata fetches.
+         * Maximum local cache duration for successful metadata fetches.
          */
         private int metadataCacheSeconds = 300;
         /**
-         * Expected Connect Edge Bedrock authentication policy.
+         * Maximum additional time expired remote metadata may be used when refresh fails.
+         */
+        private int metadataMaxStaleSeconds = 600;
+        /**
+         * Required non-blank issuer published by Moxy metadata and signed envelopes.
+         */
+        private String expectedIssuer = "minekube-connect";
+        /**
+         * Required exact policy: linked_java_only or trusted_bedrock_xuid.
          */
         private String expectedPolicy = "trusted_bedrock_xuid";
     }

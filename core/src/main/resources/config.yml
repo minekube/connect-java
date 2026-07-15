@@ -16,21 +16,28 @@ allow-offline-mode-players: false
 #  - someones-hub
 
 # Moxy can attach a signed Bedrock/Xbox identity envelope to Bedrock sessions.
-# Keep enforcement disabled unless Minekube provided the current public key.
+# Keep enforcement disabled unless Minekube provided trusted key configuration.
 bedrock-identity:
   # disabled: do not verify or reject
-  # warn: verify when public-key is configured and log failures, but allow the session
+  # warn: verify when any key source is configured and log failures, but allow the session
   # require: reject Bedrock sessions with missing or invalid identity envelopes
+  # Values are exact; malformed identity settings never advertise trusted identity.
   enforcement: disabled
-  # Base64-encoded Ed25519 public key. Supports raw 32-byte and X.509 encoded keys after decoding.
+  # Base64-encoded Ed25519 key used only when metadata-url is empty.
+  # Supports raw 32-byte and X.509 encoded keys after decoding.
   public-key: ""
-  # Additional Base64-encoded Ed25519 public keys accepted during key rotation.
+  # Additional Base64-encoded Ed25519 keys used only when metadata-url is empty.
   public-keys: []
-  # Public metadata URL for Moxy verifier keys. Prefer this once Minekube publishes it.
+  # Authoritative exact HTTPS metadata URL for Moxy verifier keys.
+  # Userinfo, fragments, and redirects are rejected; static keys are not a fallback.
   metadata-url: ""
-  # Seconds to cache successful verifier metadata.
+  # Maximum seconds to cache successful metadata; a smaller published max-age takes precedence.
   metadata-cache-seconds: 300
-  # Expected Connect Edge Bedrock authentication policy.
+  # Hard stale-if-error bound for expired remote keys. Require mode fails closed after this.
+  metadata-max-stale-seconds: 600
+  # Required non-blank issuer expected in Moxy metadata and signed envelopes.
+  expected-issuer: minekube-connect
+  # Required exact policy: linked_java_only or trusted_bedrock_xuid.
   expected-policy: trusted_bedrock_xuid
 
 # The default locale for Connect. By default, Connect uses the system locale

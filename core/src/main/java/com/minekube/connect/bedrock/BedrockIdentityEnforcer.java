@@ -5,6 +5,7 @@ import com.google.rpc.Code;
 import com.google.rpc.Status;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
+import com.minekube.connect.api.player.GameProfile;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityReplayCache;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityVerificationException;
@@ -14,10 +15,10 @@ import com.minekube.connect.config.ConnectConfig.BedrockIdentityConfig;
 import com.minekube.connect.network.netty.LocalSession;
 import java.time.Instant;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Supplier;
 import javax.inject.Named;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 import okhttp3.OkHttpClient;
 
 public final class BedrockIdentityEnforcer {
@@ -31,18 +32,47 @@ public final class BedrockIdentityEnforcer {
     private final ConnectLogger logger;
     private final Supplier<Instant> now;
     private final BedrockIdentityKeyProvider keyProvider;
+    private final BedrockAdmissionCoordinator admissionCoordinator;
     private final BedrockIdentityReplayCache replayCache = new BedrockIdentityReplayCache();
 
     @Inject
     public BedrockIdentityEnforcer(
             ConnectConfig config,
             ConnectLogger logger,
+            BedrockIdentityKeyProvider keyProvider,
+            BedrockAdmissionCoordinator admissionCoordinator) {
+        this(config, logger, Instant::now, keyProvider, admissionCoordinator);
+    }
+
+    public BedrockIdentityEnforcer(
+            ConnectConfig config,
+            ConnectLogger logger,
             @Named("defaultHttpClient") OkHttpClient httpClient) {
-        this(config, logger, Instant::now, new BedrockIdentityKeyProvider(config, httpClient));
+        this(config, logger, Instant::now, new BedrockIdentityKeyProvider(config, httpClient),
+                (BedrockAdmissionCoordinator) null);
     }
 
     BedrockIdentityEnforcer(ConnectConfig config, ConnectLogger logger, Supplier<Instant> now) {
-        this(config, logger, now, new BedrockIdentityKeyProvider(config, new OkHttpClient(), now));
+        this(config, logger, now, new BedrockIdentityKeyProvider(config, new okhttp3.OkHttpClient(), now),
+                (BedrockAdmissionCoordinator) null);
+    }
+
+    BedrockIdentityEnforcer(
+            ConnectConfig config,
+            ConnectLogger logger,
+            Supplier<Instant> now,
+            VerifiedBedrockIdentityRegistry ignored) {
+        this(config, logger, now, new BedrockIdentityKeyProvider(config, new okhttp3.OkHttpClient(), now),
+                (BedrockAdmissionCoordinator) null);
+    }
+
+    BedrockIdentityEnforcer(
+            ConnectConfig config,
+            ConnectLogger logger,
+            Supplier<Instant> now,
+            BedrockAdmissionCoordinator admissionCoordinator) {
+        this(config, logger, now, new BedrockIdentityKeyProvider(config, new okhttp3.OkHttpClient(), now),
+                admissionCoordinator);
     }
 
     BedrockIdentityEnforcer(
@@ -50,15 +80,66 @@ public final class BedrockIdentityEnforcer {
             ConnectLogger logger,
             Supplier<Instant> now,
             BedrockIdentityKeyProvider keyProvider) {
+        this(config, logger, now, keyProvider, (BedrockAdmissionCoordinator) null);
+    }
+
+    BedrockIdentityEnforcer(
+            ConnectConfig config,
+            ConnectLogger logger,
+            Supplier<Instant> now,
+            BedrockIdentityKeyProvider keyProvider,
+            BedrockAdmissionCoordinator admissionCoordinator) {
         this.config = Objects.requireNonNull(config, "config");
         this.logger = Objects.requireNonNull(logger, "logger");
         this.now = Objects.requireNonNull(now, "now");
         this.keyProvider = Objects.requireNonNull(keyProvider, "keyProvider");
+        this.admissionCoordinator = admissionCoordinator;
+    }
+
+    BedrockIdentityEnforcer(
+            ConnectConfig config,
+            ConnectLogger logger,
+            Supplier<Instant> now,
+            BedrockIdentityKeyProvider keyProvider,
+            VerifiedBedrockIdentityRegistry ignored) {
+        this(config, logger, now, keyProvider, (BedrockAdmissionCoordinator) null);
     }
 
     public Decision verify(LocalSession.Context context) {
         Objects.requireNonNull(context, "context");
-        return verify(context.getPlayer(), context.getEndpointId(), context.getEndpointOrgId());
+        ConnectPlayer player = context.getPlayer();
+        Decision stagedDecision = admissionCoordinator == null ? null : admissionCoordinator.verify(
+                player, context.getAdmissionToken(), this, context.getEndpointId(),
+                context.getEndpointOrgId(), context.getProtocol());
+        if (stagedDecision != null) {
+            return stagedDecision;
+        }
+        return verifyAdmission(
+                player,
+                context.getEndpointId(),
+                context.getEndpointOrgId(),
+                context.getProtocol());
+    }
+
+    Decision verifyAdmission(
+            ConnectPlayer player,
+            String endpointId,
+            String endpointOrgId,
+            SessionProtocol protocol) {
+        return verifyAdmissionSnapshot(player, player.getGameProfile(), endpointId, endpointOrgId, protocol);
+    }
+
+    Decision verifyAdmissionSnapshot(
+            ConnectPlayer player,
+            GameProfile profile,
+            String endpointId,
+            String endpointOrgId,
+            SessionProtocol protocol) {
+        return verify(player, profile, endpointId, endpointOrgId, protocol);
+    }
+
+    Decision invalidatedAdmission() {
+        return Decision.rejected(REJECT_MESSAGE);
     }
 
     public void reject(LocalSession.Context context, Decision decision) {
@@ -71,15 +152,65 @@ public final class BedrockIdentityEnforcer {
     }
 
     public Decision verify(ConnectPlayer player) {
-        return verify(player, "", "");
+        return verify(player, player.getGameProfile(), "", "", SessionProtocol.SESSION_PROTOCOL_BEDROCK);
     }
 
     Decision verify(ConnectPlayer player, String endpointId, String endpointOrgId) {
+        return verify(
+                player,
+                player.getGameProfile(),
+                endpointId,
+                endpointOrgId,
+                SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+    }
+
+    Decision verify(
+            ConnectPlayer player,
+            String endpointId,
+            String endpointOrgId,
+            SessionProtocol protocol) {
+        return verify(player, player.getGameProfile(), endpointId, endpointOrgId, protocol);
+    }
+
+    Decision verify(
+            ConnectPlayer player,
+            GameProfile profile,
+            String endpointId,
+            String endpointOrgId,
+            SessionProtocol protocol) {
         Objects.requireNonNull(player, "player");
+        Objects.requireNonNull(protocol, "protocol");
         BedrockIdentityConfig bedrockIdentity = config.getBedrockIdentity();
-        String mode = mode(bedrockIdentity);
-        if (MODE_DISABLED.equals(mode)) {
+        BedrockIdentityConfiguration identityConfiguration = BedrockIdentityConfiguration.from(bedrockIdentity);
+        if (identityConfiguration.isDisabled()) {
             return Decision.allowed(null);
+        }
+
+        String mode = identityConfiguration.mode() == BedrockIdentityConfiguration.Mode.WARN ? MODE_WARN : MODE_REQUIRE;
+
+        boolean hasEnvelope = hasReservedEnvelope(profile);
+        if (protocol == SessionProtocol.SESSION_PROTOCOL_JAVA) {
+            if (!hasEnvelope) {
+                return Decision.allowed(null);
+            }
+            return rejectOrWarn(player, mode, "reserved identity property on Java session");
+        }
+        if (protocol != SessionProtocol.SESSION_PROTOCOL_BEDROCK &&
+                protocol != SessionProtocol.SESSION_PROTOCOL_UNSPECIFIED) {
+            if (!hasEnvelope) {
+                return Decision.allowed(null);
+            }
+            return rejectOrWarn(player, mode, "reserved identity property on unknown session protocol");
+        }
+        if (protocol == SessionProtocol.SESSION_PROTOCOL_UNSPECIFIED && !hasEnvelope) {
+            return Decision.allowed(null);
+        }
+
+        if (hasEnvelope && (!hasScopeValue(endpointId) || !hasScopeValue(endpointOrgId))) {
+            return rejectOrWarn(player, mode, "authenticated endpoint scope is incomplete");
+        }
+        if (!identityConfiguration.isUsable()) {
+            return Decision.rejected(REJECT_MESSAGE);
         }
 
         if (MODE_WARN.equals(mode) && !hasConfiguredKeys(bedrockIdentity)) {
@@ -87,7 +218,12 @@ public final class BedrockIdentityEnforcer {
         }
 
         try {
-            BedrockIdentityClaims claims = verifyWithKeys(player, bedrockIdentity, endpointId, endpointOrgId);
+            BedrockIdentityClaims claims = verifyWithKeys(
+                    player,
+                    profile,
+                    identityConfiguration,
+                    endpointId,
+                    endpointOrgId);
             return Decision.allowed(claims);
         } catch (RuntimeException | BedrockIdentityVerificationException e) {
             warn(player, safeReason(e));
@@ -98,9 +234,15 @@ public final class BedrockIdentityEnforcer {
         }
     }
 
+    private Decision rejectOrWarn(ConnectPlayer player, String mode, String reason) {
+        warn(player, reason);
+        return MODE_REQUIRE.equals(mode) ? Decision.rejected(REJECT_MESSAGE) : Decision.allowed(null);
+    }
+
     private BedrockIdentityClaims verifyWithKeys(
             ConnectPlayer player,
-            BedrockIdentityConfig bedrockIdentity,
+            GameProfile profile,
+            BedrockIdentityConfiguration identityConfiguration,
             String endpointId,
             String endpointOrgId) throws BedrockIdentityVerificationException {
         List<byte[]> keys = keyProvider.keys();
@@ -111,8 +253,8 @@ public final class BedrockIdentityEnforcer {
         RuntimeException runtimeError = null;
         for (byte[] publicKey : keys) {
             try {
-                return verifier(publicKey, player, bedrockIdentity, endpointId, endpointOrgId)
-                        .verify(player.getGameProfile());
+                return verifier(publicKey, player, identityConfiguration, endpointId, endpointOrgId)
+                        .verify(profile);
             } catch (BedrockIdentityVerificationException e) {
                 verificationError = e;
             } catch (RuntimeException e) {
@@ -131,31 +273,21 @@ public final class BedrockIdentityEnforcer {
     private BedrockIdentityVerifier verifier(
             byte[] publicKey,
             ConnectPlayer player,
-            BedrockIdentityConfig bedrockIdentity,
+            BedrockIdentityConfiguration identityConfiguration,
             String endpointId,
             String endpointOrgId) {
         BedrockIdentityVerifier.Builder builder = BedrockIdentityVerifier.builder()
                 .publicKey(publicKey)
                 .now(now)
+                .endpointId(endpointId)
                 .endpointName(config.getEndpoint())
+                .orgId(endpointOrgId)
                 .sessionId(player.getSessionId())
                 .protocol(PROTOCOL_BEDROCK)
-                .bedrockAuthPolicy(bedrockIdentity.getExpectedPolicy())
+                .bedrockAuthPolicy(identityConfiguration.policy())
+                .expectedIssuer(identityConfiguration.issuer())
                 .replayCache(replayCache);
-        if (!isEmpty(endpointId)) {
-            builder.endpointId(endpointId);
-        }
-        if (!isEmpty(endpointOrgId)) {
-            builder.orgId(endpointOrgId);
-        }
         return builder.build();
-    }
-
-    private static String mode(BedrockIdentityConfig bedrockIdentity) {
-        if (bedrockIdentity == null || isEmpty(bedrockIdentity.getEnforcement())) {
-            return MODE_DISABLED;
-        }
-        return bedrockIdentity.getEnforcement().toLowerCase(Locale.ROOT);
     }
 
     private static boolean hasConfiguredKeys(BedrockIdentityConfig bedrockIdentity) {
@@ -185,6 +317,15 @@ public final class BedrockIdentityEnforcer {
 
     private static boolean isEmpty(String value) {
         return value == null || value.isEmpty();
+    }
+
+    private static boolean hasScopeValue(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    private static boolean hasReservedEnvelope(GameProfile profile) {
+        return profile.getProperties().stream()
+                .anyMatch(property -> BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName()));
     }
 
     public static final class Decision {

@@ -62,6 +62,7 @@ final class Libp2pSessionMapper {
                 .setId(offer.getSessionId())
                 .setPlayer(player)
                 .setAuth(Authentication.newBuilder().setPassthrough(passthrough))
+                .setProtocolValue(offer.getProtocolValue())
                 .addTunnelTransports(TunnelTransport.newBuilder()
                         .setType(TunnelTransport.Type.TYPE_LIBP2P)
                         .setAddress("same-stream"))

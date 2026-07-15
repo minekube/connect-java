@@ -35,6 +35,7 @@ import com.minekube.connect.api.InstanceHolder;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.packet.PacketHandlers;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.config.ConfigHolder;
 import com.minekube.connect.config.ConfigLoader;
 import com.minekube.connect.config.ConnectConfig;
@@ -60,21 +61,37 @@ public class ConnectPlatform {
     private final PlatformInjector injector;
 
     private final ConnectLogger logger;
+    private final BedrockAdmissionCoordinator admissionCoordinator;
 
     private ConnectConfig config;
     private Injector guice;
+
+    public ConnectPlatform(
+            ConnectApi api,
+            PlatformInjector platformInjector,
+            ConnectLogger logger,
+            Injector guice) {
+        this(
+                api,
+                platformInjector,
+                logger,
+                guice,
+                guice.getInstance(BedrockAdmissionCoordinator.class));
+    }
 
     @Inject
     public ConnectPlatform(
             ConnectApi api,
             PlatformInjector platformInjector,
             ConnectLogger logger,
-            Injector guice) {
+            Injector guice,
+            BedrockAdmissionCoordinator admissionCoordinator) {
 
         this.api = api;
         this.injector = platformInjector;
         this.logger = logger;
         this.guice = guice;
+        this.admissionCoordinator = admissionCoordinator;
     }
 
     @Inject
@@ -139,13 +156,20 @@ public class ConnectPlatform {
 
     public boolean disable() {
         try {
-            guice.getInstance(Libp2pEndpoint.class).stop();
-        } catch (ConfigurationException ignored) {
+            try {
+                guice.getInstance(Libp2pEndpoint.class).stop();
+            } catch (ConfigurationException ignored) {
+            }
+            guice.getInstance(WatchHealthServer.class).stop();
+            guice.getInstance(WatcherRegister.class).stop();
+            guice.getInstance(Tunneler.class).close();
+        } finally {
+            try {
+                admissionCoordinator.close();
+            } finally {
+                guice.getInstance(CommonPlatformInjector.class).shutdown();
+            }
         }
-        guice.getInstance(WatchHealthServer.class).stop();
-        guice.getInstance(WatcherRegister.class).stop();
-        guice.getInstance(Tunneler.class).close();
-        guice.getInstance(CommonPlatformInjector.class).shutdown();
         return true;
     }
 
