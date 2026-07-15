@@ -32,8 +32,7 @@ import com.google.common.collect.Maps;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
-import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
-import com.minekube.connect.watch.SessionProposal;
+import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
@@ -48,21 +47,17 @@ public class SimpleConnectApi implements ConnectApi {
                     .build();
 
     private final ConnectLogger logger;
-    private final BedrockAdmissionCoordinator admissionCoordinator;
+    private final VerifiedBedrockIdentityRegistry verifiedBedrockIdentities;
 
     public SimpleConnectApi(ConnectLogger logger) {
-        this(logger, (BedrockAdmissionCoordinator) null);
+        this(logger, (VerifiedBedrockIdentityRegistry) null);
     }
 
     public SimpleConnectApi(
             ConnectLogger logger,
-            com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry ignored) {
-        this(logger, (BedrockAdmissionCoordinator) null);
-    }
-
-    public SimpleConnectApi(ConnectLogger logger, BedrockAdmissionCoordinator admissionCoordinator) {
+            VerifiedBedrockIdentityRegistry verifiedBedrockIdentities) {
         this.logger = logger;
-        this.admissionCoordinator = admissionCoordinator;
+        this.verifiedBedrockIdentities = verifiedBedrockIdentities;
     }
 
     @Override
@@ -95,27 +90,19 @@ public class SimpleConnectApi implements ConnectApi {
         ConnectPlayer publicPlayer = player;
         ConnectPlayer previous = players.put(publicPlayer.getUniqueId(), publicPlayer);
         if (previous != null && previous != publicPlayer) {
-            discardAdmission(previous);
+            removeClaims(previous);
         }
         return previous;
     }
 
-    public ConnectPlayer stageAdmission(SessionProposal proposal) {
-        return admissionCoordinator == null
-                ? BedrockAdmissionCoordinator.playerFor(proposal.getSession())
-                : admissionCoordinator.stage(proposal);
-    }
-
-    public void discardAdmission(ConnectPlayer player) {
-        if (admissionCoordinator != null) admissionCoordinator.discard(player);
-    }
-
     @Override
     public Optional<BedrockIdentityClaims> getVerifiedBedrockIdentity(ConnectPlayer player) {
-        if (player == null || !players.containsValue(player)) {
+        if (player == null || players.get(player.getUniqueId()) != player) {
             return Optional.empty();
         }
-        return admissionCoordinator == null ? Optional.empty() : admissionCoordinator.get(player);
+        return verifiedBedrockIdentities == null
+                ? Optional.empty()
+                : verifiedBedrockIdentities.get(player);
     }
 
     /**
@@ -123,7 +110,7 @@ public class SimpleConnectApi implements ConnectApi {
      * dependant event hasn't fired yet
      */
     public boolean setPendingRemove(ConnectPlayer player) {
-        discardAdmission(player);
+        removeClaims(player);
         pendingRemove.put(player.getUniqueId(), player);
         return players.remove(player.getUniqueId(), player);
     }
@@ -132,17 +119,23 @@ public class SimpleConnectApi implements ConnectApi {
         ConnectPlayer pendingPlayer = pendingRemove.getIfPresent(uuid);
         if (pendingPlayer != null) {
             pendingRemove.invalidate(uuid);
-            discardAdmission(pendingPlayer);
+            removeClaims(pendingPlayer);
             players.remove(uuid, pendingPlayer);
             return;
         }
         ConnectPlayer player = players.remove(uuid);
         if (player != null) {
-            discardAdmission(player);
+            removeClaims(player);
         }
     }
 
     private ConnectPlayer getPendingRemovePlayer(UUID uuid) {
         return pendingRemove.getIfPresent(uuid);
+    }
+
+    private void removeClaims(ConnectPlayer player) {
+        if (verifiedBedrockIdentities != null) {
+            verifiedBedrockIdentities.remove(player);
+        }
     }
 }

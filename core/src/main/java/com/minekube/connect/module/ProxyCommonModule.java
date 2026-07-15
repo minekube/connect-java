@@ -32,7 +32,6 @@ import com.minekube.connect.api.ProxyConnectApi;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
-import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.config.ProxyConnectConfig;
 import java.nio.file.Path;
@@ -59,8 +58,8 @@ public final class ProxyCommonModule extends CommonModule {
     @Singleton
     public ProxyConnectApi proxyApi(
             ConnectLogger logger,
-            BedrockAdmissionCoordinator admissionCoordinator
+            VerifiedBedrockIdentityRegistry verifiedBedrockIdentities
     ) {
-        return new ProxyConnectApi(logger, admissionCoordinator);
+        return new ProxyConnectApi(logger, verifiedBedrockIdentities);
     }
 }

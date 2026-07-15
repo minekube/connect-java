@@ -27,14 +27,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.lang.reflect.Field;
+import java.util.concurrent.ExecutorService;
 import org.junit.jupiter.api.Test;
 
 class SimpleConnectApiBedrockIdentityTest {
     @Test
-    void apiDoesNotOwnACompatibilityClaimsRegistry() {
-        assertFalse(java.util.Arrays.stream(SimpleConnectApi.class.getDeclaredFields())
+    void apiRetainsOnlyClaimsRegistryAtTheIdentityBoundary() {
+        assertTrue(Arrays.stream(SimpleConnectApi.class.getDeclaredFields())
                 .map(Field::getType)
                 .anyMatch(VerifiedBedrockIdentityRegistry.class::equals));
+        assertFalse(Arrays.stream(SimpleConnectApi.class.getDeclaredFields())
+                .map(Field::getType)
+                .anyMatch(BedrockAdmissionCoordinator.class::equals));
+        assertFalse(Arrays.stream(SimpleConnectApi.class.getDeclaredFields())
+                .map(Field::getType)
+                .anyMatch(ExecutorService.class::isAssignableFrom));
     }
 
     @Test
@@ -50,26 +57,25 @@ class SimpleConnectApiBedrockIdentityTest {
                 .anyMatch(field -> VerifiedBedrockIdentityRegistry.class.isAssignableFrom(field.getType())));
 
         VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(registry);
         try {
             SimpleConnectApi api = new SimpleConnectApi(mock(ConnectLogger.class), registry);
-            ConnectPlayer player = api.stageAdmission(new SessionProposal(
+            ConnectPlayer player = coordinator.stage(coordinator.proposal(
                     VerifiedBedrockIdentityRegistryTest.session(false),
-                    reason -> {}));
+                    reason -> {}, "", ""));
 
             assertNoPrivateIdentityReachable(player);
             api.addPlayer(player);
             assertNoPrivateIdentityReachable(api.getPlayer(player.getUniqueId()));
         } finally {
-            registry.close();
+            coordinator.close();
         }
     }
 
     @Test
     void sameUuidReplacementRemovesDisplacedSessionClaims() {
         VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
-        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(
-                registry, new java.util.concurrent.ScheduledThreadPoolExecutor(1));
-        SimpleConnectApi api = new SimpleConnectApi(mock(ConnectLogger.class), coordinator);
+        SimpleConnectApi api = new SimpleConnectApi(mock(ConnectLogger.class), registry);
         UUID uuid = UUID.randomUUID();
         ConnectPlayer first = player("session-a", uuid);
         ConnectPlayer second = player("session-b", uuid);
@@ -87,12 +93,11 @@ class SimpleConnectApiBedrockIdentityTest {
     @Test
     void exposesOnlySanitizedPlayerAndNonceFreeVerifiedClaims() {
         VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
-        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(
-                registry, new java.util.concurrent.ScheduledThreadPoolExecutor(1));
-        SimpleConnectApi api = new SimpleConnectApi(mock(ConnectLogger.class), coordinator);
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(registry);
+        SimpleConnectApi api = new SimpleConnectApi(mock(ConnectLogger.class), registry);
         SessionProposal proposal = coordinator.proposal(
                 VerifiedBedrockIdentityRegistryTest.session(false), reason -> {}, "", "");
-        ConnectPlayer player = api.stageAdmission(proposal);
+        ConnectPlayer player = coordinator.stage(proposal);
         BedrockIdentityClaims claims = VerifiedBedrockIdentityRegistryTest.claims("session-1");
         registry.record(player, claims);
         assertTrue(api.getVerifiedBedrockIdentity(player).isEmpty());
@@ -155,16 +160,19 @@ class SimpleConnectApiBedrockIdentityTest {
     }
 
     @Test
-    void discardsPrivateAdmissionStateWhenSetupFails() {
+    void rejectsEqualButNonCurrentPlayerClaimLookup() {
         VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
         SimpleConnectApi api = new SimpleConnectApi(mock(ConnectLogger.class), registry);
-        ConnectPlayer player = api.stageAdmission(new SessionProposal(
-                VerifiedBedrockIdentityRegistryTest.session(false),
-                reason -> {}));
+        UUID uuid = UUID.randomUUID();
+        ConnectPlayer current = player("session-1", uuid);
+        ConnectPlayer equalPlayer = player("session-1", uuid);
+        BedrockIdentityClaims claims = VerifiedBedrockIdentityRegistryTest.claims("session-1");
+        registry.record(current, claims);
+        api.addPlayer(current);
 
-        api.discardAdmission(player);
-
-        assertFalse(registry.takeAdmissionProfile(player).isPresent());
+        assertTrue(current.equals(equalPlayer));
+        assertSame(claims, api.getVerifiedBedrockIdentity(current).orElseThrow());
+        assertTrue(api.getVerifiedBedrockIdentity(equalPlayer).isEmpty());
     }
 
     private static ConnectPlayer player(String sessionId, UUID uuid) {

@@ -27,7 +27,6 @@ package com.minekube.connect.api;
 
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
-import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 
 public final class ProxyConnectApi extends SimpleConnectApi {
 
@@ -39,9 +38,5 @@ public final class ProxyConnectApi extends SimpleConnectApi {
             ConnectLogger logger,
             VerifiedBedrockIdentityRegistry verifiedBedrockIdentities) {
         super(logger, verifiedBedrockIdentities);
-    }
-
-    public ProxyConnectApi(ConnectLogger logger, BedrockAdmissionCoordinator admissionCoordinator) {
-        super(logger, admissionCoordinator);
     }
 }

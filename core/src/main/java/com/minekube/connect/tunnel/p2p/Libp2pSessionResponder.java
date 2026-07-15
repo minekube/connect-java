@@ -121,18 +121,31 @@ final class Libp2pSessionResponder {
         SessionProposal proposal = admissionCoordinator == null
                 ? new SessionProposal(raw, rejectProposal, endpointId, endpointOrgId)
                 : admissionCoordinator.proposal(raw, rejectProposal, endpointId, endpointOrgId);
-        Tunneler tunneler = new Tunneler(new SameStreamTunnelTransport(stream, acceptedSessionId ->
-                writeResponse(stream, SessionResponse.newBuilder()
-                        .setSessionId(acceptedSessionId)
-                        .setAccepted(SessionAccepted.newBuilder().setSameStreamData(true))
-                        .build())));
         try {
+            Tunneler tunneler = new Tunneler(new SameStreamTunnelTransport(stream, acceptedSessionId ->
+                    writeResponse(stream, SessionResponse.newBuilder()
+                            .setSessionId(acceptedSessionId)
+                            .setAccepted(SessionAccepted.newBuilder().setSameStreamData(true))
+                            .build())));
             starter.start(proposal, tunneler);
         } catch (RuntimeException e) {
-            proposal.reject(Status.newBuilder()
+            reject(proposal, Status.newBuilder()
                     .setCode(Code.INTERNAL_VALUE)
                     .setMessage(e.getMessage() == null ? e.toString() : e.getMessage())
                     .build());
+        } catch (Error e) {
+            if (admissionCoordinator != null) {
+                admissionCoordinator.discard(proposal);
+            }
+            throw e;
+        }
+    }
+
+    private void reject(SessionProposal proposal, Status reason) {
+        if (admissionCoordinator == null) {
+            proposal.reject(reason);
+        } else {
+            admissionCoordinator.reject(proposal, reason);
         }
     }
 

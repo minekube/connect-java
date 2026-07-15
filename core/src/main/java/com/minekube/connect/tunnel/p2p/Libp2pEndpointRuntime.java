@@ -232,7 +232,8 @@ final class Libp2pEndpointRuntime {
                                 api,
                                 tunneler,
                                 platformInjector.getServerSocketAddress(),
-                                proposal).connect(),
+                                proposal,
+                                admissionCoordinator).connect(),
                 admissionCoordinator);
         host.addProtocolHandler(new StrictProtocolBinding<Void>(
                 Libp2pSessionResponder.PROTOCOL_ID,

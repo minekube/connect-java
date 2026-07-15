@@ -31,7 +31,6 @@ import com.google.inject.name.Named;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
-import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.config.ConnectConfig;
 import java.nio.file.Path;
 
@@ -51,7 +50,7 @@ public final class ServerCommonModule extends CommonModule {
     @Singleton
     public SimpleConnectApi api(
             ConnectLogger logger,
-            BedrockAdmissionCoordinator admissionCoordinator) {
-        return new SimpleConnectApi(logger, admissionCoordinator);
+            VerifiedBedrockIdentityRegistry verifiedBedrockIdentities) {
+        return new SimpleConnectApi(logger, verifiedBedrockIdentities);
     }
 }

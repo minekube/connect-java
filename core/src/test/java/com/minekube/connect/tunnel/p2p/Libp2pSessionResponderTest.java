@@ -9,6 +9,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.rpc.Code;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
+import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.watch.SessionProposal;
 import io.libp2p.core.Stream;
@@ -18,11 +20,14 @@ import io.netty.buffer.ByteBufInputStream;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.io.ByteArrayOutputStream;
+import java.lang.reflect.Field;
 import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionAccepted;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionAuthentication;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionGameProfile;
+import minekube.connect.v1alpha1.ConnectLibp2P.SessionGameProfileProperty;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionOffer;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionPlayer;
 import minekube.connect.v1alpha1.ConnectLibp2P.SessionResponse;
@@ -148,6 +153,38 @@ class Libp2pSessionResponderTest {
         SessionResponse response = writtenResponse(stream);
         assertTrue(response.hasRejected(), response.toString());
         assertEquals(Code.PERMISSION_DENIED_VALUE, response.getRejected().getReason().getCode());
+    }
+
+    @Test
+    void starterFailureCancelsPrivateAdmissionImmediately() throws Exception {
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(
+                new VerifiedBedrockIdentityRegistry());
+        SessionOffer source = offer();
+        SessionOffer privateOffer = source.toBuilder()
+                .setPlayer(source.getPlayer().toBuilder()
+                        .setProfile(source.getPlayer().getProfile().toBuilder()
+                                .addProperties(SessionGameProfileProperty.newBuilder()
+                                        .setName("minekube:bedrock_identity")
+                                        .setValue("signed-envelope"))))
+                .build();
+        Libp2pSessionResponder responder = new Libp2pSessionResponder(
+                "endpoint",
+                System::currentTimeMillis,
+                Collections.emptySet(),
+                (proposal, tunneler) -> {
+                    throw new IllegalStateException("setup failed");
+                },
+                coordinator);
+
+        try {
+            responder.handleOffer(mock(Stream.class), privateOffer);
+
+            Field admissions = BedrockAdmissionCoordinator.class.getDeclaredField("admissions");
+            admissions.setAccessible(true);
+            assertTrue(((Map<?, ?>) admissions.get(coordinator)).isEmpty());
+        } finally {
+            coordinator.close();
+        }
     }
 
     private static SessionOffer offer() {

@@ -29,6 +29,7 @@ import com.google.common.base.Preconditions;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.tunnel.TunnelConn;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.watch.SessionProposal;
@@ -62,7 +63,6 @@ import org.jetbrains.annotations.NotNull;
 /**
  * Manages a Minecraft Java session over our LocalChannel implementation.
  */
-@RequiredArgsConstructor
 public final class LocalSession {
     private static final int CONNECTION_TIMEOUT = (int) Duration.ofSeconds(10).toMillis();
 
@@ -75,8 +75,33 @@ public final class LocalSession {
     private final Tunneler tunneler;
     private final SocketAddress targetAddress; // The server we are connecting to
     private final SessionProposal sessionProposal;
+    private final BedrockAdmissionCoordinator admissionCoordinator;
 
     private final AtomicBoolean connectOnce = new AtomicBoolean();
+
+    public LocalSession(
+            ConnectLogger logger,
+            SimpleConnectApi api,
+            Tunneler tunneler,
+            SocketAddress targetAddress,
+            SessionProposal sessionProposal) {
+        this(logger, api, tunneler, targetAddress, sessionProposal, null);
+    }
+
+    public LocalSession(
+            ConnectLogger logger,
+            SimpleConnectApi api,
+            Tunneler tunneler,
+            SocketAddress targetAddress,
+            SessionProposal sessionProposal,
+            BedrockAdmissionCoordinator admissionCoordinator) {
+        this.logger = logger;
+        this.api = api;
+        this.tunneler = tunneler;
+        this.targetAddress = targetAddress;
+        this.sessionProposal = sessionProposal;
+        this.admissionCoordinator = admissionCoordinator;
+    }
 
     /**
      * Returns connection {@link Context} of a channel if available.
@@ -109,11 +134,20 @@ public final class LocalSession {
             throw new IllegalStateException("Connection has already been connected.");
         }
 
-        ConnectPlayer stagedPlayer = api.stageAdmission(sessionProposal);
+        ConnectPlayer stagedPlayer = null;
         try {
+            stagedPlayer = admissionCoordinator == null
+                    ? BedrockAdmissionCoordinator.playerFor(sessionProposal.getSession())
+                    : admissionCoordinator.stage(sessionProposal);
             connect(stagedPlayer);
         } catch (RuntimeException | Error e) {
-            api.discardAdmission(stagedPlayer);
+            if (admissionCoordinator != null) {
+                if (stagedPlayer == null) {
+                    admissionCoordinator.discard(sessionProposal);
+                } else {
+                    admissionCoordinator.discard(stagedPlayer);
+                }
+            }
             throw e;
         }
     }
@@ -155,7 +189,7 @@ public final class LocalSession {
                         channel.setContext(context);
                         ChannelPipeline pipeline = channel.pipeline();
                         pipeline.addLast("connect-tunnel", new LocalChannelInboundHandler(
-                                context, logger, tunneler, api
+                                context, logger, tunneler, api, admissionCoordinator
                         ));
                     }
                 })
@@ -185,7 +219,9 @@ public final class LocalSession {
     }
 
     private void exceptionCaught(Throwable cause, ConnectPlayer player) {
-        api.discardAdmission(player);
+        if (admissionCoordinator != null) {
+            admissionCoordinator.discard(player);
+        }
         cause.printStackTrace();
         // Reject session proposal in case we are still able to.
         sessionProposal.reject(StatusProto.fromThrowable(cause));

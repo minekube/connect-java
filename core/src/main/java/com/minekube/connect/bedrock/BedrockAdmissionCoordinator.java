@@ -1,15 +1,16 @@
 package com.minekube.connect.bedrock;
 
+import com.google.rpc.Status;
 import com.minekube.connect.api.player.Auth;
 import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.GameProfile;
-import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityProfiles;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityVerifier;
 import com.minekube.connect.player.ConnectPlayerImpl;
 import com.minekube.connect.watch.SessionProposal;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -17,6 +18,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
@@ -30,8 +32,10 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
 
     private final VerifiedBedrockIdentityRegistry identities;
     private final ScheduledExecutorService cleanupExecutor;
-    private final Map<AdmissionToken, Admission> admissions = new java.util.HashMap<>();
+    private final Map<AdmissionToken, Admission> admissions = new HashMap<>();
+    private final Map<String, Admission> latestBySession = new HashMap<>();
     private final Map<ConnectPlayer, AdmissionToken> players = new IdentityHashMap<>();
+    private long nextGeneration;
     private boolean closed;
 
     @Inject
@@ -48,20 +52,25 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
 
     public synchronized SessionProposal proposal(
             Session raw,
-            java.util.function.Consumer<com.google.rpc.Status> reject,
+            Consumer<Status> reject,
             String endpointId,
             String endpointOrgId) {
+        String sessionId = raw == null ? "" : raw.getId();
+        removeAdmission(latestBySession.get(sessionId));
         AdmissionToken token = null;
         if (hasPrivateIdentity(raw)) {
             ensureOpen();
-            AdmissionToken createdToken = new AdmissionToken();
-            Admission admission = new Admission(raw, createdToken);
+            AdmissionToken createdToken = new AdmissionToken(++nextGeneration);
+            Admission admission = new Admission(raw, createdToken, sessionId);
             admissions.put(createdToken, admission);
+            latestBySession.put(sessionId, admission);
             try {
                 admission.cleanup = cleanupExecutor.schedule(
-                        () -> expire(createdToken, admission), ADMISSION_TTL_SECONDS, TimeUnit.SECONDS);
+                        () -> expire(createdToken, admission),
+                        ADMISSION_TTL_SECONDS,
+                        TimeUnit.SECONDS);
             } catch (RuntimeException e) {
-                admissions.remove(createdToken);
+                removeAdmission(admission);
                 throw e;
             }
             token = createdToken;
@@ -71,25 +80,19 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
 
     public synchronized ConnectPlayer stage(SessionProposal proposal) {
         Objects.requireNonNull(proposal, "proposal");
-        Session session = proposal.getSession();
-        Admission admission = proposal.getAdmissionToken() == null
-                ? null : admissions.get(proposal.getAdmissionToken());
-        ConnectPlayer player = playerFor(admission == null ? session : admission.raw);
-        ConnectPlayer publicPlayer = identities.publicPlayer(player);
-        if (admission != null) {
-            admissions.entrySet().removeIf(entry -> {
-                Admission existing = entry.getValue();
-                if (existing != admission && existing.player != null &&
-                        existing.player.getSessionId().equals(publicPlayer.getSessionId())) {
-                    players.remove(existing.player);
-                    clear(existing);
-                    return true;
-                }
-                return false;
-            });
-            admission.player = publicPlayer;
-            players.put(publicPlayer, proposal.getAdmissionToken());
+        AdmissionToken token = proposal.getAdmissionToken();
+        if (token == null) {
+            return publicPlayer(playerFor(proposal.getSession()));
         }
+        Admission admission = admissions.get(token);
+        if (closed || admission == null || latestBySession.get(admission.sessionId) != admission ||
+                admission.raw == null || admission.player != null ||
+                admission.state != AdmissionState.PENDING) {
+            throw new IllegalStateException("Bedrock admission has expired or been superseded");
+        }
+        ConnectPlayer publicPlayer = publicPlayer(playerFor(admission.raw));
+        admission.player = publicPlayer;
+        players.put(publicPlayer, token);
         return publicPlayer;
     }
 
@@ -108,7 +111,8 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
         synchronized (this) {
             admission = admissions.get(token);
             if (closed || admission == null || admission.player != player ||
-                    admission.state != AdmissionState.PENDING) {
+                    latestBySession.get(admission.sessionId) != admission ||
+                    admission.raw == null || admission.state != AdmissionState.PENDING) {
                 return enforcer.invalidatedAdmission();
             }
             admission.state = AdmissionState.VERIFYING;
@@ -121,52 +125,67 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
                     player, rawProfile, endpointId, endpointOrgId, protocol);
         } catch (RuntimeException | Error e) {
             synchronized (this) {
-                if (admissions.remove(token, admission)) {
-                    players.remove(player);
-                    clear(admission);
-                }
+                removeAdmission(admission);
             }
             throw e;
         }
         synchronized (this) {
             if (closed || admissions.get(token) != admission ||
+                    latestBySession.get(admission.sessionId) != admission ||
                     admission.state != AdmissionState.VERIFYING) {
                 return enforcer.invalidatedAdmission();
             }
-            admissions.remove(token);
+            admissions.remove(token, admission);
+            latestBySession.remove(admission.sessionId, admission);
             players.remove(player);
             cancel(admission);
             admission.state = AdmissionState.CONSUMED;
             if (decision.verifiedClaims() != null) {
-                identities.record(player, decision.verifiedClaims());
+                identities.record(player, token.generation, decision.verifiedClaims());
             }
             return decision;
         }
     }
 
-    public synchronized void discard(ConnectPlayer player) {
-        AdmissionToken token = players.remove(player);
+    public synchronized void discard(SessionProposal proposal) {
+        Objects.requireNonNull(proposal, "proposal");
+        AdmissionToken token = proposal.getAdmissionToken();
         if (token != null) {
-            clear(admissions.remove(token));
+            removeAdmission(admissions.get(token));
+        }
+    }
+
+    public void reject(SessionProposal proposal, Status reason) {
+        discard(proposal);
+        proposal.reject(reason);
+    }
+
+    public synchronized void discard(ConnectPlayer player) {
+        Objects.requireNonNull(player, "player");
+        AdmissionToken token = players.get(player);
+        if (token != null) {
+            removeAdmission(admissions.get(token));
         }
         identities.remove(player);
     }
 
     @Override
     public synchronized void close() {
-        if (closed) return;
+        if (closed) {
+            return;
+        }
         closed = true;
-        admissions.values().forEach(BedrockAdmissionCoordinator::clear);
+        new ArrayList<>(admissions.values()).forEach(this::removeAdmission);
         admissions.clear();
+        latestBySession.clear();
         players.clear();
         identities.close();
         cleanupExecutor.shutdownNow();
     }
 
     private synchronized void expire(AdmissionToken token, Admission expected) {
-        if (admissions.remove(token, expected)) {
-            if (expected.player != null) players.remove(expected.player);
-            clear(expected);
+        if (admissions.get(token) == expected) {
+            removeAdmission(expected);
         }
     }
 
@@ -184,12 +203,23 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
                 player.getProfile().getName(),
                 java.util.UUID.fromString(player.getProfile().getId()),
                 Collections.unmodifiableList(new ArrayList<>(player.getProfile().getPropertiesList().stream()
-                        .map(property -> new GameProfile.Property(property.getName(), property.getValue(), property.getSignature()))
+                        .map(property -> new GameProfile.Property(
+                                property.getName(),
+                                property.getValue(),
+                                property.getSignature()))
                         .toList())));
     }
 
-    public java.util.Optional<BedrockIdentityClaims> get(ConnectPlayer player) {
-        return identities.get(player);
+    private static ConnectPlayer publicPlayer(ConnectPlayer player) {
+        GameProfile publicProfile = BedrockIdentityProfiles.withoutEnvelope(player.getGameProfile());
+        if (publicProfile == player.getGameProfile()) {
+            return player;
+        }
+        return new ConnectPlayerImpl(
+                player.getSessionId(),
+                publicProfile,
+                player.getAuth(),
+                player.getLanguageTag());
     }
 
     private static boolean hasPrivateIdentity(Session session) {
@@ -200,19 +230,34 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
     }
 
     private void ensureOpen() {
-        if (closed) throw new IllegalStateException("Bedrock admission coordinator is closed");
-    }
-
-    private static void clear(Admission admission) {
-        if (admission != null) {
-            admission.raw = null;
-            admission.state = AdmissionState.CANCELLED;
-            cancel(admission);
+        if (closed) {
+            throw new IllegalStateException("Bedrock admission coordinator is closed");
         }
     }
 
+    private void removeAdmission(Admission admission) {
+        if (admission == null) {
+            return;
+        }
+        admissions.remove(admission.token, admission);
+        latestBySession.remove(admission.sessionId, admission);
+        if (admission.player != null) {
+            players.remove(admission.player);
+            identities.remove(admission.player);
+        }
+        clear(admission);
+    }
+
+    private static void clear(Admission admission) {
+        admission.raw = null;
+        admission.state = AdmissionState.CANCELLED;
+        cancel(admission);
+    }
+
     private static void cancel(Admission admission) {
-        if (admission.cleanup != null) admission.cleanup.cancel(false);
+        if (admission.cleanup != null) {
+            admission.cleanup.cancel(false);
+        }
     }
 
     private static ScheduledExecutorService newCleanupExecutor() {
@@ -227,18 +272,26 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
     }
 
     /** Opaque identity-only handle; it intentionally carries no session/profile/coordinator reference. */
-    public static final class AdmissionToken { }
+    public static final class AdmissionToken {
+        private final long generation;
+
+        private AdmissionToken(long generation) {
+            this.generation = generation;
+        }
+    }
 
     private static final class Admission {
         private Session raw;
         private final AdmissionToken token;
+        private final String sessionId;
         private ConnectPlayer player;
         private ScheduledFuture<?> cleanup;
         private AdmissionState state = AdmissionState.PENDING;
 
-        private Admission(Session raw, AdmissionToken token) {
+        private Admission(Session raw, AdmissionToken token, String sessionId) {
             this.raw = raw;
             this.token = token;
+            this.sessionId = sessionId;
         }
     }
 
