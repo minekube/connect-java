@@ -32,7 +32,7 @@ import com.google.common.collect.Maps;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
-import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.watch.SessionProposal;
 import java.util.Collection;
 import java.util.Map;
@@ -48,17 +48,21 @@ public class SimpleConnectApi implements ConnectApi {
                     .build();
 
     private final ConnectLogger logger;
-    private final VerifiedBedrockIdentityRegistry verifiedBedrockIdentities;
+    private final BedrockAdmissionCoordinator admissionCoordinator;
 
     public SimpleConnectApi(ConnectLogger logger) {
-        this(logger, new VerifiedBedrockIdentityRegistry());
+        this(logger, (BedrockAdmissionCoordinator) null);
     }
 
     public SimpleConnectApi(
             ConnectLogger logger,
-            VerifiedBedrockIdentityRegistry verifiedBedrockIdentities) {
+            com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry ignored) {
+        this(logger, (BedrockAdmissionCoordinator) null);
+    }
+
+    public SimpleConnectApi(ConnectLogger logger, BedrockAdmissionCoordinator admissionCoordinator) {
         this.logger = logger;
-        this.verifiedBedrockIdentities = verifiedBedrockIdentities;
+        this.admissionCoordinator = admissionCoordinator;
     }
 
     @Override
@@ -88,20 +92,22 @@ public class SimpleConnectApi implements ConnectApi {
     }
 
     public ConnectPlayer addPlayer(ConnectPlayer player) {
-        ConnectPlayer publicPlayer = verifiedBedrockIdentities.publicPlayer(player);
+        ConnectPlayer publicPlayer = player;
         ConnectPlayer previous = players.put(publicPlayer.getUniqueId(), publicPlayer);
         if (previous != null && previous != publicPlayer) {
-            verifiedBedrockIdentities.remove(previous);
+            discardAdmission(previous);
         }
         return previous;
     }
 
     public ConnectPlayer stageAdmission(SessionProposal proposal) {
-        return proposal.stageAdmission(verifiedBedrockIdentities);
+        return admissionCoordinator == null
+                ? BedrockAdmissionCoordinator.playerFor(proposal.getSession())
+                : admissionCoordinator.stage(proposal);
     }
 
     public void discardAdmission(ConnectPlayer player) {
-        verifiedBedrockIdentities.remove(player);
+        if (admissionCoordinator != null) admissionCoordinator.discard(player);
     }
 
     @Override
@@ -109,7 +115,7 @@ public class SimpleConnectApi implements ConnectApi {
         if (player == null || !players.containsValue(player)) {
             return Optional.empty();
         }
-        return verifiedBedrockIdentities.get(player);
+        return admissionCoordinator == null ? Optional.empty() : admissionCoordinator.get(player);
     }
 
     /**
@@ -117,7 +123,7 @@ public class SimpleConnectApi implements ConnectApi {
      * dependant event hasn't fired yet
      */
     public boolean setPendingRemove(ConnectPlayer player) {
-        verifiedBedrockIdentities.remove(player);
+        discardAdmission(player);
         pendingRemove.put(player.getUniqueId(), player);
         return players.remove(player.getUniqueId(), player);
     }
@@ -126,13 +132,13 @@ public class SimpleConnectApi implements ConnectApi {
         ConnectPlayer pendingPlayer = pendingRemove.getIfPresent(uuid);
         if (pendingPlayer != null) {
             pendingRemove.invalidate(uuid);
-            verifiedBedrockIdentities.remove(pendingPlayer);
+            discardAdmission(pendingPlayer);
             players.remove(uuid, pendingPlayer);
             return;
         }
         ConnectPlayer player = players.remove(uuid);
         if (player != null) {
-            verifiedBedrockIdentities.remove(player);
+            discardAdmission(player);
         }
     }
 

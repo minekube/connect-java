@@ -22,10 +22,10 @@ class ConnectPlatformBedrockIdentityLifecycleTest {
     void fourArgumentConstructorUsesInjectorRegistryAndClosesItOnDisable() {
         ScheduledThreadPoolExecutor cleanupExecutor = new ScheduledThreadPoolExecutor(1);
         cleanupExecutor.setRemoveOnCancelPolicy(true);
-        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry(cleanupExecutor);
-        registry.stage(VerifiedBedrockIdentityRegistryTest.session(false));
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(registry, cleanupExecutor);
         Injector guice = mock(Injector.class);
-        when(guice.getInstance(VerifiedBedrockIdentityRegistry.class)).thenReturn(registry);
+        when(guice.getInstance(BedrockAdmissionCoordinator.class)).thenReturn(coordinator);
         when(guice.getInstance(Libp2pEndpoint.class)).thenReturn(mock(Libp2pEndpoint.class));
         when(guice.getInstance(WatchHealthServer.class)).thenReturn(mock(WatchHealthServer.class));
         when(guice.getInstance(WatcherRegister.class)).thenReturn(mock(WatcherRegister.class));

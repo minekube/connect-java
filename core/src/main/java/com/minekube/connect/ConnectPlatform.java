@@ -35,7 +35,7 @@ import com.minekube.connect.api.InstanceHolder;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.packet.PacketHandlers;
-import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.config.ConfigHolder;
 import com.minekube.connect.config.ConfigLoader;
 import com.minekube.connect.config.ConnectConfig;
@@ -61,7 +61,7 @@ public class ConnectPlatform {
     private final PlatformInjector injector;
 
     private final ConnectLogger logger;
-    private final VerifiedBedrockIdentityRegistry verifiedBedrockIdentities;
+    private final BedrockAdmissionCoordinator admissionCoordinator;
 
     private ConnectConfig config;
     private Injector guice;
@@ -76,7 +76,7 @@ public class ConnectPlatform {
                 platformInjector,
                 logger,
                 guice,
-                guice.getInstance(VerifiedBedrockIdentityRegistry.class));
+                guice.getInstance(BedrockAdmissionCoordinator.class));
     }
 
     @Inject
@@ -85,13 +85,13 @@ public class ConnectPlatform {
             PlatformInjector platformInjector,
             ConnectLogger logger,
             Injector guice,
-            VerifiedBedrockIdentityRegistry verifiedBedrockIdentities) {
+            BedrockAdmissionCoordinator admissionCoordinator) {
 
         this.api = api;
         this.injector = platformInjector;
         this.logger = logger;
         this.guice = guice;
-        this.verifiedBedrockIdentities = verifiedBedrockIdentities;
+        this.admissionCoordinator = admissionCoordinator;
     }
 
     @Inject
@@ -165,7 +165,7 @@ public class ConnectPlatform {
             guice.getInstance(Tunneler.class).close();
         } finally {
             try {
-                verifiedBedrockIdentities.close();
+                admissionCoordinator.close();
             } finally {
                 guice.getInstance(CommonPlatformInjector.class).shutdown();
             }

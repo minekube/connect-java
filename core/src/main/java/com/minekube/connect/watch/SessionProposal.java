@@ -30,8 +30,7 @@ import com.google.gson.JsonSyntaxException;
 import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityProfiles;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityVerifier;
-import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
-import java.util.concurrent.atomic.AtomicReference;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator.AdmissionToken;
 import java.util.function.Consumer;
 import lombok.Getter;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
@@ -41,7 +40,8 @@ public class SessionProposal {
     private static final Gson GSON = new Gson();
     @Getter
     private final Session session;
-    private final AtomicReference<Session> admissionSession;
+    @Getter
+    private final AdmissionToken admissionToken;
     private final Consumer<com.google.rpc.Status> reject;
     @Getter
     private final String endpointId;
@@ -50,10 +50,10 @@ public class SessionProposal {
     @Getter
     private final SessionProtocol protocol;
 
-    private final AtomicReference<State> state = new AtomicReference<>(State.ACCEPTED);
+    private final java.util.concurrent.atomic.AtomicReference<State> state = new java.util.concurrent.atomic.AtomicReference<>(State.ACCEPTED);
 
     public SessionProposal(Session session, Consumer<com.google.rpc.Status> reject) {
-        this(session, reject, "", "");
+        this(session, reject, "", "", null);
     }
 
     public SessionProposal(
@@ -61,8 +61,17 @@ public class SessionProposal {
             Consumer<com.google.rpc.Status> reject,
             String endpointId,
             String endpointOrgId) {
+        this(session, reject, endpointId, endpointOrgId, null);
+    }
+
+    public SessionProposal(
+            Session session,
+            Consumer<com.google.rpc.Status> reject,
+            String endpointId,
+            String endpointOrgId,
+            AdmissionToken admissionToken) {
         this.session = withoutPrivateIdentity(session);
-        this.admissionSession = new AtomicReference<>(hasPrivateIdentity(session) ? session : null);
+        this.admissionToken = admissionToken;
         this.reject = reject;
         Scope scope = parseScope(session);
         this.endpointId = firstNonEmpty(endpointId, scope.endpoint_id);
@@ -70,11 +79,6 @@ public class SessionProposal {
         this.protocol = session == null
                 ? SessionProtocol.SESSION_PROTOCOL_UNSPECIFIED
                 : session.getProtocol();
-    }
-
-    public ConnectPlayer stageAdmission(VerifiedBedrockIdentityRegistry identityRegistry) {
-        Session rawSession = admissionSession.getAndSet(null);
-        return identityRegistry.stage(rawSession == null ? session : rawSession);
     }
 
     public enum State {

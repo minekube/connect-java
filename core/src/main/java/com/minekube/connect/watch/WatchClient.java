@@ -31,6 +31,7 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness.Transport;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.config.ConnectConfig;
 import java.io.IOException;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionRejection;
@@ -58,20 +59,23 @@ public class WatchClient {
     private final OkHttpClient httpClient;
     private final ConnectConfig config;
     private final BedrockIdentityReadiness bedrockIdentityReadiness;
+    private final BedrockAdmissionCoordinator admissionCoordinator;
 
     @Inject
     public WatchClient(
             @Named("watchHttpClient") OkHttpClient httpClient,
             ConnectConfig config,
-            BedrockIdentityReadiness bedrockIdentityReadiness) {
+            BedrockIdentityReadiness bedrockIdentityReadiness,
+            BedrockAdmissionCoordinator admissionCoordinator) {
         this.httpClient = httpClient;
         this.config = config;
         this.bedrockIdentityReadiness = bedrockIdentityReadiness;
+        this.admissionCoordinator = admissionCoordinator;
     }
 
     public WatchClient(@Named("watchHttpClient") OkHttpClient httpClient, ConnectConfig config) {
         this(httpClient, config, new BedrockIdentityReadiness(
-                config, new BedrockIdentityKeyProvider(config, new OkHttpClient())));
+                config, new BedrockIdentityKeyProvider(config, new OkHttpClient())), null);
     }
 
     public WebSocket watch(Watcher watcher) {
@@ -141,21 +145,21 @@ public class WatchClient {
                 }
 
                 String sessionId = res.getSession().getId();
-                SessionProposal prop = new SessionProposal(
-                        res.getSession(),
-                        reason -> {
-                            Builder rejection = SessionRejection.newBuilder()
+                java.util.function.Consumer<com.google.rpc.Status> rejectProposal = reason -> {
+                            Builder responseRejection = SessionRejection.newBuilder()
                                     .setId(sessionId);
                             if (reason != null) {
-                                rejection.setReason(reason);
+                                responseRejection.setReason(reason);
                             }
                             webSocket.send(ByteString.of(WatchRequest.newBuilder()
-                                    .setSessionRejection(rejection)
+                                    .setSessionRejection(responseRejection)
                                     .build()
                                     .toByteArray()
                             ));
-                        }
-                );
+                        };
+                SessionProposal prop = admissionCoordinator == null
+                        ? new SessionProposal(res.getSession(), rejectProposal)
+                        : admissionCoordinator.proposal(res.getSession(), rejectProposal, "", "");
                 watcher.onProposal(prop);
             }
 

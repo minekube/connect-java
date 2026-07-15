@@ -30,6 +30,7 @@ import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness.Transport;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.network.netty.LocalSession;
 import com.minekube.connect.platform.util.PlatformUtils;
@@ -79,6 +80,7 @@ final class Libp2pEndpointRuntime {
     private final PlatformInjector platformInjector;
     private final SimpleConnectApi api;
     private final BedrockIdentityReadiness bedrockIdentityReadiness;
+    private final BedrockAdmissionCoordinator admissionCoordinator;
     private final String endpointInstanceId = newEndpointInstanceId();
     private final AtomicLong sequence = new AtomicLong();
 
@@ -101,7 +103,8 @@ final class Libp2pEndpointRuntime {
             ConnectLogger logger,
             PlatformInjector platformInjector,
             SimpleConnectApi api,
-            BedrockIdentityReadiness bedrockIdentityReadiness) {
+            BedrockIdentityReadiness bedrockIdentityReadiness,
+            BedrockAdmissionCoordinator admissionCoordinator) {
         this.dataDirectory = dataDirectory;
         this.connectConfig = connectConfig;
         this.connectToken = connectToken;
@@ -110,6 +113,20 @@ final class Libp2pEndpointRuntime {
         this.platformInjector = platformInjector;
         this.api = api;
         this.bedrockIdentityReadiness = bedrockIdentityReadiness;
+        this.admissionCoordinator = admissionCoordinator;
+    }
+
+    Libp2pEndpointRuntime(
+            @Named("dataDirectory") Path dataDirectory,
+            ConnectConfig connectConfig,
+            @Named("connectToken") String connectToken,
+            PlatformUtils platformUtils,
+            ConnectLogger logger,
+            PlatformInjector platformInjector,
+            SimpleConnectApi api,
+            BedrockIdentityReadiness bedrockIdentityReadiness) {
+        this(dataDirectory, connectConfig, connectToken, platformUtils, logger, platformInjector, api,
+                bedrockIdentityReadiness, null);
     }
 
     @Inject
@@ -215,7 +232,8 @@ final class Libp2pEndpointRuntime {
                                 api,
                                 tunneler,
                                 platformInjector.getServerSocketAddress(),
-                                proposal).connect());
+                                proposal).connect(),
+                admissionCoordinator);
         host.addProtocolHandler(new StrictProtocolBinding<Void>(
                 Libp2pSessionResponder.PROTOCOL_ID,
                 new ProtocolHandler<Void>(Long.MAX_VALUE, Long.MAX_VALUE) {

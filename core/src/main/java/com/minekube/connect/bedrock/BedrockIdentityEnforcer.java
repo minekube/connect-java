@@ -32,7 +32,7 @@ public final class BedrockIdentityEnforcer {
     private final ConnectLogger logger;
     private final Supplier<Instant> now;
     private final BedrockIdentityKeyProvider keyProvider;
-    private final VerifiedBedrockIdentityRegistry identityRegistry;
+    private final BedrockAdmissionCoordinator admissionCoordinator;
     private final BedrockIdentityReplayCache replayCache = new BedrockIdentityReplayCache();
 
     @Inject
@@ -40,8 +40,8 @@ public final class BedrockIdentityEnforcer {
             ConnectConfig config,
             ConnectLogger logger,
             BedrockIdentityKeyProvider keyProvider,
-            VerifiedBedrockIdentityRegistry identityRegistry) {
-        this(config, logger, Instant::now, keyProvider, identityRegistry);
+            BedrockAdmissionCoordinator admissionCoordinator) {
+        this(config, logger, Instant::now, keyProvider, admissionCoordinator);
     }
 
     public BedrockIdentityEnforcer(
@@ -49,20 +49,30 @@ public final class BedrockIdentityEnforcer {
             ConnectLogger logger,
             @Named("defaultHttpClient") OkHttpClient httpClient) {
         this(config, logger, Instant::now, new BedrockIdentityKeyProvider(config, httpClient),
-                new VerifiedBedrockIdentityRegistry());
+                (BedrockAdmissionCoordinator) null);
     }
 
     BedrockIdentityEnforcer(ConnectConfig config, ConnectLogger logger, Supplier<Instant> now) {
         this(config, logger, now, new BedrockIdentityKeyProvider(config, new okhttp3.OkHttpClient(), now),
-                new VerifiedBedrockIdentityRegistry());
+                (BedrockAdmissionCoordinator) null);
     }
 
     BedrockIdentityEnforcer(
             ConnectConfig config,
             ConnectLogger logger,
             Supplier<Instant> now,
-            VerifiedBedrockIdentityRegistry identityRegistry) {
-        this(config, logger, now, new BedrockIdentityKeyProvider(config, new okhttp3.OkHttpClient(), now), identityRegistry);
+            VerifiedBedrockIdentityRegistry ignored) {
+        this(config, logger, now, new BedrockIdentityKeyProvider(config, new okhttp3.OkHttpClient(), now),
+                (BedrockAdmissionCoordinator) null);
+    }
+
+    BedrockIdentityEnforcer(
+            ConnectConfig config,
+            ConnectLogger logger,
+            Supplier<Instant> now,
+            BedrockAdmissionCoordinator admissionCoordinator) {
+        this(config, logger, now, new BedrockIdentityKeyProvider(config, new okhttp3.OkHttpClient(), now),
+                admissionCoordinator);
     }
 
     BedrockIdentityEnforcer(
@@ -70,7 +80,7 @@ public final class BedrockIdentityEnforcer {
             ConnectLogger logger,
             Supplier<Instant> now,
             BedrockIdentityKeyProvider keyProvider) {
-        this(config, logger, now, keyProvider, new VerifiedBedrockIdentityRegistry());
+        this(config, logger, now, keyProvider, (BedrockAdmissionCoordinator) null);
     }
 
     BedrockIdentityEnforcer(
@@ -78,23 +88,29 @@ public final class BedrockIdentityEnforcer {
             ConnectLogger logger,
             Supplier<Instant> now,
             BedrockIdentityKeyProvider keyProvider,
-            VerifiedBedrockIdentityRegistry identityRegistry) {
+            BedrockAdmissionCoordinator admissionCoordinator) {
         this.config = Objects.requireNonNull(config, "config");
         this.logger = Objects.requireNonNull(logger, "logger");
         this.now = Objects.requireNonNull(now, "now");
         this.keyProvider = Objects.requireNonNull(keyProvider, "keyProvider");
-        this.identityRegistry = Objects.requireNonNull(identityRegistry, "identityRegistry");
+        this.admissionCoordinator = admissionCoordinator;
+    }
+
+    BedrockIdentityEnforcer(
+            ConnectConfig config,
+            ConnectLogger logger,
+            Supplier<Instant> now,
+            BedrockIdentityKeyProvider keyProvider,
+            VerifiedBedrockIdentityRegistry ignored) {
+        this(config, logger, now, keyProvider, (BedrockAdmissionCoordinator) null);
     }
 
     public Decision verify(LocalSession.Context context) {
         Objects.requireNonNull(context, "context");
         ConnectPlayer player = context.getPlayer();
-        Decision stagedDecision = VerifiedBedrockIdentityRegistry.verifyStagedAdmission(
-                player,
-                this,
-                context.getEndpointId(),
-                context.getEndpointOrgId(),
-                context.getProtocol());
+        Decision stagedDecision = admissionCoordinator == null ? null : admissionCoordinator.verify(
+                player, context.getAdmissionToken(), this, context.getEndpointId(),
+                context.getEndpointOrgId(), context.getProtocol());
         if (stagedDecision != null) {
             return stagedDecision;
         }
@@ -110,13 +126,7 @@ public final class BedrockIdentityEnforcer {
             String endpointId,
             String endpointOrgId,
             SessionProtocol protocol) {
-        GameProfile profile = identityRegistry.takeAdmissionProfile(player).orElse(player.getGameProfile());
-        identityRegistry.clearClaims(player);
-        Decision decision = verifyAdmissionSnapshot(player, profile, endpointId, endpointOrgId, protocol);
-        if (decision.verifiedClaims() != null) {
-            identityRegistry.record(player, decision.verifiedClaims());
-        }
-        return decision;
+        return verifyAdmissionSnapshot(player, player.getGameProfile(), endpointId, endpointOrgId, protocol);
     }
 
     Decision verifyAdmissionSnapshot(

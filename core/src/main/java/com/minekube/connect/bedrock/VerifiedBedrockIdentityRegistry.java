@@ -9,7 +9,6 @@ import com.minekube.connect.api.player.bedrock.BedrockIdentityVerifier;
 import com.minekube.connect.player.ConnectPlayerImpl;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -26,8 +25,6 @@ import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 @Singleton
 public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
     private static final long ADMISSION_PROFILE_TTL_SECONDS = 30;
-    private static final Map<ConnectPlayer, VerifiedBedrockIdentityRegistry> ADMISSION_OWNERS =
-            new IdentityHashMap<>();
 
     private final Map<String, BedrockIdentityClaims> identities = new ConcurrentHashMap<>();
     private final Map<String, AdmissionProfile> admissionProfiles = new ConcurrentHashMap<>();
@@ -67,9 +64,8 @@ public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
         if (hasPrivateIdentity(rawProfile)) {
             Object cleanupToken = new Object();
             AdmissionProfile admissionProfile = new AdmissionProfile(
-                    copy(rawProfile), cleanupToken, publicPlayer, this);
+                    copy(rawProfile), cleanupToken, publicPlayer);
             admissionProfiles.put(sessionId, admissionProfile);
-            registerAdmissionOwner(publicPlayer, this);
             try {
                 admissionProfile.cleanup = cleanupExecutor.schedule(
                         () -> expire(sessionId, cleanupToken),
@@ -178,45 +174,6 @@ public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
         }
     }
 
-    static BedrockIdentityEnforcer.Decision verifyStagedAdmission(
-            ConnectPlayer player,
-            BedrockIdentityEnforcer enforcer,
-            String endpointId,
-            String endpointOrgId,
-            SessionProtocol protocol) {
-        VerifiedBedrockIdentityRegistry owner;
-        synchronized (ADMISSION_OWNERS) {
-            owner = ADMISSION_OWNERS.remove(player);
-        }
-        return owner == null
-                ? null
-                : owner.verifyOwnedAdmission(player, enforcer, endpointId, endpointOrgId, protocol);
-    }
-
-    private BedrockIdentityEnforcer.Decision verifyOwnedAdmission(
-            ConnectPlayer player,
-            BedrockIdentityEnforcer enforcer,
-            String endpointId,
-            String endpointOrgId,
-            SessionProtocol protocol) {
-        AdmissionSnapshot snapshot = beginAdmission(player);
-        if (snapshot == null) {
-            return enforcer.invalidatedAdmission();
-        }
-        BedrockIdentityEnforcer.Decision decision;
-        try {
-            decision = enforcer.verifyAdmissionSnapshot(
-                    player, snapshot.takeProfile(), endpointId, endpointOrgId, protocol);
-        } catch (RuntimeException | Error e) {
-            abandonAdmission(snapshot.generation);
-            throw e;
-        }
-        if (!completeAdmission(snapshot.generation, decision.verifiedClaims())) {
-            return enforcer.invalidatedAdmission();
-        }
-        return decision;
-    }
-
     private synchronized AdmissionSnapshot beginAdmission(ConnectPlayer player) {
         AdmissionProfile generation = admissionProfiles.get(player.getSessionId());
         if (closed || generation == null || generation.player != player || generation.profile == null) {
@@ -257,25 +214,12 @@ public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
         clearAdmissionProfile(admissionProfiles.remove(sessionId));
     }
 
-    private static void registerAdmissionOwner(
-            ConnectPlayer player,
-            VerifiedBedrockIdentityRegistry owner) {
-        synchronized (ADMISSION_OWNERS) {
-            ADMISSION_OWNERS.put(player, owner);
-        }
-    }
-
     private static void clearAdmissionProfile(AdmissionProfile admissionProfile) {
         if (admissionProfile == null) {
             return;
         }
         admissionProfile.profile = null;
         cancelCleanup(admissionProfile);
-        synchronized (ADMISSION_OWNERS) {
-            if (ADMISSION_OWNERS.get(admissionProfile.player) == admissionProfile.owner) {
-                ADMISSION_OWNERS.remove(admissionProfile.player);
-            }
-        }
     }
 
     private static ScheduledExecutorService newCleanupExecutor() {
@@ -293,18 +237,15 @@ public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
         private GameProfile profile;
         private final Object cleanupToken;
         private final ConnectPlayer player;
-        private final VerifiedBedrockIdentityRegistry owner;
         private ScheduledFuture<?> cleanup;
 
         private AdmissionProfile(
                 GameProfile profile,
                 Object cleanupToken,
-                ConnectPlayer player,
-                VerifiedBedrockIdentityRegistry owner) {
+                ConnectPlayer player) {
             this.profile = profile;
             this.cleanupToken = cleanupToken;
             this.player = player;
-            this.owner = owner;
         }
     }
 

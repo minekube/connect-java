@@ -27,6 +27,12 @@ import org.junit.jupiter.api.Test;
 
 class VerifiedBedrockIdentityRegistryTest {
     @Test
+    void hasNoStaticAdmissionOwnerBridge() {
+        assertThrows(NoSuchFieldException.class,
+                () -> VerifiedBedrockIdentityRegistry.class.getDeclaredField("ADMISSION_OWNERS"));
+    }
+
+    @Test
     void rejectsClaimsForAnotherSession() {
         VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
         ConnectPlayer player = player("session-1");

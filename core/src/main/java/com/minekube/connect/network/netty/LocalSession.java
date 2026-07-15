@@ -125,7 +125,8 @@ public final class LocalSession {
                 sessionProposal,
                 sessionProposal.getEndpointId(),
                 sessionProposal.getEndpointOrgId(),
-                sessionProposal.getProtocol());
+                sessionProposal.getProtocol(),
+                sessionProposal.getAdmissionToken());
 
         // Use platform-specific event loop if available (e.g., BungeeCord's event loops)
         // Otherwise fall back to default event loop group
@@ -225,6 +226,7 @@ public final class LocalSession {
         final @NotNull String endpointId;
         final @NotNull String endpointOrgId;
         final @NotNull SessionProtocol protocol;
+        final com.minekube.connect.bedrock.BedrockAdmissionCoordinator.AdmissionToken admissionToken;
 
         AtomicReference<TunnelConn> tunnelConn = new AtomicReference<>(null);
     }

@@ -29,6 +29,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.Signature;
 import java.time.Instant;
+import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
@@ -55,6 +56,13 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 class BedrockIdentityEnforcerTest {
+    @Test
+    void enforcerDoesNotOwnACompatibilityClaimsRegistry() {
+        assertFalse(java.util.Arrays.stream(BedrockIdentityEnforcer.class.getDeclaredFields())
+                .map(Field::getType)
+                .anyMatch(VerifiedBedrockIdentityRegistry.class::equals));
+    }
+
     private static final Gson GSON = new Gson();
     private static final Instant NOW = Instant.parse("2026-07-05T12:00:00Z");
     private static final String VALID_NONCE = "AAAAAAAAAAAAAAAAAAAAAA";
@@ -85,15 +93,21 @@ class BedrockIdentityEnforcerTest {
                 "minekube-connect-test",
                 Instant.now());
         VerifiedBedrockIdentityRegistry admissionRegistry = new VerifiedBedrockIdentityRegistry();
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(
+                admissionRegistry, new java.util.concurrent.ScheduledThreadPoolExecutor(1));
         try {
-            ConnectPlayer player = admissionRegistry.stage(session(envelope));
+            com.minekube.connect.watch.SessionProposal proposal = coordinator.proposal(
+                    session(envelope), reason -> {}, "endpoint-id", "org-id");
+            ConnectPlayer player = coordinator.stage(proposal);
             LocalSession.Context context = mock(LocalSession.Context.class);
             when(context.getPlayer()).thenReturn(player);
             when(context.getEndpointId()).thenReturn("endpoint-id");
             when(context.getEndpointOrgId()).thenReturn("org-id");
             when(context.getProtocol()).thenReturn(SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+            when(context.getAdmissionToken()).thenReturn(proposal.getAdmissionToken());
             BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
-                    config, mock(ConnectLogger.class), new OkHttpClient());
+                    config, mock(ConnectLogger.class), () -> Instant.now(),
+                    new BedrockIdentityKeyProvider(config, new OkHttpClient()), coordinator);
 
             BedrockIdentityEnforcer.Decision decision = enforcer.verify(context);
 
@@ -101,7 +115,7 @@ class BedrockIdentityEnforcerTest {
             assertNotNull(decision.verifiedClaims());
             assertSame(decision.verifiedClaims(), admissionRegistry.get(player).orElseThrow());
         } finally {
-            admissionRegistry.close();
+            coordinator.close();
         }
     }
 
@@ -111,10 +125,11 @@ class BedrockIdentityEnforcerTest {
         try (SlowAdmission slowAdmission = new SlowAdmission(registry)) {
             Future<BedrockIdentityEnforcer.Decision> verification = slowAdmission.start();
 
-            ConnectPlayer unrelated = slowAdmission.completeWhileBlocked(() -> registry.stage(
-                    session("unrelated-envelope").toBuilder().setId("session-2").build()));
+            ConnectPlayer unrelated = slowAdmission.completeWhileBlocked(() -> slowAdmission.coordinator.stage(
+                    slowAdmission.coordinator.proposal(session("unrelated-envelope").toBuilder()
+                            .setId("session-2").build(), reason -> {}, "", "")));
             slowAdmission.completeWhileBlocked(() -> {
-                registry.remove(unrelated);
+                slowAdmission.coordinator.discard(unrelated);
                 return null;
             });
 
@@ -134,8 +149,8 @@ class BedrockIdentityEnforcerTest {
                     expiry.set(invocation.getArgument(0));
                     return mock(ScheduledFuture.class);
                 });
-        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry(cleanupExecutor);
-        try (SlowAdmission slowAdmission = new SlowAdmission(registry)) {
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        try (SlowAdmission slowAdmission = new SlowAdmission(registry, cleanupExecutor)) {
             Future<BedrockIdentityEnforcer.Decision> verification = slowAdmission.start();
 
             slowAdmission.completeWhileBlocked(() -> {
@@ -156,7 +171,7 @@ class BedrockIdentityEnforcerTest {
             Future<BedrockIdentityEnforcer.Decision> verification = slowAdmission.start();
 
             slowAdmission.completeWhileBlocked(() -> {
-                registry.close();
+                slowAdmission.coordinator.close();
                 return null;
             });
 
@@ -173,12 +188,13 @@ class BedrockIdentityEnforcerTest {
             Future<BedrockIdentityEnforcer.Decision> verification = slowAdmission.start();
 
             ConnectPlayer replacement = slowAdmission.completeWhileBlocked(
-                    () -> registry.stage(session(slowAdmission.envelope)));
+                    () -> slowAdmission.coordinator.stage(slowAdmission.coordinator.proposal(
+                            session(slowAdmission.envelope), reason -> {}, "", "")));
 
             BedrockIdentityEnforcer.Decision decision = slowAdmission.finish(verification);
             assertFalse(decision.allowed());
             assertTrue(registry.get(slowAdmission.player).isEmpty());
-            assertTrue(registry.takeAdmissionProfile(replacement).isPresent());
+            assertFalse(replacement.getGameProfile().toString().contains(VALID_NONCE));
         }
     }
 
@@ -258,46 +274,44 @@ class BedrockIdentityEnforcerTest {
                 "trusted_bedrock_xuid");
         String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", config.getEndpoint());
         VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
-        ConnectPlayer player = registry.stage(session(envelope));
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(
+                registry, new java.util.concurrent.ScheduledThreadPoolExecutor(1));
+        com.minekube.connect.watch.SessionProposal proposal = coordinator.proposal(
+                session(envelope), reason -> {}, "endpoint-id", "org-id");
+        ConnectPlayer player = coordinator.stage(proposal);
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
                 config,
                 mock(ConnectLogger.class),
                 () -> NOW,
-                registry);
+                coordinator);
 
-        BedrockIdentityEnforcer.Decision decision = enforcer.verifyAdmission(
-                player,
-                "endpoint-id",
-                "org-id",
-                SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+        BedrockIdentityEnforcer.Decision decision = coordinator.verify(player, proposal.getAdmissionToken(), enforcer,
+                "endpoint-id", "org-id", SessionProtocol.SESSION_PROTOCOL_BEDROCK);
 
         assertTrue(decision.allowed());
         assertNotNull(decision.verifiedClaims());
         assertTrue(registry.get(player).isPresent());
-        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
         assertFalse(player.getGameProfile().toString().contains(VALID_NONCE));
     }
 
     @Test
     void disabledAdmissionDropsEnvelopeWithoutPublishingClaims() {
         VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
-        ConnectPlayer player = registry.stage(session("invalid-envelope-nonce-a"));
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(registry, new java.util.concurrent.ScheduledThreadPoolExecutor(1));
+        com.minekube.connect.watch.SessionProposal proposal = coordinator.proposal(session("invalid-envelope-nonce-a"), reason -> {}, "", "");
+        ConnectPlayer player = coordinator.stage(proposal);
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
                 config("disabled", "", "trusted_bedrock_xuid"),
                 mock(ConnectLogger.class),
                 () -> NOW,
-                registry);
+                coordinator);
 
-        BedrockIdentityEnforcer.Decision decision = enforcer.verifyAdmission(
-                player,
-                "",
-                "",
-                SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+        BedrockIdentityEnforcer.Decision decision = coordinator.verify(player, proposal.getAdmissionToken(), enforcer,
+                "", "", SessionProtocol.SESSION_PROTOCOL_BEDROCK);
 
         assertTrue(decision.allowed());
         assertEquals(null, decision.verifiedClaims());
         assertTrue(registry.get(player).isEmpty());
-        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
         assertFalse(player.getGameProfile().toString().contains("nonce-a"));
     }
 
@@ -305,23 +319,21 @@ class BedrockIdentityEnforcerTest {
     void warnFailedAdmissionDropsEnvelopeWithoutPublishingClaims() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
         VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
-        ConnectPlayer player = registry.stage(session("invalid-envelope-nonce-a"));
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(registry, new java.util.concurrent.ScheduledThreadPoolExecutor(1));
+        com.minekube.connect.watch.SessionProposal proposal = coordinator.proposal(session("invalid-envelope-nonce-a"), reason -> {}, "", "");
+        ConnectPlayer player = coordinator.stage(proposal);
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
                 config("warn", base64(keyPair.getPublic().getEncoded()), "trusted_bedrock_xuid"),
                 mock(ConnectLogger.class),
                 () -> NOW,
-                registry);
+                coordinator);
 
-        BedrockIdentityEnforcer.Decision decision = enforcer.verifyAdmission(
-                player,
-                "",
-                "",
-                SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+        BedrockIdentityEnforcer.Decision decision = coordinator.verify(player, proposal.getAdmissionToken(), enforcer,
+                "", "", SessionProtocol.SESSION_PROTOCOL_BEDROCK);
 
         assertTrue(decision.allowed());
         assertEquals(null, decision.verifiedClaims());
         assertTrue(registry.get(player).isEmpty());
-        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
         assertFalse(player.getGameProfile().toString().contains("nonce-a"));
     }
 
@@ -329,22 +341,20 @@ class BedrockIdentityEnforcerTest {
     void rejectedAdmissionDropsEnvelopeWithoutPublishingClaims() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
         VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
-        ConnectPlayer player = registry.stage(session("invalid-envelope-nonce-a"));
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(registry, new java.util.concurrent.ScheduledThreadPoolExecutor(1));
+        com.minekube.connect.watch.SessionProposal proposal = coordinator.proposal(session("invalid-envelope-nonce-a"), reason -> {}, "", "");
+        ConnectPlayer player = coordinator.stage(proposal);
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
                 config("require", base64(keyPair.getPublic().getEncoded()), "trusted_bedrock_xuid"),
                 mock(ConnectLogger.class),
                 () -> NOW,
-                registry);
+                coordinator);
 
-        BedrockIdentityEnforcer.Decision decision = enforcer.verifyAdmission(
-                player,
-                "",
-                "",
-                SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+        BedrockIdentityEnforcer.Decision decision = coordinator.verify(player, proposal.getAdmissionToken(), enforcer,
+                "", "", SessionProtocol.SESSION_PROTOCOL_BEDROCK);
 
         assertFalse(decision.allowed());
         assertTrue(registry.get(player).isEmpty());
-        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
         assertFalse(player.getGameProfile().toString().contains("nonce-a"));
     }
 
@@ -453,23 +463,20 @@ class BedrockIdentityEnforcerTest {
 
     @Test
     void requireModeRejectsReservedIdentityOnPassthroughJavaAdmission() {
-        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
-        ConnectPlayer player = registry.stage(session("reserved-envelope-nonce-a", true));
+        ConnectPlayer player = BedrockAdmissionCoordinator.playerFor(
+                session("reserved-envelope-nonce-a", true));
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
                 config("require", base64(new byte[32]), "trusted_bedrock_xuid"),
                 mock(ConnectLogger.class),
-                () -> NOW,
-                registry);
+                () -> NOW);
 
-        BedrockIdentityEnforcer.Decision decision = enforcer.verifyAdmission(
+        BedrockIdentityEnforcer.Decision decision = enforcer.verify(
                 player,
                 "",
                 "",
                 SessionProtocol.SESSION_PROTOCOL_JAVA);
 
         assertFalse(decision.allowed());
-        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
-        assertFalse(player.getGameProfile().toString().contains("nonce-a"));
     }
 
     @Test
@@ -764,6 +771,7 @@ class BedrockIdentityEnforcerTest {
 
     private static final class SlowAdmission implements AutoCloseable {
         private final VerifiedBedrockIdentityRegistry registry;
+        private final BedrockAdmissionCoordinator coordinator;
         private final CountDownLatch fetchStarted = new CountDownLatch(1);
         private final CountDownLatch releaseFetch = new CountDownLatch(1);
         private final ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -773,12 +781,21 @@ class BedrockIdentityEnforcerTest {
         private final LocalSession.Context context;
 
         private SlowAdmission(VerifiedBedrockIdentityRegistry registry) throws Exception {
+            this(registry, new java.util.concurrent.ScheduledThreadPoolExecutor(1));
+        }
+
+        private SlowAdmission(
+                VerifiedBedrockIdentityRegistry registry,
+                ScheduledExecutorService cleanupExecutor) throws Exception {
             this.registry = registry;
             KeyPair keyPair = ed25519KeyPair();
             ConnectConfig config = config("require", "", "trusted_bedrock_xuid");
             setField(config.getBedrockIdentity(), "metadataUrl", "https://metadata.example/keys");
             envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", config.getEndpoint());
-            player = registry.stage(session(envelope));
+            coordinator = new BedrockAdmissionCoordinator(registry, cleanupExecutor);
+            com.minekube.connect.watch.SessionProposal proposal = coordinator.proposal(
+                    session(envelope), reason -> {}, "endpoint-id", "org-id");
+            player = coordinator.stage(proposal);
             OkHttpClient httpClient = new OkHttpClient.Builder()
                     .addInterceptor(chain -> {
                         fetchStarted.countDown();
@@ -807,12 +824,13 @@ class BedrockIdentityEnforcerTest {
                     mock(ConnectLogger.class),
                     () -> NOW,
                     keyProvider,
-                    registry);
+                    coordinator);
             context = mock(LocalSession.Context.class);
             when(context.getPlayer()).thenReturn(player);
             when(context.getEndpointId()).thenReturn("endpoint-id");
             when(context.getEndpointOrgId()).thenReturn("org-id");
             when(context.getProtocol()).thenReturn(SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+            when(context.getAdmissionToken()).thenReturn(proposal.getAdmissionToken());
         }
 
         private Future<BedrockIdentityEnforcer.Decision> start() throws Exception {
@@ -836,7 +854,7 @@ class BedrockIdentityEnforcerTest {
             releaseFetch.countDown();
             executor.shutdownNow();
             executor.awaitTermination(2, TimeUnit.SECONDS);
-            registry.close();
+            coordinator.close();
         }
     }
 }

@@ -28,6 +28,7 @@ package com.minekube.connect.tunnel.p2p;
 import com.google.rpc.Code;
 import com.google.rpc.Status;
 import com.minekube.connect.tunnel.Tunneler;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.watch.SessionProposal;
 import io.libp2p.core.PeerId;
 import io.libp2p.core.Stream;
@@ -54,13 +55,14 @@ final class Libp2pSessionResponder {
     private final LongSupplier clock;
     private final Set<String> allowedEdgePeerIds;
     private final Starter starter;
+    private final BedrockAdmissionCoordinator admissionCoordinator;
 
     Libp2pSessionResponder(Starter starter) {
-        this(null, System::currentTimeMillis, Collections.emptySet(), starter);
+        this(null, System::currentTimeMillis, Collections.emptySet(), starter, null);
     }
 
     Libp2pSessionResponder(String expectedEndpoint, LongSupplier clock, Starter starter) {
-        this(expectedEndpoint, clock, Collections.emptySet(), starter);
+        this(expectedEndpoint, clock, Collections.emptySet(), starter, null);
     }
 
     Libp2pSessionResponder(
@@ -68,11 +70,21 @@ final class Libp2pSessionResponder {
             LongSupplier clock,
             Collection<String> allowedEdgePeerIds,
             Starter starter) {
+        this(expectedEndpoint, clock, allowedEdgePeerIds, starter, null);
+    }
+
+    Libp2pSessionResponder(
+            String expectedEndpoint,
+            LongSupplier clock,
+            Collection<String> allowedEdgePeerIds,
+            Starter starter,
+            BedrockAdmissionCoordinator admissionCoordinator) {
         this.expectedEndpoint = expectedEndpoint;
         this.clock = Objects.requireNonNull(clock, "clock");
         this.allowedEdgePeerIds = Collections.unmodifiableSet(new HashSet<>(
                 Objects.requireNonNull(allowedEdgePeerIds, "allowedEdgePeerIds")));
         this.starter = Objects.requireNonNull(starter, "starter");
+        this.admissionCoordinator = admissionCoordinator;
     }
 
     void install(Stream stream) {
@@ -98,17 +110,17 @@ final class Libp2pSessionResponder {
         String sessionId = offer.getSessionId();
         String endpointId = offer.getEndpointId();
         String endpointOrgId = offer.getEndpointOrgId();
-        SessionProposal proposal = new SessionProposal(
-                Libp2pSessionMapper.toWatchSession(offer),
-                reason -> {
+        java.util.function.Consumer<Status> rejectProposal = reason -> {
                     writeResponse(stream, SessionResponse.newBuilder()
                             .setSessionId(sessionId)
                             .setRejected(SessionRejected.newBuilder().setReason(reason))
                             .build());
                     stream.close();
-                },
-                endpointId,
-                endpointOrgId);
+                };
+        minekube.connect.v1alpha1.WatchServiceOuterClass.Session raw = Libp2pSessionMapper.toWatchSession(offer);
+        SessionProposal proposal = admissionCoordinator == null
+                ? new SessionProposal(raw, rejectProposal, endpointId, endpointOrgId)
+                : admissionCoordinator.proposal(raw, rejectProposal, endpointId, endpointOrgId);
         Tunneler tunneler = new Tunneler(new SameStreamTunnelTransport(stream, acceptedSessionId ->
                 writeResponse(stream, SessionResponse.newBuilder()
                         .setSessionId(acceptedSessionId)
