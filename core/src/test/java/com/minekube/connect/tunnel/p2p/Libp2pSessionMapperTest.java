@@ -27,6 +27,16 @@ class Libp2pSessionMapperTest {
     }
 
     @Test
+    void preservesUnknownProtocolMarkerValueFromLibp2pOffer() {
+        SessionOffer offer = SessionOffer.newBuilder().setProtocolValue(99).build();
+
+        Session session = Libp2pSessionMapper.toWatchSession(offer);
+
+        assertEquals(99, session.getProtocolValue());
+        assertEquals(SessionProtocol.UNRECOGNIZED, session.getProtocol());
+    }
+
+    @Test
     void mapsLibp2pOfferToExistingWatchSessionShape() {
         SessionOffer offer = SessionOffer.newBuilder()
                 .setSessionId("session-1")

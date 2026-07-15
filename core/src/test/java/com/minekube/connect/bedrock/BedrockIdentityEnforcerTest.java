@@ -168,6 +168,46 @@ class BedrockIdentityEnforcerTest {
     }
 
     @Test
+    void requireModeAllowsValidLegacyUnspecifiedEnvelope() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        ConnectConfig config = config(
+                "require",
+                base64(keyPair.getPublic().getEncoded()),
+                "trusted_bedrock_xuid");
+        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", config.getEndpoint());
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(config, mock(ConnectLogger.class), () -> NOW);
+
+        BedrockIdentityEnforcer.Decision decision = enforcer.verify(
+                player("session-1", profileWithEnvelope(envelope)),
+                "",
+                "",
+                SessionProtocol.SESSION_PROTOCOL_UNSPECIFIED);
+
+        assertTrue(decision.allowed());
+        assertNotNull(decision.verifiedClaims());
+    }
+
+    @Test
+    void warnModeNeverPublishesClaimsForUnrecognizedProtocol() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        ConnectConfig config = config(
+                "warn",
+                base64(keyPair.getPublic().getEncoded()),
+                "trusted_bedrock_xuid");
+        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", config.getEndpoint());
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(config, mock(ConnectLogger.class), () -> NOW);
+
+        BedrockIdentityEnforcer.Decision decision = enforcer.verify(
+                player("session-1", profileWithEnvelope(envelope)),
+                "",
+                "",
+                SessionProtocol.UNRECOGNIZED);
+
+        assertTrue(decision.allowed());
+        assertEquals(null, decision.verifiedClaims());
+    }
+
+    @Test
     void warnModeLogsAndAllowsMissingIdentity() {
         ConnectLogger logger = mock(ConnectLogger.class);
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
@@ -235,14 +275,14 @@ class BedrockIdentityEnforcerTest {
     private static GameProfile profileWithoutEnvelope() {
         return new GameProfile(
                 "BedrockSteve",
-                UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                UUID.fromString("f912bf90-8349-565f-9dc0-9891923c0cc3"),
                 Collections.singletonList(new GameProfile.Property("textures", "skin", "")));
     }
 
     private static GameProfile profileWithEnvelope(String envelope) {
         return new GameProfile(
                 "BedrockSteve",
-                UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                UUID.fromString("f912bf90-8349-565f-9dc0-9891923c0cc3"),
                 Arrays.asList(
                         new GameProfile.Property("textures", "skin", ""),
                         new GameProfile.Property(BedrockIdentityVerifier.PROPERTY_NAME, envelope, "")));

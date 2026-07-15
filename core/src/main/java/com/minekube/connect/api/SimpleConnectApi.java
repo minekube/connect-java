@@ -32,14 +32,13 @@ import com.google.common.collect.Maps;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
+import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
 import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-import lombok.RequiredArgsConstructor;
 
-@RequiredArgsConstructor
 public class SimpleConnectApi implements ConnectApi {
     private final Map<UUID, ConnectPlayer> players = Maps.newConcurrentMap();
     private final Cache<UUID, ConnectPlayer> pendingRemove =
@@ -48,7 +47,18 @@ public class SimpleConnectApi implements ConnectApi {
                     .build();
 
     private final ConnectLogger logger;
-    private final Map<String, BedrockIdentityClaims> verifiedBedrockIdentities = Maps.newConcurrentMap();
+    private final VerifiedBedrockIdentityRegistry verifiedBedrockIdentities;
+
+    public SimpleConnectApi(ConnectLogger logger) {
+        this(logger, new VerifiedBedrockIdentityRegistry());
+    }
+
+    public SimpleConnectApi(
+            ConnectLogger logger,
+            VerifiedBedrockIdentityRegistry verifiedBedrockIdentities) {
+        this.logger = logger;
+        this.verifiedBedrockIdentities = verifiedBedrockIdentities;
+    }
 
     @Override
     public Collection<ConnectPlayer> getPlayers() {
@@ -85,14 +95,7 @@ public class SimpleConnectApi implements ConnectApi {
         if (player == null || !players.containsValue(player)) {
             return Optional.empty();
         }
-        return Optional.ofNullable(verifiedBedrockIdentities.get(player.getSessionId()));
-    }
-
-    /** Internal admission hook; raw envelopes never enter the registry. */
-    public void recordVerifiedBedrockIdentity(ConnectPlayer player, BedrockIdentityClaims claims) {
-        if (player != null && claims != null) {
-            verifiedBedrockIdentities.put(player.getSessionId(), claims);
-        }
+        return verifiedBedrockIdentities.get(player);
     }
 
     /**
@@ -100,7 +103,7 @@ public class SimpleConnectApi implements ConnectApi {
      * dependant event hasn't fired yet
      */
     public boolean setPendingRemove(ConnectPlayer player) {
-        verifiedBedrockIdentities.remove(player.getSessionId());
+        verifiedBedrockIdentities.remove(player);
         pendingRemove.put(player.getUniqueId(), player);
         return players.remove(player.getUniqueId(), player);
     }
@@ -109,7 +112,7 @@ public class SimpleConnectApi implements ConnectApi {
         pendingRemove.invalidate(uuid);
         ConnectPlayer player = players.remove(uuid);
         if (player != null) {
-            verifiedBedrockIdentities.remove(player.getSessionId());
+            verifiedBedrockIdentities.remove(player);
         }
     }
 

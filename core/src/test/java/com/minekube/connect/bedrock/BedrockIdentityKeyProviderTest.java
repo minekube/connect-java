@@ -6,8 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.minekube.connect.config.ConnectConfig;
 import java.lang.reflect.Field;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import okhttp3.OkHttpClient;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -81,6 +83,29 @@ class BedrockIdentityKeyProviderTest {
         }
     }
 
+    @Test
+    void usesBoundedStaleKeysWhenMetadataScopeRefreshIsInvalid() throws Exception {
+        byte[] current = filledKey((byte) 6);
+        AtomicReference<Instant> now = new AtomicReference<>(Instant.parse("2026-07-15T12:00:00Z"));
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setBody(metadata("minekube-connect", current, 1)));
+            server.enqueue(new MockResponse().setBody(metadata("unexpected", current, 1)));
+            server.enqueue(new MockResponse().setBody(metadata("unexpected", current, 1)));
+            ConnectConfig config = config(server.url("/keys.json").toString());
+            setField(config.getBedrockIdentity(), "metadataMaxStaleSeconds", 10);
+            BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(
+                    config,
+                    new OkHttpClient(),
+                    now::get);
+
+            assertKeys(provider.keys(), current);
+            now.set(now.get().plusSeconds(2));
+            assertKeys(provider.keys(), current);
+            now.set(now.get().plusSeconds(10));
+            assertTrue(provider.keys().isEmpty());
+        }
+    }
+
     private static ConnectConfig config(String metadataUrl) {
         ConnectConfig config = new ConnectConfig();
         setField(config.getBedrockIdentity(), "metadataUrl", metadataUrl);
@@ -91,6 +116,15 @@ class BedrockIdentityKeyProviderTest {
         byte[] key = new byte[32];
         java.util.Arrays.fill(key, value);
         return key;
+    }
+
+    private static String metadata(String issuer, byte[] current, int cacheSeconds) {
+        return "{"
+                + "\"issuer\":\"" + issuer + "\","
+                + "\"algorithm\":\"Ed25519\","
+                + "\"current_public_key\":\"" + Base64.getEncoder().encodeToString(current) + "\","
+                + "\"cache_max_age_seconds\":" + cacheSeconds
+                + "}";
     }
 
     private static void assertKeys(List<byte[]> actual, byte[]... expected) {

@@ -32,18 +32,21 @@ public final class BedrockIdentityEnforcer {
     private final ConnectLogger logger;
     private final Supplier<Instant> now;
     private final BedrockIdentityKeyProvider keyProvider;
+    private final VerifiedBedrockIdentityRegistry identityRegistry;
     private final BedrockIdentityReplayCache replayCache = new BedrockIdentityReplayCache();
 
     @Inject
     public BedrockIdentityEnforcer(
             ConnectConfig config,
             ConnectLogger logger,
-            @Named("defaultHttpClient") OkHttpClient httpClient) {
-        this(config, logger, Instant::now, new BedrockIdentityKeyProvider(config, httpClient));
+            @Named("defaultHttpClient") OkHttpClient httpClient,
+            VerifiedBedrockIdentityRegistry identityRegistry) {
+        this(config, logger, Instant::now, new BedrockIdentityKeyProvider(config, httpClient), identityRegistry);
     }
 
     BedrockIdentityEnforcer(ConnectConfig config, ConnectLogger logger, Supplier<Instant> now) {
-        this(config, logger, now, new BedrockIdentityKeyProvider(config, new OkHttpClient(), now));
+        this(config, logger, now, new BedrockIdentityKeyProvider(config, new OkHttpClient(), now),
+                new VerifiedBedrockIdentityRegistry());
     }
 
     BedrockIdentityEnforcer(
@@ -51,15 +54,31 @@ public final class BedrockIdentityEnforcer {
             ConnectLogger logger,
             Supplier<Instant> now,
             BedrockIdentityKeyProvider keyProvider) {
+        this(config, logger, now, keyProvider, new VerifiedBedrockIdentityRegistry());
+    }
+
+    BedrockIdentityEnforcer(
+            ConnectConfig config,
+            ConnectLogger logger,
+            Supplier<Instant> now,
+            BedrockIdentityKeyProvider keyProvider,
+            VerifiedBedrockIdentityRegistry identityRegistry) {
         this.config = Objects.requireNonNull(config, "config");
         this.logger = Objects.requireNonNull(logger, "logger");
         this.now = Objects.requireNonNull(now, "now");
         this.keyProvider = Objects.requireNonNull(keyProvider, "keyProvider");
+        this.identityRegistry = Objects.requireNonNull(identityRegistry, "identityRegistry");
     }
 
     public Decision verify(LocalSession.Context context) {
         Objects.requireNonNull(context, "context");
-        return verify(context.getPlayer(), context.getEndpointId(), context.getEndpointOrgId(), context.getProtocol());
+        ConnectPlayer player = context.getPlayer();
+        identityRegistry.remove(player);
+        Decision decision = verify(player, context.getEndpointId(), context.getEndpointOrgId(), context.getProtocol());
+        if (decision.verifiedClaims() != null) {
+            identityRegistry.record(player, decision.verifiedClaims());
+        }
+        return decision;
     }
 
     public void reject(LocalSession.Context context, Decision decision) {
@@ -99,9 +118,14 @@ public final class BedrockIdentityEnforcer {
             }
             return rejectOrWarn(player, mode, "reserved identity property on Java session");
         }
-        if (protocol != SessionProtocol.SESSION_PROTOCOL_BEDROCK && !hasEnvelope) {
-            // Old senders did not authenticate a player edition. Preserve legacy joins,
-            // but do not infer Java or create a trusted unlinked Bedrock identity.
+        if (protocol != SessionProtocol.SESSION_PROTOCOL_BEDROCK &&
+                protocol != SessionProtocol.SESSION_PROTOCOL_UNSPECIFIED) {
+            if (!hasEnvelope) {
+                return Decision.allowed(null);
+            }
+            return rejectOrWarn(player, mode, "reserved identity property on unknown session protocol");
+        }
+        if (protocol == SessionProtocol.SESSION_PROTOCOL_UNSPECIFIED && !hasEnvelope) {
             return Decision.allowed(null);
         }
 

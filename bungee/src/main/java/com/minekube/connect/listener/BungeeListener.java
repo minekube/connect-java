@@ -88,9 +88,6 @@ public final class BungeeListener implements Listener {
                 event.setCancelled(true);
                 return;
             }
-            if (decision.verifiedClaims() != null) {
-                api.recordVerifiedBedrockIdentity(ctx.getPlayer(), decision.verifiedClaims());
-            }
             connection.setOnlineMode(false);
             connection.setUniqueId(ctx.getPlayer().getUniqueId());
             ReflectionUtils.setValue(connection, PLAYER_NAME, ctx.getPlayer().getUsername());

@@ -76,7 +76,7 @@ final class BedrockIdentityKeyProvider {
             VerifierMetadata metadata = GSON.fromJson(body.charStream(), VerifierMetadata.class);
             if (metadata == null || !"Ed25519".equals(metadata.algorithm) ||
                     !config.getBedrockIdentity().getExpectedIssuer().equals(metadata.issuer)) {
-                return RemoteKeys.empty();
+                throw new IllegalArgumentException("metadata scope is invalid");
             }
             List<byte[]> keys = new ArrayList<>();
             addMetadataKey(keys, metadata.current_public_key);
@@ -150,10 +150,6 @@ final class BedrockIdentityKeyProvider {
         private RemoteKeys(List<byte[]> keys, int cacheSeconds) {
             this.keys = keys;
             this.cacheSeconds = cacheSeconds;
-        }
-
-        private static RemoteKeys empty() {
-            return new RemoteKeys(Collections.emptyList(), 0);
         }
     }
 

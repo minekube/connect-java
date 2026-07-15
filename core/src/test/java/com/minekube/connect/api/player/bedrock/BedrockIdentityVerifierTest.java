@@ -164,6 +164,53 @@ class BedrockIdentityVerifierTest {
         assertTrue(error.getMessage().contains(BedrockIdentityVerifier.PROPERTY_NAME));
     }
 
+    @Test
+    void rejectsBedrockProfileUuidMismatch() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id");
+        GameProfile profile = profileWithEnvelope(
+                "BedrockSteve",
+                UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                envelope);
+
+        BedrockIdentityVerificationException error = assertThrows(
+                BedrockIdentityVerificationException.class,
+                () -> verifier(keyPair, "session-1").verify(profile));
+
+        assertTrue(error.getMessage().contains("profile"));
+    }
+
+    @Test
+    void rejectsBedrockProfileNameMismatch() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id");
+        GameProfile profile = profileWithEnvelope(
+                "SpoofedSteve",
+                UUID.fromString("f912bf90-8349-565f-9dc0-9891923c0cc3"),
+                envelope);
+
+        BedrockIdentityVerificationException error = assertThrows(
+                BedrockIdentityVerificationException.class,
+                () -> verifier(keyPair, "session-1").verify(profile));
+
+        assertTrue(error.getMessage().contains("profile"));
+    }
+
+    @Test
+    void verifiesLinkedJavaProfileBinding() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        String envelope = signedLinkedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id");
+        GameProfile profile = profileWithEnvelope(
+                "JavaSteve",
+                UUID.fromString("b5f7f978-5f58-4a21-b105-737f16c90785"),
+                envelope);
+
+        BedrockIdentityClaims claims = verifier(keyPair, "session-1").verify(profile);
+
+        assertEquals("b5f7f978-5f58-4a21-b105-737f16c90785", claims.getLinkedJavaUuid());
+        assertEquals("JavaSteve", claims.getLinkedJavaName());
+    }
+
     private static BedrockIdentityVerifier verifier(KeyPair keyPair, String sessionId) {
         return BedrockIdentityVerifier.builder()
                 .publicKey(keyPair.getPublic().getEncoded())
@@ -177,9 +224,16 @@ class BedrockIdentityVerifierTest {
     }
 
     private static GameProfile profileWithEnvelope(String envelope) {
-        return new GameProfile(
+        return profileWithEnvelope(
                 "BedrockSteve",
-                UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                UUID.fromString("f912bf90-8349-565f-9dc0-9891923c0cc3"),
+                envelope);
+    }
+
+    private static GameProfile profileWithEnvelope(String username, UUID uniqueId, String envelope) {
+        return new GameProfile(
+                username,
+                uniqueId,
                 Arrays.asList(
                         new GameProfile.Property("textures", "skin", ""),
                         new GameProfile.Property(BedrockIdentityVerifier.PROPERTY_NAME, envelope, "")));
@@ -209,6 +263,31 @@ class BedrockIdentityVerifierTest {
             String endpointId,
             String endpointName,
             String orgId) throws Exception {
+        Envelope envelope = envelope(nonce, sessionId, endpointId, endpointName, orgId);
+        return sign(keyPair, envelope);
+    }
+
+    private static String signedLinkedEnvelope(
+            KeyPair keyPair,
+            String nonce,
+            String sessionId,
+            String endpointId,
+            String endpointName,
+            String orgId) throws Exception {
+        Envelope envelope = envelope(nonce, sessionId, endpointId, endpointName, orgId);
+        envelope.policy.bedrock_auth_mode = "linked_java_only";
+        envelope.principal.type = "bedrock_linked_java";
+        envelope.principal.linked_java_uuid = "b5f7f978-5f58-4a21-b105-737f16c90785";
+        envelope.principal.linked_java_name = "JavaSteve";
+        return sign(keyPair, envelope);
+    }
+
+    private static Envelope envelope(
+            String nonce,
+            String sessionId,
+            String endpointId,
+            String endpointName,
+            String orgId) {
         Envelope envelope = new Envelope();
         envelope.version = 1;
         envelope.issuer = "minekube-connect-test";
@@ -230,6 +309,10 @@ class BedrockIdentityVerifierTest {
         envelope.principal.bedrock_username = "BedrockSteve";
         envelope.principal.bedrock_derived_uuid = "f912bf90-8349-565f-9dc0-9891923c0cc3";
 
+        return envelope;
+    }
+
+    private static String sign(KeyPair keyPair, Envelope envelope) throws Exception {
         Signature signer = Signature.getInstance("Ed25519");
         signer.initSign(keyPair.getPrivate());
         signer.update(GSON.toJson(envelope).getBytes(StandardCharsets.UTF_8));
@@ -270,5 +353,7 @@ class BedrockIdentityVerifierTest {
         String bedrock_xuid;
         String bedrock_username;
         String bedrock_derived_uuid;
+        String linked_java_uuid;
+        String linked_java_name;
     }
 }

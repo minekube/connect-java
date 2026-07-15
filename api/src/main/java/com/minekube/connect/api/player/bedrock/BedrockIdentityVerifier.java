@@ -72,16 +72,24 @@ public final class BedrockIdentityVerifier {
             }
         }
         if (signedEnvelope != null) {
-            return verify(signedEnvelope);
+            return verify(signedEnvelope, profile);
         }
         throw new BedrockIdentityVerificationException("missing " + PROPERTY_NAME + " profile property");
     }
 
     public BedrockIdentityClaims verify(String signedEnvelope) throws BedrockIdentityVerificationException {
+        return verify(signedEnvelope, null);
+    }
+
+    private BedrockIdentityClaims verify(String signedEnvelope, GameProfile profile)
+            throws BedrockIdentityVerificationException {
         Envelope envelope = decode(signedEnvelope);
         verifySignature(envelope);
         validate(envelope);
         validateScope(envelope);
+        if (profile != null) {
+            validateProfile(envelope, profile);
+        }
 
         long nowUnixMs = now.get().toEpochMilli();
         if (nowUnixMs >= envelope.session.expires_at_unix_ms) {
@@ -116,6 +124,23 @@ public final class BedrockIdentityVerifier {
                 Instant.ofEpochMilli(envelope.session.issued_at_unix_ms),
                 Instant.ofEpochMilli(envelope.session.expires_at_unix_ms),
                 envelope.session.nonce);
+    }
+
+    private static void validateProfile(Envelope envelope, GameProfile profile)
+            throws BedrockIdentityVerificationException {
+        String expectedUuid;
+        String expectedName;
+        if (PRINCIPAL_BEDROCK_LINKED_JAVA.equals(envelope.principal.type)) {
+            expectedUuid = envelope.principal.linked_java_uuid;
+            expectedName = envelope.principal.linked_java_name;
+        } else {
+            expectedUuid = envelope.principal.bedrock_derived_uuid;
+            expectedName = envelope.principal.bedrock_username;
+        }
+        if (!UUID.fromString(expectedUuid).equals(profile.getUniqueId()) ||
+                !expectedName.equals(profile.getUsername())) {
+            throw new BedrockIdentityVerificationException("identity envelope profile mismatch");
+        }
     }
 
     private static Envelope decode(String signedEnvelope) throws BedrockIdentityVerificationException {

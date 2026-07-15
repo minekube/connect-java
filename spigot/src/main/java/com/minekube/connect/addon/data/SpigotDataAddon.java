@@ -57,8 +57,7 @@ public final class SpigotDataAddon implements InjectorAddon {
                             packetHandlerName,
                             config,
                             logger,
-                            bedrockIdentityEnforcer,
-                            api)
+                            bedrockIdentityEnforcer)
             );
             if (channel.pipeline().get(SpigotChatSessionPacketFilter.HANDLER_NAME) == null) {
                 channel.pipeline().addBefore(
