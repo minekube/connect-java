@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/minekube/connect-java/compare/0.11.0...0.12.0) (2026-07-15)
+
+
+### Features
+
+* **core:** support trusted Bedrock identity sessions ([#57](https://github.com/minekube/connect-java/issues/57)) ([dd34043](https://github.com/minekube/connect-java/commit/dd3404390b52f28be74386a1933906b219981951))
+
 ## [0.11.0](https://github.com/minekube/connect-java/compare/0.10.0...0.11.0) (2026-07-12)
 
 
