@@ -1,5 +1,6 @@
 package com.minekube.connect.network.netty;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -25,7 +26,6 @@ import java.net.InetSocketAddress;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Authentication;
@@ -95,8 +95,10 @@ class LocalSessionBedrockIdentityTest {
         SessionProposal firstProposal = coordinator.proposal(firstSession, reason -> {}, "", "");
         SessionProposal secondProposal = coordinator.proposal(secondSession, reason -> {}, "", "");
         ConnectPlayer firstPlayer = coordinator.stage(firstProposal);
-        TrackingApi api = new TrackingApi(registry, "session-2");
+        SimpleConnectApi api = new SimpleConnectApi(mock(ConnectLogger.class), registry);
         api.addPlayer(firstPlayer);
+        Field admissions = BedrockAdmissionCoordinator.class.getDeclaredField("admissions");
+        admissions.setAccessible(true);
         DefaultEventLoopGroup eventLoopGroup = new DefaultEventLoopGroup(1);
         AtomicReference<Channel> acceptedChannel = new AtomicReference<>();
         LocalAddress target = new LocalAddress("connect-replacement-" + UUID.randomUUID());
@@ -123,13 +125,13 @@ class LocalSessionBedrockIdentityTest {
                     secondProposal,
                     coordinator).connect();
 
-            assertTrue(api.awaitReplacement());
-
-            Field admissions = BedrockAdmissionCoordinator.class.getDeclaredField("admissions");
-            admissions.setAccessible(true);
-            Map<?, ?> pending = (Map<?, ?>) admissions.get(coordinator);
-            assertFalse(pending.containsKey(firstProposal.getAdmissionToken()));
-            assertTrue(pending.containsKey(secondProposal.getAdmissionToken()));
+            await().atMost(2, TimeUnit.SECONDS).untilAsserted(() -> {
+                synchronized (coordinator) {
+                    Map<?, ?> pending = (Map<?, ?>) admissions.get(coordinator);
+                    assertFalse(pending.containsKey(firstProposal.getAdmissionToken()));
+                    assertTrue(pending.containsKey(secondProposal.getAdmissionToken()));
+                }
+            });
         } finally {
             Channel child = acceptedChannel.get();
             if (child != null) {
@@ -157,30 +159,5 @@ class LocalSessionBedrockIdentityTest {
                                         .setName("minekube:bedrock_identity")
                                         .setValue("signed-envelope"))))
                 .build();
-    }
-
-    private static final class TrackingApi extends SimpleConnectApi {
-        private final String replacementSessionId;
-        private final CountDownLatch replacementAdded = new CountDownLatch(1);
-
-        private TrackingApi(
-                VerifiedBedrockIdentityRegistry registry,
-                String replacementSessionId) {
-            super(mock(ConnectLogger.class), registry);
-            this.replacementSessionId = replacementSessionId;
-        }
-
-        @Override
-        public ConnectPlayer addPlayer(ConnectPlayer player) {
-            ConnectPlayer previous = super.addPlayer(player);
-            if (replacementSessionId.equals(player.getSessionId())) {
-                replacementAdded.countDown();
-            }
-            return previous;
-        }
-
-        private boolean awaitReplacement() throws InterruptedException {
-            return replacementAdded.await(2, TimeUnit.SECONDS);
-        }
     }
 }
