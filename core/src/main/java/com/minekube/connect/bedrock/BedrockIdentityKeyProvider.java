@@ -67,14 +67,15 @@ public final class BedrockIdentityKeyProvider {
                 if (cacheSeconds <= 0) {
                     cacheSeconds = 300;
                 }
-                Instant fetchedAt = current;
+                Instant fetchedAt = now.get();
                 cachedKeys = new CachedKeys(remoteKeys.keys, fetchedAt.plusSeconds(cacheSeconds),
                         fetchedAt.plusSeconds(cacheSeconds + metadataMaxStaleSeconds()));
                 return remoteKeys.keys;
             }
         } catch (IOException | JsonSyntaxException | IllegalArgumentException ignored) {
-            nextRefreshAt = failureBackoffUntil(current);
-            return staleKeys(current);
+            Instant failedAt = now.get();
+            nextRefreshAt = failureBackoffUntil(failedAt);
+            return staleKeys(failedAt);
         }
         return Collections.emptyList();
     }

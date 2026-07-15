@@ -13,36 +13,33 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import javax.inject.Singleton;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
 
 @Singleton
-public final class VerifiedBedrockIdentityRegistry {
+public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
     private static final long ADMISSION_PROFILE_TTL_SECONDS = 30;
-    private static final ScheduledExecutorService CLEANUP_EXECUTOR =
-            Executors.newSingleThreadScheduledExecutor(runnable -> {
-                Thread thread = new Thread(runnable, "connect-bedrock-admission-cleanup");
-                thread.setDaemon(true);
-                return thread;
-            });
 
     private final Map<String, BedrockIdentityClaims> identities = new ConcurrentHashMap<>();
     private final Map<String, AdmissionProfile> admissionProfiles = new ConcurrentHashMap<>();
     private final ScheduledExecutorService cleanupExecutor;
+    private boolean closed;
 
     public VerifiedBedrockIdentityRegistry() {
-        this(CLEANUP_EXECUTOR);
+        this(newCleanupExecutor());
     }
 
     VerifiedBedrockIdentityRegistry(ScheduledExecutorService cleanupExecutor) {
         this.cleanupExecutor = Objects.requireNonNull(cleanupExecutor, "cleanupExecutor");
     }
 
-    public ConnectPlayer stage(Session session) {
+    public synchronized ConnectPlayer stage(Session session) {
+        ensureOpen();
         Objects.requireNonNull(session, "session");
         Player player = session.getPlayer();
         GameProfile rawProfile = new GameProfile(
@@ -62,18 +59,14 @@ public final class VerifiedBedrockIdentityRegistry {
         ConnectPlayer publicPlayer = publicPlayer(rawPlayer);
         String sessionId = rawPlayer.getSessionId();
         identities.remove(sessionId);
-        admissionProfiles.remove(sessionId);
+        cancelCleanup(admissionProfiles.remove(sessionId));
         if (hasPrivateIdentity(rawProfile)) {
             Object cleanupToken = new Object();
             AdmissionProfile admissionProfile = new AdmissionProfile(copy(rawProfile), cleanupToken);
             admissionProfiles.put(sessionId, admissionProfile);
             try {
-                cleanupExecutor.schedule(
-                        () -> {
-                            admissionProfiles.computeIfPresent(
-                                    sessionId,
-                                    (ignored, current) -> current.cleanupToken == cleanupToken ? null : current);
-                        },
+                admissionProfile.cleanup = cleanupExecutor.schedule(
+                        () -> expire(sessionId, cleanupToken),
                         ADMISSION_PROFILE_TTL_SECONDS,
                         TimeUnit.SECONDS);
             } catch (RuntimeException e) {
@@ -97,20 +90,22 @@ public final class VerifiedBedrockIdentityRegistry {
                 player.getLanguageTag());
     }
 
-    Optional<GameProfile> takeAdmissionProfile(ConnectPlayer player) {
+    synchronized Optional<GameProfile> takeAdmissionProfile(ConnectPlayer player) {
         Objects.requireNonNull(player, "player");
         AdmissionProfile admissionProfile = admissionProfiles.remove(player.getSessionId());
+        cancelCleanup(admissionProfile);
         return admissionProfile == null
                 ? Optional.empty()
                 : Optional.of(admissionProfile.profile);
     }
 
-    void clearClaims(ConnectPlayer player) {
+    synchronized void clearClaims(ConnectPlayer player) {
         Objects.requireNonNull(player, "player");
         identities.remove(player.getSessionId());
     }
 
-    void record(ConnectPlayer player, BedrockIdentityClaims claims) {
+    synchronized void record(ConnectPlayer player, BedrockIdentityClaims claims) {
+        ensureOpen();
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(claims, "claims");
         if (!player.getSessionId().equals(claims.getSessionId())) {
@@ -124,10 +119,22 @@ public final class VerifiedBedrockIdentityRegistry {
         return Optional.ofNullable(identities.get(player.getSessionId()));
     }
 
-    public void remove(ConnectPlayer player) {
+    public synchronized void remove(ConnectPlayer player) {
         Objects.requireNonNull(player, "player");
         identities.remove(player.getSessionId());
-        admissionProfiles.remove(player.getSessionId());
+        cancelCleanup(admissionProfiles.remove(player.getSessionId()));
+    }
+
+    @Override
+    public synchronized void close() {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        admissionProfiles.values().forEach(VerifiedBedrockIdentityRegistry::cancelCleanup);
+        admissionProfiles.clear();
+        identities.clear();
+        cleanupExecutor.shutdownNow();
     }
 
     private static GameProfile copy(GameProfile profile) {
@@ -144,9 +151,39 @@ public final class VerifiedBedrockIdentityRegistry {
                                 BedrockIdentityProfiles.SCOPE_PROPERTY_NAME.equals(property.getName()));
     }
 
+    private synchronized void expire(String sessionId, Object cleanupToken) {
+        admissionProfiles.computeIfPresent(
+                sessionId,
+                (ignored, current) -> current.cleanupToken == cleanupToken ? null : current);
+    }
+
+    private void ensureOpen() {
+        if (closed) {
+            throw new IllegalStateException("Bedrock identity registry is closed");
+        }
+    }
+
+    private static void cancelCleanup(AdmissionProfile admissionProfile) {
+        if (admissionProfile != null && admissionProfile.cleanup != null) {
+            admissionProfile.cleanup.cancel(false);
+        }
+    }
+
+    private static ScheduledExecutorService newCleanupExecutor() {
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, runnable -> {
+            Thread thread = new Thread(runnable, "connect-bedrock-admission-cleanup");
+            thread.setDaemon(true);
+            return thread;
+        });
+        executor.setRemoveOnCancelPolicy(true);
+        executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        return executor;
+    }
+
     private static final class AdmissionProfile {
         private final GameProfile profile;
         private final Object cleanupToken;
+        private ScheduledFuture<?> cleanup;
 
         private AdmissionProfile(GameProfile profile, Object cleanupToken) {
             this.profile = profile;

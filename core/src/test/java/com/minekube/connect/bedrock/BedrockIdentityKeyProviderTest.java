@@ -199,6 +199,38 @@ class BedrockIdentityKeyProviderTest {
         }
     }
 
+    @Test
+    void usesPostFailureTimeForStaleEligibilityAndRetryBackoff() throws Exception {
+        Instant fetchedAt = Instant.parse("2026-07-15T12:00:00Z");
+        AtomicReference<Instant> beforeRequest = new AtomicReference<>(fetchedAt);
+        AtomicReference<Instant> afterSecondRequest = new AtomicReference<>(fetchedAt.plusSeconds(15));
+        byte[] current = filledKey((byte) 11);
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setBody(metadata("minekube-connect", current, 1)));
+            server.enqueue(new MockResponse().setResponseCode(503));
+            server.enqueue(new MockResponse().setResponseCode(503));
+            ConnectConfig config = config(server.url("/keys.json").toString());
+            setField(config.getBedrockIdentity(), "metadataMaxStaleSeconds", 10);
+            BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(
+                    config,
+                    new OkHttpClient(),
+                    () -> server.getRequestCount() >= 2
+                            ? afterSecondRequest.get()
+                            : beforeRequest.get());
+
+            assertKeys(provider.keys(), current);
+            beforeRequest.set(fetchedAt.plusSeconds(10));
+
+            assertTrue(provider.keys().isEmpty());
+            assertTrue(provider.keys().isEmpty());
+            assertEquals(2, server.getRequestCount());
+
+            afterSecondRequest.set(fetchedAt.plusSeconds(20));
+            assertTrue(provider.keys().isEmpty());
+            assertEquals(3, server.getRequestCount());
+        }
+    }
+
     private static ConnectConfig config(String metadataUrl) {
         ConnectConfig config = new ConnectConfig();
         setField(config.getBedrockIdentity(), "metadataUrl", metadataUrl);

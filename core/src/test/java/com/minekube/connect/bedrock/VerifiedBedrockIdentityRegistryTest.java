@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Authentication;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfileProperty;
@@ -104,6 +105,51 @@ class VerifiedBedrockIdentityRegistryTest {
         assertTrue(registry.takeAdmissionProfile(replacement).isPresent());
         cleanups.getAllValues().get(2).run();
         assertTrue(registry.takeAdmissionProfile(expiring).isEmpty());
+    }
+
+    @Test
+    void consumingAdmissionCancelsItsPendingCleanup() {
+        ScheduledThreadPoolExecutor cleanupExecutor = new ScheduledThreadPoolExecutor(1);
+        cleanupExecutor.setRemoveOnCancelPolicy(true);
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry(cleanupExecutor);
+        try {
+            ConnectPlayer player = registry.stage(session(false));
+            assertEquals(1, cleanupExecutor.getQueue().size());
+
+            assertTrue(registry.takeAdmissionProfile(player).isPresent());
+
+            assertTrue(cleanupExecutor.getQueue().isEmpty());
+        } finally {
+            registry.close();
+        }
+    }
+
+    @Test
+    void closeClearsPrivateStateAndAllowsCleanReload() {
+        ScheduledThreadPoolExecutor cleanupExecutor = new ScheduledThreadPoolExecutor(1);
+        cleanupExecutor.setRemoveOnCancelPolicy(true);
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry(cleanupExecutor);
+        ConnectPlayer player = registry.stage(session(false));
+        registry.record(player, claims("session-1"));
+
+        registry.close();
+
+        assertTrue(cleanupExecutor.isShutdown());
+        assertTrue(cleanupExecutor.getQueue().isEmpty());
+        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
+        assertTrue(registry.get(player).isEmpty());
+        assertThrows(IllegalStateException.class, () -> registry.stage(session(false)));
+
+        ScheduledThreadPoolExecutor reloadExecutor = new ScheduledThreadPoolExecutor(1);
+        reloadExecutor.setRemoveOnCancelPolicy(true);
+        VerifiedBedrockIdentityRegistry reloaded = new VerifiedBedrockIdentityRegistry(reloadExecutor);
+        try {
+            ConnectPlayer reloadedPlayer = reloaded.stage(session(false));
+            assertTrue(reloaded.takeAdmissionProfile(reloadedPlayer).isPresent());
+        } finally {
+            reloaded.close();
+        }
+        assertTrue(reloadExecutor.isShutdown());
     }
 
     private static ConnectPlayer player(String sessionId) {
