@@ -188,12 +188,10 @@ public final class BedrockIdentityVerifier {
         while (reader.hasNext()) {
             String field = reader.nextName();
             if (!seenFields.add(field)) {
-                throw new BedrockIdentityVerificationException(
-                        "decode envelope: duplicate " + object + " field " + field);
+                throw new BedrockIdentityVerificationException("decode envelope: duplicate field");
             }
             if (!allowedFields.contains(field)) {
-                throw new BedrockIdentityVerificationException(
-                        "decode envelope: unknown " + object + " field " + field);
+                throw new BedrockIdentityVerificationException("decode envelope: unknown field");
             }
             Set<String> nestedFields = nestedFields(object, field);
             if (nestedFields == null) {

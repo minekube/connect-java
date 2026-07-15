@@ -166,10 +166,11 @@ public final class SpigotInjector extends CommonPlatformInjector {
                                             throws Exception {
                                         if (context.getPlayer().getAuth().isPassthrough()) {
                                             addPassthroughAdmissionHandler(childCtx.channel(), context);
+                                            trackPassthroughClient(childCtx.channel());
                                         } else {
                                             injectAddonsCall(childCtx.channel(), false);
+                                            addInjectedClient(childCtx.channel());
                                         }
-                                        addInjectedClient(childCtx.channel());
                                         childCtx.pipeline().remove(this);
                                         super.channelActive(childCtx);
                                     }
@@ -177,6 +178,14 @@ public final class SpigotInjector extends CommonPlatformInjector {
                 super.channelRead(ctx, msg);
             }
         });
+    }
+
+    boolean trackPassthroughClient(Channel channel) {
+        boolean added = addInjectedClient(channel);
+        if (added) {
+            channel.closeFuture().addListener(ignored -> removeInjectedClient(channel));
+        }
+        return added;
     }
 
     private void addPassthroughAdmissionHandler(Channel channel, LocalSession.Context sessionContext) {

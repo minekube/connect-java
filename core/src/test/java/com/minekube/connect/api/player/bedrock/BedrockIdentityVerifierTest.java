@@ -226,6 +226,23 @@ class BedrockIdentityVerifierTest {
     }
 
     @Test
+    void rejectsHostileUnknownFieldWithFixedBoundedError() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        String hostileField = "forged-log\n" + "x".repeat(4096);
+        String envelope = signedEnvelope(
+                keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id")
+                .replace(
+                        "\"version\":1,",
+                        "\"version\":1," + GSON.toJson(hostileField) + ":true,");
+
+        BedrockIdentityVerificationException error = assertThrows(
+                BedrockIdentityVerificationException.class,
+                () -> verifier(keyPair, "session-1").verify(profileWithEnvelope(envelope)));
+
+        assertEquals("decode envelope: unknown field", error.getMessage());
+    }
+
+    @Test
     void rejectsDuplicateNestedEnvelopeFieldsBeforeSignatureVerification() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
         String envelope = signedEnvelope(
