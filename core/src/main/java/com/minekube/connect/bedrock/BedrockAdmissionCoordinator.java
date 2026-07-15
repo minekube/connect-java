@@ -5,7 +5,6 @@ import com.minekube.connect.api.player.Auth;
 import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.GameProfile;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityProfiles;
-import com.minekube.connect.api.player.bedrock.BedrockIdentityVerifier;
 import com.minekube.connect.player.ConnectPlayerImpl;
 import com.minekube.connect.watch.SessionProposal;
 import java.util.ArrayList;
@@ -55,25 +54,21 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
             Consumer<Status> reject,
             String endpointId,
             String endpointOrgId) {
+        ensureOpen();
         String sessionId = raw == null ? "" : raw.getId();
         removeAdmission(latestBySession.get(sessionId));
-        AdmissionToken token = null;
-        if (hasPrivateIdentity(raw)) {
-            ensureOpen();
-            AdmissionToken createdToken = new AdmissionToken(++nextGeneration);
-            Admission admission = new Admission(raw, createdToken, sessionId);
-            admissions.put(createdToken, admission);
-            latestBySession.put(sessionId, admission);
-            try {
-                admission.cleanup = cleanupExecutor.schedule(
-                        () -> expire(createdToken, admission),
-                        ADMISSION_TTL_SECONDS,
-                        TimeUnit.SECONDS);
-            } catch (RuntimeException e) {
-                removeAdmission(admission);
-                throw e;
-            }
-            token = createdToken;
+        AdmissionToken token = new AdmissionToken(++nextGeneration);
+        Admission admission = new Admission(raw, token, sessionId);
+        admissions.put(token, admission);
+        latestBySession.put(sessionId, admission);
+        try {
+            admission.cleanup = cleanupExecutor.schedule(
+                    () -> expire(token, admission),
+                    ADMISSION_TTL_SECONDS,
+                    TimeUnit.SECONDS);
+        } catch (RuntimeException e) {
+            removeAdmission(admission);
+            throw e;
         }
         return new SessionProposal(raw, reject, endpointId, endpointOrgId, token);
     }
@@ -220,13 +215,6 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
                 publicProfile,
                 player.getAuth(),
                 player.getLanguageTag());
-    }
-
-    private static boolean hasPrivateIdentity(Session session) {
-        return session != null && session.hasPlayer() && session.getPlayer().hasProfile() &&
-                session.getPlayer().getProfile().getPropertiesList().stream().anyMatch(property ->
-                        BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName()) ||
-                                BedrockIdentityProfiles.SCOPE_PROPERTY_NAME.equals(property.getName()));
     }
 
     private void ensureOpen() {

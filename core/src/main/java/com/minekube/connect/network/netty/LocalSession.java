@@ -211,7 +211,10 @@ public final class LocalSession {
                         return;
                     }
                     try {
-                        api.addPlayer(context.player);
+                        ConnectPlayer displaced = api.addPlayer(context.player);
+                        if (admissionCoordinator != null && displaced != null && displaced != context.player) {
+                            admissionCoordinator.discard(displaced);
+                        }
                     } catch (RuntimeException | Error e) {
                         exceptionCaught(e, context.player);
                     }
