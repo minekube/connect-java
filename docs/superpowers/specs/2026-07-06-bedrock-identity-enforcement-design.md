@@ -1,59 +1,25 @@
 # Bedrock Identity Enforcement Design
 
-## Goal
+This document owns the architectural rationale for Connect Java's Bedrock identity admission path. Exact wire fields are owned by the [Watch schema](../../../core/src/main/proto/com/minekube/connect/v1alpha1/watch_service.proto) and [libp2p schema](../../../core/src/main/proto/com/minekube/connect/v1alpha1/connect_libp2p.proto); operator defaults are owned by the packaged [server](../../../core/src/main/resources/config.yml) and [proxy](../../../core/src/main/resources/proxy-config.yml) configs.
 
-Add opt-in Connect Java enforcement for Moxy-signed `minekube:bedrock_identity` profile properties so backend servers can reject Bedrock sessions whose trusted edge identity cannot be verified.
+## Trust Boundary
 
-## Scope
+Moxy authenticates the client protocol and signs the Bedrock identity envelope. Connect Java accepts the protocol marker only from authenticated Watch or libp2p session proposals, preserves the legacy unspecified value, and never infers Java from an unknown value. The `bedrock-identity-v1` capability is advertised by both transports only because this implementation includes the marker, verifier, enforcement, and claims lifecycle.
 
-This slice adds static-key enforcement only. It does not add network key discovery, key rotation metadata, or public docs. Those are follow-up rollout tasks because they change operational trust and production delivery independently from local enforcement behavior.
+Connect Java verifies the signed issuer, endpoint and organization scope when available, endpoint name, session, protocol, policy, principal, profile binding, validity window, and replay state. The verifier contract is exercised against the immutable Moxy fixture bytes and SHA-256 manifest in [`core/src/test/resources/bedrock-identity-v1`](../../../core/src/test/resources/bedrock-identity-v1/manifest.json). Key metadata is accepted only for the configured issuer and Ed25519 algorithm, supports current and previous rotation keys, and has a bounded stale-if-error window.
 
-## Config
+## Private Admission Data
 
-Add a `bedrock-identity` block to `config.yml` and `proxy-config.yml`:
+The signed envelope and its transport scope property are admission-only data. [`SessionProposal`](../../../core/src/main/java/com/minekube/connect/watch/SessionProposal.java) removes them from the public player profile and stages one private copy for verification. [`BedrockIdentityProfiles`](../../../api/src/main/java/com/minekube/connect/api/player/bedrock/BedrockIdentityProfiles.java) also filters them from platform profile and forwarding paths.
 
-```yaml
-bedrock-identity:
-  enforcement: disabled
-  public-key: ""
-  expected-policy: trusted_bedrock_xuid
-```
+[`VerifiedBedrockIdentityRegistry`](../../../core/src/main/java/com/minekube/connect/bedrock/VerifiedBedrockIdentityRegistry.java) records immutable claims only after successful admission, keys them by session ID, and removes them on rejection or disconnect. It never exposes the raw envelope, signature, nonce, or key material.
 
-`enforcement` accepts:
+## Plugin API
 
-- `disabled`: default; no verification or rejection.
-- `warn`: verify when a public key is configured and log failures, but allow the session.
-- `require`: verify with the configured public key and reject when the envelope is missing, forged, expired, replayed, scope-mismatched, or policy-mismatched.
+The authoritative plugin contract is [`ConnectApi#getVerifiedBedrockIdentity`](../../../api/src/main/java/com/minekube/connect/api/ConnectApi.java). The default method keeps existing API implementations compatible, while the built-in implementation returns claims only for the currently connected player object whose session passed verification.
 
-`public-key` is a base64-encoded Ed25519 public key. The verifier accepts raw 32-byte keys and X.509 encoded keys after decoding. `expected-policy` defaults to `trusted_bedrock_xuid`.
+This is not Floodgate or Mojang identity emulation. Existing Java and generic offline behavior remains independent of the Bedrock identity path.
 
-## Architecture
+## Delivery Boundary
 
-Add a small core enforcement service around the released `BedrockIdentityVerifier`. It receives `ConnectConfig` and `ConnectLogger`, builds verifiers per `LocalSession.Context`, and returns an allow/reject decision. It owns replay cache state so platform hooks do not duplicate verification details.
-
-The service checks endpoint name from `ConnectConfig#getEndpoint`, session ID from the `ConnectPlayer`, protocol `bedrock`, and expected policy from config. Connect Java does not currently receive endpoint ID or org ID in the legacy WatchService session proposal, and libp2p registration does not attach those values to the local login context. This slice therefore extends the verifier API so endpoint ID and org ID are optional expected scope fields: if configured, they are enforced; if omitted, the signed envelope must still contain them but local enforcement does not claim to know their expected values.
-
-The reject reason must be support-safe and must never include the raw signed envelope or key material.
-
-## Platform Hooks
-
-Run enforcement at the earliest existing platform login boundary where `LocalSession.Context` is present:
-
-- Velocity: `PreLoginEvent`, before `forceOfflineMode()` and player cache insertion.
-- Bungee: `PreLoginEvent`, before UUID/name rewrite.
-- Spigot: `LOGIN_START_PACKET`, before spoofed UUID, profile rewrite, and server login event calls.
-
-In `require` mode, reject the local login and reject the session proposal if the tunnel has not opened. In `warn` mode, log a warning and continue. In `disabled` mode, do nothing.
-
-## Testing
-
-Core tests cover disabled, warn, require success, require missing property, invalid public key, policy mismatch, replay, and support-safe logging. Platform tests cover hook behavior where the repo already has viable test seams, with Spigot covered through `SpigotDataHandlerTest` and core enforcement covered independently for proxy hooks.
-
-## Follow-Ups
-
-Create or update GitHub tracking for:
-
-- public-key discovery and rotation metadata
-- carrying endpoint ID/org ID into the local login context so Connect Java can enforce full endpoint/org scope
-- production signing-key/public-key rollout
-- operator docs explaining official Bedrock/Xbox auth, Moxy identity envelopes, and Connect Java enforcement
+Plugin release, hub image rebuild, and production rollout remain separate operations. This repository can implement and advertise the Connect Java capability, but it cannot by itself establish Moxy routing, owner controls, or end-to-end production completion.

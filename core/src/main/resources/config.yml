@@ -16,10 +16,10 @@ allow-offline-mode-players: false
 #  - someones-hub
 
 # Moxy can attach a signed Bedrock/Xbox identity envelope to Bedrock sessions.
-# Keep enforcement disabled unless Minekube provided the current public key.
+# Keep enforcement disabled unless Minekube provided trusted key configuration.
 bedrock-identity:
   # disabled: do not verify or reject
-  # warn: verify when public-key is configured and log failures, but allow the session
+  # warn: verify when any key source is configured and log failures, but allow the session
   # require: reject Bedrock sessions with missing or invalid identity envelopes
   enforcement: disabled
   # Base64-encoded Ed25519 public key. Supports raw 32-byte and X.509 encoded keys after decoding.
@@ -28,7 +28,7 @@ bedrock-identity:
   public-keys: []
   # Public metadata URL for Moxy verifier keys. Prefer this once Minekube publishes it.
   metadata-url: ""
-  # Seconds to cache successful verifier metadata.
+  # Maximum seconds to cache successful metadata; a smaller published max-age takes precedence.
   metadata-cache-seconds: 300
   # Hard stale-if-error bound for expired remote keys. Require mode fails closed after this.
   metadata-max-stale-seconds: 600

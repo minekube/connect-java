@@ -36,8 +36,8 @@ import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
 import com.minekube.connect.watch.SessionProposal;
 import java.util.Collection;
 import java.util.Map;
-import java.util.UUID;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 public class SimpleConnectApi implements ConnectApi {

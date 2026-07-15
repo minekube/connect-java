@@ -19,8 +19,8 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Supplier;
 import javax.inject.Named;
-import okhttp3.OkHttpClient;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
+import okhttp3.OkHttpClient;
 
 public final class BedrockIdentityEnforcer {
     private static final String MODE_DISABLED = "disabled";

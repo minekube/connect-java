@@ -27,10 +27,10 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.UUID;
-import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Authentication;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfileProperty;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 

@@ -388,7 +388,7 @@ class WatcherRegisterTest {
         inject(register, "tunneler", mock(Tunneler.class));
         inject(register, "platformInjector", mock(PlatformInjector.class));
         inject(register, "logger", mock(ConnectLogger.class));
-        inject(register, "api", mock(SimpleConnectApi.class));
+        inject(register, "api", new SimpleConnectApi(mock(ConnectLogger.class)));
         inject(register, "libp2pEndpoint", mock(Libp2pEndpoint.class));
         when(((PlatformInjector) getField(register, "platformInjector")).getServerSocketAddress())
                 .thenReturn(new InetSocketAddress("127.0.0.1", 25565));

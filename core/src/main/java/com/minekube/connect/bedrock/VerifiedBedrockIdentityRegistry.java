@@ -1,7 +1,7 @@
 package com.minekube.connect.bedrock;
 
-import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.Auth;
+import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.GameProfile;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityProfiles;

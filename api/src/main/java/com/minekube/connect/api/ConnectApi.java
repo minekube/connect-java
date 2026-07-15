@@ -50,7 +50,7 @@ public interface ConnectApi {
     int getPlayerCount();
 
     /**
-     * Method to determine if the given <b>online</b> player is a bedrock player
+     * Determines whether the given <b>online</b> player is tunneled by Connect.
      *
      * @param uuid The uuid of the <b>online</b> player
      * @return true if the given <b>online</b> player is tunneled by Connect
@@ -66,8 +66,12 @@ public interface ConnectApi {
     ConnectPlayer getPlayer(UUID uuid);
 
     /**
-     * Returns Edge-verified Bedrock identity claims for a currently connected Connect session.
-     * Java, disabled, warn-failed, rejected, and disconnected sessions return empty.
+     * Returns claims from a Moxy-signed Bedrock identity envelope that Connect verified for the
+     * player's current session. Java, disabled, warn-failed, rejected, and disconnected sessions
+     * return empty.
+     *
+     * @param player a player object returned by this API for the currently connected session
+     * @return immutable verified claims, or empty when no verified claims exist for the session
      */
     default Optional<BedrockIdentityClaims> getVerifiedBedrockIdentity(ConnectPlayer player) {
         return Optional.empty();

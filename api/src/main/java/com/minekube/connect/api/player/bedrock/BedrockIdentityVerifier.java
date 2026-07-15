@@ -11,21 +11,21 @@ import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
-import java.security.PublicKey;
-import java.security.Signature;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
+import java.security.Signature;
 import java.security.interfaces.EdECPublicKey;
 import java.security.spec.EdECPoint;
 import java.security.spec.EdECPublicKeySpec;
 import java.security.spec.NamedParameterSpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Instant;
-import java.util.UUID;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 public final class BedrockIdentityVerifier {
@@ -460,6 +460,12 @@ public final class BedrockIdentityVerifier {
             return this;
         }
 
+        /**
+         * Sets the signed issuer required during verification.
+         *
+         * @param expectedIssuer expected signed issuer, or {@code null} to skip issuer equality
+         * @return this builder
+         */
         public Builder expectedIssuer(String expectedIssuer) {
             this.expectedIssuer = expectedIssuer;
             return this;
