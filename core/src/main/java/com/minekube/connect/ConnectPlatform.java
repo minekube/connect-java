@@ -66,6 +66,19 @@ public class ConnectPlatform {
     private ConnectConfig config;
     private Injector guice;
 
+    public ConnectPlatform(
+            ConnectApi api,
+            PlatformInjector platformInjector,
+            ConnectLogger logger,
+            Injector guice) {
+        this(
+                api,
+                platformInjector,
+                logger,
+                guice,
+                guice.getInstance(VerifiedBedrockIdentityRegistry.class));
+    }
+
     @Inject
     public ConnectPlatform(
             ConnectApi api,
