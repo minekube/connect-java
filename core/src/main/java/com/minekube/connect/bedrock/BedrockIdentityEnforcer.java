@@ -88,12 +88,19 @@ public final class BedrockIdentityEnforcer {
 
     public Decision verify(LocalSession.Context context) {
         Objects.requireNonNull(context, "context");
+        ConnectPlayer player = context.getPlayer();
+        if (player instanceof StagedBedrockIdentityPlayer) {
+            return ((StagedBedrockIdentityPlayer) player).verifyAdmission(
+                    this,
+                    context.getEndpointId(),
+                    context.getEndpointOrgId(),
+                    context.getProtocol());
+        }
         return verifyAdmission(
-                context.getPlayer(),
+                player,
                 context.getEndpointId(),
                 context.getEndpointOrgId(),
-                context.getProtocol(),
-                context.getVerifiedBedrockIdentities());
+                context.getProtocol());
     }
 
     Decision verifyAdmission(
@@ -101,23 +108,22 @@ public final class BedrockIdentityEnforcer {
             String endpointId,
             String endpointOrgId,
             SessionProtocol protocol) {
-        return verifyAdmission(player, endpointId, endpointOrgId, protocol, identityRegistry);
-    }
-
-    private Decision verifyAdmission(
-            ConnectPlayer player,
-            String endpointId,
-            String endpointOrgId,
-            SessionProtocol protocol,
-            VerifiedBedrockIdentityRegistry admissionRegistry) {
-        Objects.requireNonNull(admissionRegistry, "admissionRegistry");
-        GameProfile profile = admissionRegistry.takeAdmissionProfile(player).orElse(player.getGameProfile());
-        admissionRegistry.clearClaims(player);
-        Decision decision = verify(player, profile, endpointId, endpointOrgId, protocol);
+        GameProfile profile = identityRegistry.takeAdmissionProfile(player).orElse(player.getGameProfile());
+        identityRegistry.clearClaims(player);
+        Decision decision = verifyAdmissionSnapshot(player, profile, endpointId, endpointOrgId, protocol);
         if (decision.verifiedClaims() != null) {
-            admissionRegistry.record(player, decision.verifiedClaims());
+            identityRegistry.record(player, decision.verifiedClaims());
         }
         return decision;
+    }
+
+    Decision verifyAdmissionSnapshot(
+            ConnectPlayer player,
+            GameProfile profile,
+            String endpointId,
+            String endpointOrgId,
+            SessionProtocol protocol) {
+        return verify(player, profile, endpointId, endpointOrgId, protocol);
     }
 
     public void reject(LocalSession.Context context, Decision decision) {

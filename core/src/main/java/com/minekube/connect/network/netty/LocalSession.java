@@ -29,7 +29,6 @@ import com.google.common.base.Preconditions;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
-import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
 import com.minekube.connect.tunnel.TunnelConn;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.watch.SessionProposal;
@@ -126,8 +125,7 @@ public final class LocalSession {
                 sessionProposal,
                 sessionProposal.getEndpointId(),
                 sessionProposal.getEndpointOrgId(),
-                sessionProposal.getProtocol(),
-                api.getVerifiedBedrockIdentities());
+                sessionProposal.getProtocol());
 
         // Use platform-specific event loop if available (e.g., BungeeCord's event loops)
         // Otherwise fall back to default event loop group
@@ -227,7 +225,6 @@ public final class LocalSession {
         final @NotNull String endpointId;
         final @NotNull String endpointOrgId;
         final @NotNull SessionProtocol protocol;
-        final @NotNull VerifiedBedrockIdentityRegistry verifiedBedrockIdentities;
 
         AtomicReference<TunnelConn> tunnelConn = new AtomicReference<>(null);
     }

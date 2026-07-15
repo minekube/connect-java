@@ -74,7 +74,7 @@ public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
                 throw e;
             }
         }
-        return publicPlayer;
+        return new StagedBedrockIdentityPlayer(publicPlayer, this);
     }
 
     public ConnectPlayer publicPlayer(ConnectPlayer player) {

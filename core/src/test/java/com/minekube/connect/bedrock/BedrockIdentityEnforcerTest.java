@@ -77,7 +77,6 @@ class BedrockIdentityEnforcerTest {
             when(context.getEndpointId()).thenReturn("endpoint-id");
             when(context.getEndpointOrgId()).thenReturn("org-id");
             when(context.getProtocol()).thenReturn(SessionProtocol.SESSION_PROTOCOL_BEDROCK);
-            when(context.getVerifiedBedrockIdentities()).thenReturn(admissionRegistry);
             BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
                     config, mock(ConnectLogger.class), new OkHttpClient());
 

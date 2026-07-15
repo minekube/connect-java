@@ -14,14 +14,49 @@ import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
 import com.minekube.connect.api.player.Auth;
 import com.minekube.connect.api.player.GameProfile;
+import com.minekube.connect.network.netty.LocalSession;
 import com.minekube.connect.player.ConnectPlayerImpl;
 import com.minekube.connect.watch.SessionProposal;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class SimpleConnectApiBedrockIdentityTest {
+    @Test
+    void keepsRegistryAndAdmissionCapabilityOutOfPublicApis() {
+        for (Class<?> type : List.of(SimpleConnectApi.class, LocalSession.Context.class)) {
+            for (Method method : type.getMethods()) {
+                assertFalse(VerifiedBedrockIdentityRegistry.class.isAssignableFrom(method.getReturnType()));
+                assertFalse(Arrays.stream(method.getParameterTypes())
+                        .anyMatch(VerifiedBedrockIdentityRegistry.class::isAssignableFrom));
+            }
+        }
+        assertFalse(Arrays.stream(LocalSession.Context.class.getDeclaredFields())
+                .anyMatch(field -> VerifiedBedrockIdentityRegistry.class.isAssignableFrom(field.getType())));
+
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        try {
+            SimpleConnectApi api = new SimpleConnectApi(mock(ConnectLogger.class), registry);
+            ConnectPlayer player = api.stageAdmission(new SessionProposal(
+                    VerifiedBedrockIdentityRegistryTest.session(false),
+                    reason -> {}));
+
+            assertTrue(player instanceof ConnectPlayerImpl);
+            assertFalse(Modifier.isPublic(player.getClass().getModifiers()));
+            assertTrue(Arrays.stream(player.getClass().getDeclaredMethods())
+                    .noneMatch(method -> Modifier.isPublic(method.getModifiers())));
+            assertFalse(player.getGameProfile().toString().contains("signed-envelope"));
+            assertFalse(player.getGameProfile().toString().contains("private-endpoint-id"));
+        } finally {
+            registry.close();
+        }
+    }
+
     @Test
     void sameUuidReplacementRemovesDisplacedSessionClaims() {
         VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
@@ -48,9 +83,10 @@ class SimpleConnectApiBedrockIdentityTest {
                 VerifiedBedrockIdentityRegistryTest.session(false),
                 reason -> {});
         ConnectPlayer player = api.stageAdmission(proposal);
-        api.addPlayer(player);
         BedrockIdentityClaims claims = VerifiedBedrockIdentityRegistryTest.claims("session-1");
         registry.record(player, claims);
+        assertTrue(api.getVerifiedBedrockIdentity(player).isEmpty());
+        api.addPlayer(player);
 
         ConnectPlayer exposed = api.getPlayer(player.getUniqueId());
 
@@ -61,6 +97,8 @@ class SimpleConnectApiBedrockIdentityTest {
         assertFalse(exposed.getGameProfile().toString().contains("private-endpoint-id"));
         assertSame(claims, api.getVerifiedBedrockIdentity(exposed).orElseThrow());
         assertFalse(claims.toString().contains("replay-nonce-a"));
+        api.playerRemoved(player.getUniqueId());
+        assertTrue(api.getVerifiedBedrockIdentity(exposed).isEmpty());
     }
 
     @SuppressWarnings("deprecation")
