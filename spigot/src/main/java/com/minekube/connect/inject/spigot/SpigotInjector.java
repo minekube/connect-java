@@ -54,10 +54,8 @@ import java.lang.reflect.Type;
 import java.util.List;
 import java.util.NoSuchElementException;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
-@RequiredArgsConstructor
 public final class SpigotInjector extends CommonPlatformInjector {
     private final ConnectLogger logger;
     private final BedrockIdentityEnforcer bedrockIdentityEnforcer;
@@ -75,6 +73,21 @@ public final class SpigotInjector extends CommonPlatformInjector {
     private Object serverConnection;
 
     @Getter private boolean injected;
+
+    public SpigotInjector(ConnectLogger logger, boolean isViaVersion) {
+        this(logger, null, null, isViaVersion);
+    }
+
+    public SpigotInjector(
+            ConnectLogger logger,
+            BedrockIdentityEnforcer bedrockIdentityEnforcer,
+            String packetHandlerName,
+            boolean isViaVersion) {
+        this.logger = logger;
+        this.bedrockIdentityEnforcer = bedrockIdentityEnforcer;
+        this.packetHandlerName = packetHandlerName;
+        this.isViaVersion = isViaVersion;
+    }
 
     // We need to disable the enforceSecureProfile in server.properties.
     // This has no effect if the server is already in offline mode.
@@ -165,8 +178,10 @@ public final class SpigotInjector extends CommonPlatformInjector {
                                     public void channelActive(ChannelHandlerContext childCtx)
                                             throws Exception {
                                         if (context.getPlayer().getAuth().isPassthrough()) {
-                                            addPassthroughAdmissionHandler(childCtx.channel(), context);
-                                            trackPassthroughClient(childCtx.channel());
+                                            if (bedrockIdentityEnforcer != null && packetHandlerName != null) {
+                                                addPassthroughAdmissionHandler(childCtx.channel(), context);
+                                                trackPassthroughClient(childCtx.channel());
+                                            }
                                         } else {
                                             injectAddonsCall(childCtx.channel(), false);
                                             addInjectedClient(childCtx.channel());

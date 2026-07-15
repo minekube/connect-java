@@ -17,7 +17,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
+import javax.inject.Named;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
+import okhttp3.OkHttpClient;
 
 public final class BedrockIdentityEnforcer {
     private static final String MODE_DISABLED = "disabled";
@@ -40,6 +42,14 @@ public final class BedrockIdentityEnforcer {
             BedrockIdentityKeyProvider keyProvider,
             VerifiedBedrockIdentityRegistry identityRegistry) {
         this(config, logger, Instant::now, keyProvider, identityRegistry);
+    }
+
+    public BedrockIdentityEnforcer(
+            ConnectConfig config,
+            ConnectLogger logger,
+            @Named("defaultHttpClient") OkHttpClient httpClient) {
+        this(config, logger, Instant::now, new BedrockIdentityKeyProvider(config, httpClient),
+                new VerifiedBedrockIdentityRegistry());
     }
 
     BedrockIdentityEnforcer(ConnectConfig config, ConnectLogger logger, Supplier<Instant> now) {

@@ -212,19 +212,17 @@ class BedrockIdentityVerifierTest {
     }
 
     @Test
-    void rejectsBedrockProfileNameMismatch() throws Exception {
+    void verifiesUnlinkedProfileWithConfiguredNamePrefix() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
         String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id");
         GameProfile profile = profileWithEnvelope(
-                "SpoofedSteve",
+                "bedrock_BedrockSteve",
                 UUID.fromString("f912bf90-8349-565f-9dc0-9891923c0cc3"),
                 envelope);
 
-        BedrockIdentityVerificationException error = assertThrows(
-                BedrockIdentityVerificationException.class,
-                () -> verifier(keyPair, "session-1").verify(profile));
+        BedrockIdentityClaims claims = verifier(keyPair, "session-1").verify(profile);
 
-        assertTrue(error.getMessage().contains("profile"));
+        assertEquals("BedrockSteve", claims.getBedrockUsername());
     }
 
     @Test
@@ -233,7 +231,7 @@ class BedrockIdentityVerifierTest {
         String envelope = signedLinkedEnvelope(
                 keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id");
         GameProfile profile = profileWithEnvelope(
-                "JavaSteve",
+                "javasteve",
                 UUID.fromString("b5f7f978-5f58-4a21-b105-737f16c90785"),
                 envelope);
 
@@ -241,6 +239,23 @@ class BedrockIdentityVerifierTest {
 
         assertEquals("b5f7f978-5f58-4a21-b105-737f16c90785", claims.getLinkedJavaUuid());
         assertEquals("JavaSteve", claims.getLinkedJavaName());
+    }
+
+    @Test
+    void rejectsLinkedJavaProfileNameMismatchIgnoringCase() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        String envelope = signedLinkedEnvelope(
+                keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id");
+        GameProfile profile = profileWithEnvelope(
+                "DifferentJavaName",
+                UUID.fromString("b5f7f978-5f58-4a21-b105-737f16c90785"),
+                envelope);
+
+        BedrockIdentityVerificationException error = assertThrows(
+                BedrockIdentityVerificationException.class,
+                () -> verifier(keyPair, "session-1").verify(profile));
+
+        assertTrue(error.getMessage().contains("profile"));
     }
 
     @Test

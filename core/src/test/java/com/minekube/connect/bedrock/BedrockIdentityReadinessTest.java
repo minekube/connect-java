@@ -43,6 +43,20 @@ class BedrockIdentityReadinessTest {
     }
 
     @Test
+    void rejectsNormalizedModeAndBlankIssuerFromReadiness() {
+        ConnectConfig normalizedMode = config("REQUIRE");
+        setField(normalizedMode.getBedrockIdentity(), "publicKey", encodedKey((byte) 5));
+        assertFalse(new BedrockIdentityReadiness(normalizedMode,
+                new BedrockIdentityKeyProvider(normalizedMode, new OkHttpClient())).isReady());
+
+        ConnectConfig blankIssuer = config("require");
+        setField(blankIssuer.getBedrockIdentity(), "expectedIssuer", "   ");
+        setField(blankIssuer.getBedrockIdentity(), "publicKey", encodedKey((byte) 6));
+        assertFalse(new BedrockIdentityReadiness(blankIssuer,
+                new BedrockIdentityKeyProvider(blankIssuer, new OkHttpClient())).isReady());
+    }
+
+    @Test
     void fansReadinessTransitionsToWatchAndLibp2pIndependently() {
         ConnectConfig config = config("require");
         setField(config.getBedrockIdentity(), "publicKey", encodedKey((byte) 4));

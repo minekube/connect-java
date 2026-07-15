@@ -17,6 +17,7 @@ import com.minekube.connect.api.player.GameProfile;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityVerifier;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.player.ConnectPlayerImpl;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
@@ -31,6 +32,7 @@ import minekube.connect.v1alpha1.WatchServiceOuterClass.Authentication;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfileProperty;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
+import okhttp3.OkHttpClient;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -38,6 +40,17 @@ class BedrockIdentityEnforcerTest {
     private static final Gson GSON = new Gson();
     private static final Instant NOW = Instant.parse("2026-07-05T12:00:00Z");
     private static final String VALID_NONCE = "AAAAAAAAAAAAAAAAAAAAAA";
+
+    @Test
+    void retainsLegacyHttpClientConstructor() throws Exception {
+        Constructor<BedrockIdentityEnforcer> constructor = BedrockIdentityEnforcer.class.getConstructor(
+                ConnectConfig.class,
+                ConnectLogger.class,
+                OkHttpClient.class);
+
+        assertNotNull(constructor.newInstance(
+                new ConnectConfig(), mock(ConnectLogger.class), new OkHttpClient()));
+    }
 
     @Test
     void disabledModeAllowsMissingIdentityWithoutLogging() {
@@ -71,6 +84,39 @@ class BedrockIdentityEnforcerTest {
         assertTrue(decision.allowed());
         assertNotNull(decision.verifiedClaims());
         assertEquals("2533274790395904", decision.verifiedClaims().getBedrockXuid());
+    }
+
+    @Test
+    void malformedConfigurationRejectsOtherwiseValidIdentity() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        ConnectConfig normalizedMode = config(
+                "REQUIRE",
+                base64(keyPair.getPublic().getEncoded()),
+                "trusted_bedrock_xuid");
+        String normalizedModeEnvelope = signedEnvelope(
+                keyPair, VALID_NONCE, "session-1", normalizedMode.getEndpoint());
+        BedrockIdentityEnforcer normalizedModeEnforcer = new BedrockIdentityEnforcer(
+                normalizedMode, mock(ConnectLogger.class), () -> NOW);
+
+        assertFalse(normalizedModeEnforcer.verify(
+                player("session-1", profileWithEnvelope(normalizedModeEnvelope)),
+                "endpoint-id",
+                "org-id").allowed());
+
+        ConnectConfig blankIssuer = config(
+                "require",
+                base64(keyPair.getPublic().getEncoded()),
+                "trusted_bedrock_xuid");
+        setField(blankIssuer.getBedrockIdentity(), "expectedIssuer", "   ");
+        String blankIssuerEnvelope = signedEnvelope(
+                keyPair, VALID_NONCE, "session-2", blankIssuer.getEndpoint(), "   ");
+        BedrockIdentityEnforcer blankIssuerEnforcer = new BedrockIdentityEnforcer(
+                blankIssuer, mock(ConnectLogger.class), () -> NOW);
+
+        assertFalse(blankIssuerEnforcer.verify(
+                player("session-2", profileWithEnvelope(blankIssuerEnvelope)),
+                "endpoint-id",
+                "org-id").allowed());
     }
 
     @Test
@@ -466,9 +512,18 @@ class BedrockIdentityEnforcerTest {
             String nonce,
             String sessionId,
             String endpointName) throws Exception {
+        return signedEnvelope(keyPair, nonce, sessionId, endpointName, "minekube-connect-test");
+    }
+
+    private static String signedEnvelope(
+            KeyPair keyPair,
+            String nonce,
+            String sessionId,
+            String endpointName,
+            String issuer) throws Exception {
         Envelope envelope = new Envelope();
         envelope.version = 1;
-        envelope.issuer = "minekube-connect-test";
+        envelope.issuer = issuer;
         envelope.endpoint = new Endpoint();
         envelope.endpoint.id = "endpoint-id";
         envelope.endpoint.name = endpointName;

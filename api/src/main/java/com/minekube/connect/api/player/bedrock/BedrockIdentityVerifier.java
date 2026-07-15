@@ -144,18 +144,18 @@ public final class BedrockIdentityVerifier {
 
     private static void validateProfile(Envelope envelope, GameProfile profile)
             throws BedrockIdentityVerificationException {
-        String expectedUuid;
-        String expectedName;
+        UUID expectedUuid;
         if (PRINCIPAL_BEDROCK_LINKED_JAVA.equals(envelope.principal.type)) {
-            expectedUuid = envelope.principal.linked_java_uuid;
-            expectedName = envelope.principal.linked_java_name;
+            expectedUuid = UUID.fromString(envelope.principal.linked_java_uuid);
+            if (!expectedUuid.equals(profile.getUniqueId()) ||
+                    !envelope.principal.linked_java_name.equalsIgnoreCase(profile.getUsername())) {
+                throw new BedrockIdentityVerificationException("identity envelope profile mismatch");
+            }
         } else {
-            expectedUuid = envelope.principal.bedrock_derived_uuid;
-            expectedName = envelope.principal.bedrock_username;
-        }
-        if (!UUID.fromString(expectedUuid).equals(profile.getUniqueId()) ||
-                !expectedName.equals(profile.getUsername())) {
-            throw new BedrockIdentityVerificationException("identity envelope profile mismatch");
+            expectedUuid = UUID.fromString(envelope.principal.bedrock_derived_uuid);
+            if (!expectedUuid.equals(profile.getUniqueId())) {
+                throw new BedrockIdentityVerificationException("identity envelope profile mismatch");
+            }
         }
     }
 

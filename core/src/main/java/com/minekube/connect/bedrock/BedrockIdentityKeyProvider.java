@@ -118,12 +118,35 @@ public final class BedrockIdentityKeyProvider {
     }
 
     private static HttpUrl validMetadataUrl(String configured) {
+        if (hasRawUserInfo(configured)) {
+            throw new IllegalArgumentException("metadata URL must be HTTPS without userinfo or fragment");
+        }
         HttpUrl url = HttpUrl.parse(configured);
         if (url == null || !"https".equals(url.scheme()) || !url.username().isEmpty()
                 || !url.password().isEmpty() || url.fragment() != null) {
             throw new IllegalArgumentException("metadata URL must be HTTPS without userinfo or fragment");
         }
         return url;
+    }
+
+    private static boolean hasRawUserInfo(String configured) {
+        if (configured == null) {
+            return false;
+        }
+        int schemeEnd = configured.indexOf("://");
+        if (schemeEnd < 0) {
+            return false;
+        }
+        int authorityStart = schemeEnd + 3;
+        int authorityEnd = configured.length();
+        for (char delimiter : new char[] {'/', '?', '#'}) {
+            int index = configured.indexOf(delimiter, authorityStart);
+            if (index >= 0 && index < authorityEnd) {
+                authorityEnd = index;
+            }
+        }
+        int userInfoDelimiter = configured.indexOf('@', authorityStart);
+        return userInfoDelimiter >= 0 && userInfoDelimiter < authorityEnd;
     }
 
     private String readBody(ResponseBody body) throws IOException {

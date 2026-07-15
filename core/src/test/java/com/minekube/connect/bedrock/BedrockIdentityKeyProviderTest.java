@@ -82,6 +82,25 @@ class BedrockIdentityKeyProviderTest {
     }
 
     @Test
+    void rejectsMetadataUrlsWithRawUserinfoDelimiterBeforeFetching() throws Exception {
+        byte[] current = filledKey((byte) 12);
+        try (MockWebServer server = new MockWebServer()) {
+            String authorityAndPath = httpsUrl(server, "/keys.json").substring("https://".length());
+            for (String metadataUrl : List.of(
+                    "https://@" + authorityAndPath,
+                    "https://:@" + authorityAndPath)) {
+                server.enqueue(new MockResponse().setBody(metadata("minekube-connect", current, 120)));
+
+                BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(
+                        config(metadataUrl), httpsTestClient(server));
+
+                assertTrue(provider.keys().isEmpty());
+            }
+            assertEquals(0, server.getRequestCount());
+        }
+    }
+
+    @Test
     void failsClosedWhenConfiguredMetadataCannotBeInitiallyValidated() throws Exception {
         byte[] fallback = filledKey((byte) 5);
         try (MockWebServer server = new MockWebServer()) {
