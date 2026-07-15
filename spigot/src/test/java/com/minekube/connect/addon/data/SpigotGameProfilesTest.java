@@ -48,6 +48,10 @@ class SpigotGameProfilesTest {
                         new GameProfile.Property(
                                 "minekube:bedrock_identity",
                                 "signed-envelope-replay-nonce-a",
+                                ""),
+                        new GameProfile.Property(
+                                "minekube:bedrock_identity_scope",
+                                "private-endpoint-id",
                                 ""))
         );
 
@@ -60,6 +64,8 @@ class SpigotGameProfilesTest {
         assertEquals("skin-signature", texture.getSignature());
         assertTrue(texture.hasSignature());
         assertFalse(profile.getProperties().containsKey("minekube:bedrock_identity"));
+        assertFalse(profile.getProperties().containsKey("minekube:bedrock_identity_scope"));
         assertFalse(profile.toString().contains("replay-nonce-a"));
+        assertFalse(profile.toString().contains("private-endpoint-id"));
     }
 }

@@ -34,6 +34,7 @@ import com.google.inject.name.Named;
 import com.minekube.connect.SpigotPlugin;
 import com.minekube.connect.api.ConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
 import com.minekube.connect.inject.CommonPlatformInjector;
 import com.minekube.connect.inject.spigot.SpigotInjector;
 import com.minekube.connect.listener.SpigotListenerRegistration;
@@ -101,7 +102,10 @@ public final class SpigotPlatformModule extends AbstractModule {
 
     @Provides
     @Singleton
-    public CommonPlatformInjector platformInjector(ConnectLogger logger) {
+    public CommonPlatformInjector platformInjector(
+            ConnectLogger logger,
+            BedrockIdentityEnforcer bedrockIdentityEnforcer,
+            @Named("packetHandler") String packetHandlerName) {
         final String VIAVERSION_DOWNLOAD_URL = "https://ci.viaversion.com/job/ViaVersion/";
         boolean isViaVersion = Bukkit.getPluginManager().getPlugin("ViaVersion") != null;
         if (isViaVersion) {
@@ -114,7 +118,7 @@ public final class SpigotPlatformModule extends AbstractModule {
             }
         }
 
-        return new SpigotInjector(logger, isViaVersion);
+        return new SpigotInjector(logger, bedrockIdentityEnforcer, packetHandlerName, isViaVersion);
     }
 
     @Provides

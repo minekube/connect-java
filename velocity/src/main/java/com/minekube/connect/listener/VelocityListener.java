@@ -107,14 +107,14 @@ public final class VelocityListener {
             Channel channel = getCastedValue(mcConnection, CHANNEL);
 
             LocalSession.context(channel, ctx -> {
+                Decision decision = bedrockIdentityEnforcer.verify(ctx);
+                if (!decision.allowed()) {
+                    bedrockIdentityEnforcer.reject(ctx, decision);
+                    event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
+                            Component.text(decision.message())));
+                    return;
+                }
                 if (!ctx.getPlayer().getAuth().isPassthrough()) {
-                    Decision decision = bedrockIdentityEnforcer.verify(ctx);
-                    if (!decision.allowed()) {
-                        bedrockIdentityEnforcer.reject(ctx, decision);
-                        event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
-                                Component.text(decision.message())));
-                        return;
-                    }
                     // Means the TunnelService has already authenticated the player
                     event.setResult(PreLoginEvent.PreLoginComponentResult.forceOfflineMode());
                     playerCache.put(event.getConnection(), ctx.getPlayer());

@@ -39,7 +39,7 @@ public final class VerifiedBedrockIdentityRegistry {
                 rawProfile,
                 new Auth(session.getAuth().getPassthrough()),
                 "");
-        if (!rawPlayer.getAuth().isPassthrough() && hasIdentityEnvelope(rawProfile)) {
+        if (hasPrivateIdentity(rawProfile)) {
             admissionProfiles.put(rawPlayer.getSessionId(), copy(rawProfile));
         }
         return publicPlayer(rawPlayer);
@@ -95,8 +95,10 @@ public final class VerifiedBedrockIdentityRegistry {
                 Collections.unmodifiableList(new ArrayList<>(profile.getProperties())));
     }
 
-    private static boolean hasIdentityEnvelope(GameProfile profile) {
+    private static boolean hasPrivateIdentity(GameProfile profile) {
         return profile.getProperties().stream()
-                .anyMatch(property -> BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName()));
+                .anyMatch(property ->
+                        BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName()) ||
+                                BedrockIdentityProfiles.SCOPE_PROPERTY_NAME.equals(property.getName()));
     }
 }

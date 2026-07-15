@@ -48,6 +48,8 @@ class SessionProposalTest {
 
         assertEquals("endpoint-id", proposal.getEndpointId());
         assertEquals("org-id", proposal.getEndpointOrgId());
+        assertEquals(0, proposal.getSession().getPlayer().getProfile().getPropertiesCount());
+        assertFalse(proposal.getSession().toString().contains("bedrock_identity_scope"));
     }
 
     @Test
@@ -63,7 +65,10 @@ class SessionProposalTest {
                                         .setValue("skin"))
                                 .addProperties(GameProfileProperty.newBuilder()
                                         .setName("minekube:bedrock_identity")
-                                        .setValue("signed-envelope-replay-nonce-a"))))
+                                        .setValue("signed-envelope-replay-nonce-a"))
+                                .addProperties(GameProfileProperty.newBuilder()
+                                        .setName("minekube:bedrock_identity_scope")
+                                        .setValue("private-endpoint-id"))))
                 .build();
 
         SessionProposal proposal = new SessionProposal(session, reason -> {});
@@ -71,6 +76,8 @@ class SessionProposalTest {
         assertEquals(1, proposal.getSession().getPlayer().getProfile().getPropertiesCount());
         assertEquals("textures", proposal.getSession().getPlayer().getProfile().getProperties(0).getName());
         assertFalse(proposal.getSession().toString().contains("replay-nonce-a"));
+        assertFalse(proposal.getSession().toString().contains("private-endpoint-id"));
         assertFalse(proposal.toString().contains("replay-nonce-a"));
+        assertFalse(proposal.toString().contains("private-endpoint-id"));
     }
 }

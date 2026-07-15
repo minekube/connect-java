@@ -25,6 +25,10 @@ class VelocityGameProfilesTest {
                         new Property(
                                 BedrockIdentityVerifier.PROPERTY_NAME,
                                 "base-envelope-replay-nonce-a",
+                                ""),
+                        new Property(
+                                "minekube:bedrock_identity_scope",
+                                "base-private-endpoint-a",
                                 "")));
         ConnectPlayer player = new ConnectPlayerImpl(
                 "session-1",
@@ -39,6 +43,10 @@ class VelocityGameProfilesTest {
                                 new com.minekube.connect.api.player.GameProfile.Property(
                                         BedrockIdentityVerifier.PROPERTY_NAME,
                                         "connect-envelope-replay-nonce-b",
+                                        ""),
+                                new com.minekube.connect.api.player.GameProfile.Property(
+                                        "minekube:bedrock_identity_scope",
+                                        "connect-private-endpoint-b",
                                         ""))),
                 new Auth(false),
                 "");
@@ -49,6 +57,9 @@ class VelocityGameProfilesTest {
         assertEquals("BedrockSteve", forwarded.getName());
         assertFalse(forwarded.getProperties().stream()
                 .anyMatch(property -> BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName())));
+        assertFalse(forwarded.getProperties().stream()
+                .anyMatch(property -> "minekube:bedrock_identity_scope".equals(property.getName())));
         assertFalse(forwarded.toString().contains("replay-nonce"));
+        assertFalse(forwarded.toString().contains("private-endpoint"));
     }
 }

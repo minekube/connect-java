@@ -7,6 +7,8 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 public final class BedrockIdentityProfiles {
+    public static final String SCOPE_PROPERTY_NAME = "minekube:bedrock_identity_scope";
+
     private BedrockIdentityProfiles() {
     }
 
@@ -25,6 +27,7 @@ public final class BedrockIdentityProfiles {
     }
 
     public static boolean isPublic(GameProfile.Property property) {
-        return !BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName());
+        return !BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName()) &&
+                !SCOPE_PROPERTY_NAME.equals(property.getName());
     }
 }

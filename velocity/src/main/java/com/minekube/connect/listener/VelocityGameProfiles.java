@@ -16,7 +16,7 @@ final class VelocityGameProfiles {
     static GameProfile fromConnectPlayer(GameProfile base, ConnectPlayer player) {
         List<Property> properties = Stream.concat(
                         base.getProperties().stream()
-                                .filter(property -> !BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName())),
+                                .filter(property -> !isPrivateIdentity(property)),
                         BedrockIdentityProfiles.withoutEnvelope(player.getGameProfile()).getProperties().stream()
                                 .map(property -> new Property(
                                         property.getName(),
@@ -26,5 +26,10 @@ final class VelocityGameProfiles {
         return base.withId(player.getUniqueId())
                 .withName(player.getUsername())
                 .withProperties(properties);
+    }
+
+    private static boolean isPrivateIdentity(Property property) {
+        return BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName()) ||
+                BedrockIdentityProfiles.SCOPE_PROPERTY_NAME.equals(property.getName());
     }
 }

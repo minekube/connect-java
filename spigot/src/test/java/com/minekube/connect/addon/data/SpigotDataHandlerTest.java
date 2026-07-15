@@ -46,11 +46,17 @@ class SpigotDataHandlerTest {
                         new GameProfile.Property(
                                 "minekube:bedrock_identity",
                                 "signed-envelope-replay-nonce-a",
+                                ""),
+                        new GameProfile.Property(
+                                "minekube:bedrock_identity_scope",
+                                "private-endpoint-id",
                                 "")));
 
         String properties = SpigotDataHandler.forwardedPropertiesJson(profile);
 
         assertFalse(properties.contains("minekube:bedrock_identity"));
+        assertFalse(properties.contains("minekube:bedrock_identity_scope"));
         assertFalse(properties.contains("replay-nonce-a"));
+        assertFalse(properties.contains("private-endpoint-id"));
     }
 }

@@ -254,6 +254,27 @@ class BedrockIdentityEnforcerTest {
     }
 
     @Test
+    void requireModeRejectsReservedIdentityOnPassthroughJavaAdmission() {
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        ConnectPlayer player = registry.stage(session("reserved-envelope-nonce-a", true));
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
+                config("require", base64(new byte[32]), "trusted_bedrock_xuid"),
+                mock(ConnectLogger.class),
+                () -> NOW,
+                registry);
+
+        BedrockIdentityEnforcer.Decision decision = enforcer.verifyAdmission(
+                player,
+                "",
+                "",
+                SessionProtocol.SESSION_PROTOCOL_JAVA);
+
+        assertFalse(decision.allowed());
+        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
+        assertFalse(player.getGameProfile().toString().contains("nonce-a"));
+    }
+
+    @Test
     void requireModeRejectsMarkedBedrockWithoutReservedIdentity() {
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
                 config("require", base64(new byte[32]), "trusted_bedrock_xuid"),
@@ -452,9 +473,15 @@ class BedrockIdentityEnforcerTest {
     }
 
     private static minekube.connect.v1alpha1.WatchServiceOuterClass.Session session(String envelope) {
+        return session(envelope, false);
+    }
+
+    private static minekube.connect.v1alpha1.WatchServiceOuterClass.Session session(
+            String envelope,
+            boolean passthrough) {
         return minekube.connect.v1alpha1.WatchServiceOuterClass.Session.newBuilder()
                 .setId("session-1")
-                .setAuth(Authentication.newBuilder().setPassthrough(false))
+                .setAuth(Authentication.newBuilder().setPassthrough(passthrough))
                 .setPlayer(Player.newBuilder()
                         .setAddr("127.0.0.1")
                         .setProfile(minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfile.newBuilder()
@@ -465,7 +492,10 @@ class BedrockIdentityEnforcerTest {
                                         .setValue("skin"))
                                 .addProperties(GameProfileProperty.newBuilder()
                                         .setName(BedrockIdentityVerifier.PROPERTY_NAME)
-                                        .setValue(envelope))))
+                                        .setValue(envelope))
+                                .addProperties(GameProfileProperty.newBuilder()
+                                        .setName("minekube:bedrock_identity_scope")
+                                        .setValue("private-endpoint-id"))))
                 .build();
     }
 

@@ -211,6 +211,36 @@ class BedrockIdentityVerifierTest {
         assertEquals("JavaSteve", claims.getLinkedJavaName());
     }
 
+    @Test
+    void rejectsUnknownEnvelopeFieldsBeforeSignatureVerification() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        String envelope = signedEnvelope(
+                keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id")
+                .replace("\"version\":1,", "\"version\":1,\"unexpected\":true,");
+
+        BedrockIdentityVerificationException error = assertThrows(
+                BedrockIdentityVerificationException.class,
+                () -> verifier(keyPair, "session-1").verify(profileWithEnvelope(envelope)));
+
+        assertTrue(error.getMessage().contains("unknown"));
+    }
+
+    @Test
+    void rejectsDuplicateNestedEnvelopeFieldsBeforeSignatureVerification() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        String envelope = signedEnvelope(
+                keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id")
+                .replace(
+                        "\"endpoint\":{\"id\":\"endpoint-id\",",
+                        "\"endpoint\":{\"id\":\"endpoint-id\",\"id\":\"endpoint-id\",");
+
+        BedrockIdentityVerificationException error = assertThrows(
+                BedrockIdentityVerificationException.class,
+                () -> verifier(keyPair, "session-1").verify(profileWithEnvelope(envelope)));
+
+        assertTrue(error.getMessage().contains("duplicate"));
+    }
+
     private static BedrockIdentityVerifier verifier(KeyPair keyPair, String sessionId) {
         return BedrockIdentityVerifier.builder()
                 .publicKey(keyPair.getPublic().getEncoded())

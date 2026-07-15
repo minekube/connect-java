@@ -26,6 +26,8 @@
 package com.minekube.connect.inject.spigot;
 
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
+import com.minekube.connect.bedrock.BedrockIdentityEnforcer.Decision;
 import com.minekube.connect.inject.CommonPlatformInjector;
 import com.minekube.connect.network.netty.LocalServerChannelWrapper;
 import com.minekube.connect.network.netty.LocalSession;
@@ -58,6 +60,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 @RequiredArgsConstructor
 public final class SpigotInjector extends CommonPlatformInjector {
     private final ConnectLogger logger;
+    private final BedrockIdentityEnforcer bedrockIdentityEnforcer;
+    private final String packetHandlerName;
     /**
      * Used to determine if ViaVersion is set up to a state where Connect players will fail at
      * joining if injection is enabled
@@ -154,15 +158,17 @@ public final class SpigotInjector extends CommonPlatformInjector {
             @Override
             public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
                 Channel channel = (Channel) msg;
-                // only need to inject if is a local session & auth passthrough is disabled
                 LocalSession.context(channel)
-                        .filter(context -> !context.getPlayer().getAuth().isPassthrough())
-                        .ifPresent($ -> channel.pipeline().addLast("connect-injector",
+                        .ifPresent(context -> channel.pipeline().addLast("connect-injector",
                                 new ChannelInboundHandlerAdapter() {
                                     @Override
                                     public void channelActive(ChannelHandlerContext childCtx)
                                             throws Exception {
-                                        injectAddonsCall(childCtx.channel(), false);
+                                        if (context.getPlayer().getAuth().isPassthrough()) {
+                                            addPassthroughAdmissionHandler(childCtx.channel(), context);
+                                        } else {
+                                            injectAddonsCall(childCtx.channel(), false);
+                                        }
                                         addInjectedClient(childCtx.channel());
                                         childCtx.pipeline().remove(this);
                                         super.channelActive(childCtx);
@@ -171,6 +177,27 @@ public final class SpigotInjector extends CommonPlatformInjector {
                 super.channelRead(ctx, msg);
             }
         });
+    }
+
+    private void addPassthroughAdmissionHandler(Channel channel, LocalSession.Context sessionContext) {
+        channel.pipeline().addBefore(
+                packetHandlerName,
+                "connect-bedrock-identity",
+                new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                        if (ClassNames.LOGIN_START_PACKET.isInstance(msg)) {
+                            Decision decision = bedrockIdentityEnforcer.verify(sessionContext);
+                            ctx.pipeline().remove(this);
+                            if (!decision.allowed()) {
+                                bedrockIdentityEnforcer.reject(sessionContext, decision);
+                                ctx.close();
+                                return;
+                            }
+                        }
+                        super.channelRead(ctx, msg);
+                    }
+                });
     }
 
     public Object getServerConnection() throws IllegalAccessException, InvocationTargetException {

@@ -46,6 +46,10 @@ class PaperProfilePropertiesTest {
                         new GameProfile.Property(
                                 "minekube:bedrock_identity",
                                 "signed-envelope-replay-nonce-a",
+                                ""),
+                        new GameProfile.Property(
+                                "minekube:bedrock_identity_scope",
+                                "private-endpoint-id",
                                 ""))
         );
 
@@ -59,7 +63,11 @@ class PaperProfilePropertiesTest {
         assertTrue(texture.isSigned());
         assertFalse(PaperProfileProperties.fromConnectProfile(connectProfile).stream()
                 .anyMatch(property -> "minekube:bedrock_identity".equals(property.getName())));
+        assertFalse(PaperProfileProperties.fromConnectProfile(connectProfile).stream()
+                .anyMatch(property -> "minekube:bedrock_identity_scope".equals(property.getName())));
         assertFalse(PaperProfileProperties.fromConnectProfile(connectProfile).toString()
                 .contains("replay-nonce-a"));
+        assertFalse(PaperProfileProperties.fromConnectProfile(connectProfile).toString()
+                .contains("private-endpoint-id"));
     }
 }

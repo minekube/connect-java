@@ -50,19 +50,25 @@ class VerifiedBedrockIdentityRegistryTest {
         assertEquals(1, player.getGameProfile().getProperties().size());
         assertEquals("textures", player.getGameProfile().getProperties().get(0).getName());
         assertFalse(player.getGameProfile().toString().contains("replay-nonce-a"));
+        assertFalse(player.getGameProfile().toString().contains("private-endpoint-id"));
         GameProfile admissionProfile = registry.takeAdmissionProfile(player).orElseThrow();
         assertTrue(admissionProfile.toString().contains("replay-nonce-a"));
+        assertTrue(admissionProfile.toString().contains("private-endpoint-id"));
         assertTrue(registry.takeAdmissionProfile(player).isEmpty());
     }
 
     @Test
-    void dropsEnvelopeInsteadOfStagingItForPassthroughSessions() {
+    void retainsPrivateIdentityForPassthroughAdmissionOnly() {
         VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
 
         ConnectPlayer player = registry.stage(session(true));
 
-        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
         assertFalse(player.getGameProfile().toString().contains("replay-nonce-a"));
+        assertFalse(player.getGameProfile().toString().contains("private-endpoint-id"));
+        GameProfile admissionProfile = registry.takeAdmissionProfile(player).orElseThrow();
+        assertTrue(admissionProfile.toString().contains("replay-nonce-a"));
+        assertTrue(admissionProfile.toString().contains("private-endpoint-id"));
+        assertTrue(registry.takeAdmissionProfile(player).isEmpty());
     }
 
     private static ConnectPlayer player(String sessionId) {
@@ -107,7 +113,10 @@ class VerifiedBedrockIdentityRegistryTest {
                                         .setValue("skin"))
                                 .addProperties(GameProfileProperty.newBuilder()
                                         .setName("minekube:bedrock_identity")
-                                        .setValue("signed-envelope-replay-nonce-a"))))
+                                        .setValue("signed-envelope-replay-nonce-a"))
+                                .addProperties(GameProfileProperty.newBuilder()
+                                        .setName("minekube:bedrock_identity_scope")
+                                        .setValue("private-endpoint-id"))))
                 .build();
     }
 }

@@ -2,7 +2,11 @@ package com.minekube.connect.api.player.bedrock;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
 import com.minekube.connect.api.player.GameProfile;
+import java.io.IOException;
+import java.io.StringReader;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
@@ -19,7 +23,9 @@ import java.security.spec.X509EncodedKeySpec;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Supplier;
 
 public final class BedrockIdentityVerifier {
@@ -31,6 +37,15 @@ public final class BedrockIdentityVerifier {
     private static final String PRINCIPAL_BEDROCK_XUID = "bedrock_xuid";
     private static final String PRINCIPAL_BEDROCK_LINKED_JAVA = "bedrock_linked_java";
     private static final Gson GSON = new Gson();
+    private static final Set<String> ENVELOPE_FIELDS = Set.of(
+            "version", "issuer", "endpoint", "session", "policy", "principal", "signature");
+    private static final Set<String> ENDPOINT_FIELDS = Set.of("id", "name", "org_id");
+    private static final Set<String> SESSION_FIELDS = Set.of(
+            "id", "protocol", "issued_at_unix_ms", "expires_at_unix_ms", "nonce");
+    private static final Set<String> POLICY_FIELDS = Set.of("bedrock_auth_mode");
+    private static final Set<String> PRINCIPAL_FIELDS = Set.of(
+            "type", "bedrock_xuid", "bedrock_username", "bedrock_derived_uuid",
+            "linked_java_uuid", "linked_java_name");
 
     private final PublicKey publicKey;
     private final Supplier<Instant> now;
@@ -143,6 +158,7 @@ public final class BedrockIdentityVerifier {
     }
 
     private static Envelope decode(String signedEnvelope) throws BedrockIdentityVerificationException {
+        validateStructure(signedEnvelope);
         try {
             Envelope envelope = GSON.fromJson(signedEnvelope, Envelope.class);
             if (envelope == null) {
@@ -151,6 +167,59 @@ public final class BedrockIdentityVerifier {
             return envelope;
         } catch (JsonSyntaxException e) {
             throw new BedrockIdentityVerificationException("decode envelope", e);
+        }
+    }
+
+    private static void validateStructure(String signedEnvelope) throws BedrockIdentityVerificationException {
+        try (JsonReader reader = new JsonReader(new StringReader(signedEnvelope))) {
+            validateObject(reader, "envelope", ENVELOPE_FIELDS);
+            if (reader.peek() != JsonToken.END_DOCUMENT) {
+                throw new BedrockIdentityVerificationException("decode envelope: trailing JSON value");
+            }
+        } catch (IOException | IllegalStateException e) {
+            throw new BedrockIdentityVerificationException("decode envelope", e);
+        }
+    }
+
+    private static void validateObject(JsonReader reader, String object, Set<String> allowedFields)
+            throws IOException, BedrockIdentityVerificationException {
+        reader.beginObject();
+        Set<String> seenFields = new HashSet<>();
+        while (reader.hasNext()) {
+            String field = reader.nextName();
+            if (!seenFields.add(field)) {
+                throw new BedrockIdentityVerificationException(
+                        "decode envelope: duplicate " + object + " field " + field);
+            }
+            if (!allowedFields.contains(field)) {
+                throw new BedrockIdentityVerificationException(
+                        "decode envelope: unknown " + object + " field " + field);
+            }
+            Set<String> nestedFields = nestedFields(object, field);
+            if (nestedFields == null) {
+                reader.skipValue();
+            } else {
+                validateObject(reader, field, nestedFields);
+            }
+        }
+        reader.endObject();
+    }
+
+    private static Set<String> nestedFields(String object, String field) {
+        if (!"envelope".equals(object)) {
+            return null;
+        }
+        switch (field) {
+            case "endpoint":
+                return ENDPOINT_FIELDS;
+            case "session":
+                return SESSION_FIELDS;
+            case "policy":
+                return POLICY_FIELDS;
+            case "principal":
+                return PRINCIPAL_FIELDS;
+            default:
+                return null;
         }
     }
 
