@@ -37,6 +37,7 @@ import org.mockito.ArgumentCaptor;
 class BedrockIdentityEnforcerTest {
     private static final Gson GSON = new Gson();
     private static final Instant NOW = Instant.parse("2026-07-05T12:00:00Z");
+    private static final String VALID_NONCE = "AAAAAAAAAAAAAAAAAAAAAA";
 
     @Test
     void disabledModeAllowsMissingIdentityWithoutLogging() {
@@ -59,10 +60,13 @@ class BedrockIdentityEnforcerTest {
                 "require",
                 base64(keyPair.getPublic().getEncoded()),
                 "trusted_bedrock_xuid");
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", config.getEndpoint());
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", config.getEndpoint());
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(config, mock(ConnectLogger.class), () -> NOW);
 
-        BedrockIdentityEnforcer.Decision decision = enforcer.verify(player("session-1", profileWithEnvelope(envelope)));
+        BedrockIdentityEnforcer.Decision decision = enforcer.verify(
+                player("session-1", profileWithEnvelope(envelope)),
+                "endpoint-id",
+                "org-id");
 
         assertTrue(decision.allowed());
         assertNotNull(decision.verifiedClaims());
@@ -76,7 +80,7 @@ class BedrockIdentityEnforcerTest {
                 "require",
                 base64(keyPair.getPublic().getEncoded()),
                 "trusted_bedrock_xuid");
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", config.getEndpoint());
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", config.getEndpoint());
         VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
         ConnectPlayer player = registry.stage(session(envelope));
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
@@ -87,15 +91,15 @@ class BedrockIdentityEnforcerTest {
 
         BedrockIdentityEnforcer.Decision decision = enforcer.verifyAdmission(
                 player,
-                "",
-                "",
+                "endpoint-id",
+                "org-id",
                 SessionProtocol.SESSION_PROTOCOL_BEDROCK);
 
         assertTrue(decision.allowed());
         assertNotNull(decision.verifiedClaims());
         assertTrue(registry.get(player).isPresent());
         assertTrue(registry.takeAdmissionProfile(player).isEmpty());
-        assertFalse(player.getGameProfile().toString().contains("nonce-a"));
+        assertFalse(player.getGameProfile().toString().contains(VALID_NONCE));
     }
 
     @Test
@@ -176,10 +180,13 @@ class BedrockIdentityEnforcerTest {
                 "",
                 "trusted_bedrock_xuid");
         setField(config.getBedrockIdentity(), "publicKeys", Collections.singletonList(base64(keyPair.getPublic().getEncoded())));
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", config.getEndpoint());
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", config.getEndpoint());
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(config, mock(ConnectLogger.class), () -> NOW);
 
-        BedrockIdentityEnforcer.Decision decision = enforcer.verify(player("session-1", profileWithEnvelope(envelope)));
+        BedrockIdentityEnforcer.Decision decision = enforcer.verify(
+                player("session-1", profileWithEnvelope(envelope)),
+                "endpoint-id",
+                "org-id");
 
         assertTrue(decision.allowed());
         assertNotNull(decision.verifiedClaims());
@@ -192,7 +199,7 @@ class BedrockIdentityEnforcerTest {
                 "require",
                 base64(keyPair.getPublic().getEncoded()),
                 "trusted_bedrock_xuid");
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", config.getEndpoint());
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", config.getEndpoint());
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(config, mock(ConnectLogger.class), () -> NOW);
 
         BedrockIdentityEnforcer.Decision decision = enforcer.verify(
@@ -211,7 +218,7 @@ class BedrockIdentityEnforcerTest {
                 "require",
                 base64(keyPair.getPublic().getEncoded()),
                 "trusted_bedrock_xuid");
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", config.getEndpoint());
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", config.getEndpoint());
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(config, mock(ConnectLogger.class), () -> NOW);
 
         BedrockIdentityEnforcer.Decision decision = enforcer.verify(
@@ -221,6 +228,21 @@ class BedrockIdentityEnforcerTest {
 
         assertFalse(decision.allowed());
         assertTrue(decision.message().contains("Bedrock identity verification failed"));
+    }
+
+    @Test
+    void requireModeRejectsIdentityWhenEitherAuthenticatedScopeValueIsMissing() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        ConnectConfig config = config(
+                "require",
+                base64(keyPair.getPublic().getEncoded()),
+                "trusted_bedrock_xuid");
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", config.getEndpoint());
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(config, mock(ConnectLogger.class), () -> NOW);
+        ConnectPlayer player = player("session-1", profileWithEnvelope(envelope));
+
+        assertFalse(enforcer.verify(player, "", "org-id").allowed());
+        assertFalse(enforcer.verify(player, "endpoint-id", " ").allowed());
     }
 
     @Test
@@ -297,13 +319,13 @@ class BedrockIdentityEnforcerTest {
                 "require",
                 base64(keyPair.getPublic().getEncoded()),
                 "trusted_bedrock_xuid");
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", config.getEndpoint());
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", config.getEndpoint());
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(config, mock(ConnectLogger.class), () -> NOW);
 
         BedrockIdentityEnforcer.Decision decision = enforcer.verify(
                 player("session-1", profileWithEnvelope(envelope)),
-                "",
-                "",
+                "endpoint-id",
+                "org-id",
                 SessionProtocol.SESSION_PROTOCOL_UNSPECIFIED);
 
         assertTrue(decision.allowed());
@@ -317,7 +339,7 @@ class BedrockIdentityEnforcerTest {
                 "warn",
                 base64(keyPair.getPublic().getEncoded()),
                 "trusted_bedrock_xuid");
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", config.getEndpoint());
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", config.getEndpoint());
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(config, mock(ConnectLogger.class), () -> NOW);
 
         BedrockIdentityEnforcer.Decision decision = enforcer.verify(
@@ -380,12 +402,12 @@ class BedrockIdentityEnforcerTest {
                 "require",
                 base64(keyPair.getPublic().getEncoded()),
                 "trusted_bedrock_xuid");
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", config.getEndpoint());
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", config.getEndpoint());
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(config, mock(ConnectLogger.class), () -> NOW);
         ConnectPlayer player = player("session-1", profileWithEnvelope(envelope));
 
-        assertTrue(enforcer.verify(player).allowed());
-        BedrockIdentityEnforcer.Decision replay = enforcer.verify(player);
+        assertTrue(enforcer.verify(player, "endpoint-id", "org-id").allowed());
+        BedrockIdentityEnforcer.Decision replay = enforcer.verify(player, "endpoint-id", "org-id");
 
         assertFalse(replay.allowed());
         assertTrue(replay.message().contains("Bedrock identity verification failed"));

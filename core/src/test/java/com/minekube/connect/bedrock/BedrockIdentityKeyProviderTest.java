@@ -37,6 +37,14 @@ class BedrockIdentityKeyProviderTest {
     }
 
     @Test
+    void rejectsStaticKeyThatTheVerifierCannotParse() {
+        ConnectConfig staticConfig = config("");
+        setField(staticConfig.getBedrockIdentity(), "publicKey",
+                Base64.getEncoder().encodeToString(new byte[44]));
+        assertTrue(new BedrockIdentityKeyProvider(staticConfig, new OkHttpClient()).keys().isEmpty());
+    }
+
+    @Test
     void fetchesCurrentAndPreviousMetadataKeys() throws Exception {
         byte[] current = filledKey((byte) 3);
         byte[] previous = filledKey((byte) 4);
@@ -177,12 +185,17 @@ class BedrockIdentityKeyProviderTest {
                     config, new OkHttpClient(), now::get);
 
             assertKeys(provider.keys(), current);
-            now.set(now.get().plusSeconds(2));
+            now.set(now.get().plusSeconds(10));
             assertKeys(provider.keys(), current);
             assertKeys(provider.keys(), current);
             assertEquals(2, server.getRequestCount());
             now.set(Instant.parse("2026-07-15T12:00:12Z"));
             assertTrue(provider.keys().isEmpty());
+            assertTrue(provider.keys().isEmpty());
+            assertEquals(2, server.getRequestCount());
+            now.set(Instant.parse("2026-07-15T12:00:15Z"));
+            assertTrue(provider.keys().isEmpty());
+            assertEquals(3, server.getRequestCount());
         }
     }
 

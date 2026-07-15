@@ -162,6 +162,10 @@ public final class BedrockIdentityEnforcer {
             return Decision.allowed(null);
         }
 
+        if (hasEnvelope && (!hasScopeValue(endpointId) || !hasScopeValue(endpointOrgId))) {
+            return rejectOrWarn(player, mode, "authenticated endpoint scope is incomplete");
+        }
+
         if (MODE_WARN.equals(mode) && !hasConfiguredKeys(bedrockIdentity)) {
             return Decision.allowed(null);
         }
@@ -228,18 +232,14 @@ public final class BedrockIdentityEnforcer {
         BedrockIdentityVerifier.Builder builder = BedrockIdentityVerifier.builder()
                 .publicKey(publicKey)
                 .now(now)
+                .endpointId(endpointId)
                 .endpointName(config.getEndpoint())
+                .orgId(endpointOrgId)
                 .sessionId(player.getSessionId())
                 .protocol(PROTOCOL_BEDROCK)
                 .bedrockAuthPolicy(bedrockIdentity.getExpectedPolicy())
                 .expectedIssuer(bedrockIdentity.getExpectedIssuer())
                 .replayCache(replayCache);
-        if (!isEmpty(endpointId)) {
-            builder.endpointId(endpointId);
-        }
-        if (!isEmpty(endpointOrgId)) {
-            builder.orgId(endpointOrgId);
-        }
         return builder.build();
     }
 
@@ -277,6 +277,10 @@ public final class BedrockIdentityEnforcer {
 
     private static boolean isEmpty(String value) {
         return value == null || value.isEmpty();
+    }
+
+    private static boolean hasScopeValue(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 
     private static boolean hasReservedEnvelope(GameProfile profile) {

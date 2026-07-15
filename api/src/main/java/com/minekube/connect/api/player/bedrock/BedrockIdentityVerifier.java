@@ -262,6 +262,9 @@ public final class BedrockIdentityVerifier {
                 isEmpty(envelope.session.nonce)) {
             throw new BedrockIdentityVerificationException("identity envelope session scope is incomplete");
         }
+        if (!validNonce(envelope.session.nonce)) {
+            throw new BedrockIdentityVerificationException("identity envelope nonce is invalid");
+        }
         if (envelope.session.issued_at_unix_ms <= 0 ||
                 envelope.session.expires_at_unix_ms <= envelope.session.issued_at_unix_ms ||
                 envelope.session.expires_at_unix_ms - envelope.session.issued_at_unix_ms > 300_000) {
@@ -315,6 +318,19 @@ public final class BedrockIdentityVerifier {
 
     private static boolean validPolicy(String policy) {
         return POLICY_LINKED_JAVA_ONLY.equals(policy) || POLICY_TRUSTED_BEDROCK_XUID.equals(policy);
+    }
+
+    private static boolean validNonce(String nonce) {
+        if (nonce.length() != 22 || nonce.indexOf('=') >= 0) {
+            return false;
+        }
+        try {
+            byte[] decoded = Base64.getUrlDecoder().decode(nonce);
+            return decoded.length == 16 && nonce.equals(
+                    Base64.getUrlEncoder().withoutPadding().encodeToString(decoded));
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 
     private static PublicKey parsePublicKey(byte[] publicKey) {

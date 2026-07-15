@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import com.minekube.connect.api.player.Auth;
 import com.minekube.connect.api.player.ConnectPlayer;
@@ -13,6 +16,8 @@ import com.minekube.connect.player.ConnectPlayerImpl;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.UUID;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Authentication;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfileProperty;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
@@ -71,6 +76,36 @@ class VerifiedBedrockIdentityRegistryTest {
         assertTrue(registry.takeAdmissionProfile(player).isEmpty());
     }
 
+    @Test
+    void clearsStagedEnvelopeWhenSessionIsRestagedWithoutPrivateIdentity() {
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        registry.stage(session(false));
+
+        ConnectPlayer restaged = registry.stage(sessionWithoutPrivateIdentity());
+
+        assertTrue(registry.takeAdmissionProfile(restaged).isEmpty());
+    }
+
+    @Test
+    void expiresStagedEnvelopeWithoutRemovingItsReplacement() {
+        ScheduledExecutorService cleanupExecutor = mock(ScheduledExecutorService.class);
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry(cleanupExecutor);
+        registry.stage(session(false));
+        ConnectPlayer replacement = registry.stage(session(true));
+        ConnectPlayer expiring = registry.stage(session(false).toBuilder().setId("session-2").build());
+        org.mockito.ArgumentCaptor<Runnable> cleanups = org.mockito.ArgumentCaptor.forClass(Runnable.class);
+        org.mockito.ArgumentCaptor<Long> delays = org.mockito.ArgumentCaptor.forClass(Long.class);
+
+        verify(cleanupExecutor, org.mockito.Mockito.times(3))
+                .schedule(cleanups.capture(), delays.capture(), eq(TimeUnit.SECONDS));
+        assertEquals(java.util.Arrays.asList(30L, 30L, 30L), delays.getAllValues());
+        cleanups.getAllValues().get(0).run();
+
+        assertTrue(registry.takeAdmissionProfile(replacement).isPresent());
+        cleanups.getAllValues().get(2).run();
+        assertTrue(registry.takeAdmissionProfile(expiring).isEmpty());
+    }
+
     private static ConnectPlayer player(String sessionId) {
         return new ConnectPlayerImpl(
                 sessionId,
@@ -117,6 +152,20 @@ class VerifiedBedrockIdentityRegistryTest {
                                 .addProperties(GameProfileProperty.newBuilder()
                                         .setName("minekube:bedrock_identity_scope")
                                         .setValue("private-endpoint-id"))))
+                .build();
+    }
+
+    private static Session sessionWithoutPrivateIdentity() {
+        Session source = session(false);
+        minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfile profile =
+                source.getPlayer().getProfile().toBuilder()
+                        .clearProperties()
+                        .addProperties(GameProfileProperty.newBuilder()
+                                .setName("textures")
+                                .setValue("skin"))
+                        .build();
+        return source.toBuilder()
+                .setPlayer(source.getPlayer().toBuilder().setProfile(profile))
                 .build();
     }
 }

@@ -30,6 +30,7 @@ import com.google.inject.name.Named;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness;
+import com.minekube.connect.bedrock.BedrockIdentityReadiness.Transport;
 import com.minekube.connect.config.ConnectConfig;
 import java.io.IOException;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionRejection;
@@ -77,7 +78,7 @@ public class WatchClient {
         Request.Builder request = new Request.Builder()
                 .url(WATCH_URL)
                 .header(ENDPOINT_HEADER, config.getEndpoint());
-        if (bedrockIdentityReadiness.isReady()) {
+        if (bedrockIdentityReadiness.observe(Transport.WATCH)) {
             request.header(CAPABILITIES_HEADER, BEDROCK_IDENTITY_V1_CAPABILITY);
         }
 

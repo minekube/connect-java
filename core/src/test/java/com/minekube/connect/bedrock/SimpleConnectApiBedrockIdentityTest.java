@@ -81,4 +81,17 @@ class SimpleConnectApiBedrockIdentityTest {
         assertNull(claims.getNonce());
         assertFalse(claims.toString().contains("replay-nonce-a"));
     }
+
+    @Test
+    void discardsPrivateAdmissionStateWhenSetupFails() {
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        SimpleConnectApi api = new SimpleConnectApi(mock(ConnectLogger.class), registry);
+        ConnectPlayer player = api.stageAdmission(new SessionProposal(
+                VerifiedBedrockIdentityRegistryTest.session(false),
+                reason -> {}));
+
+        api.discardAdmission(player);
+
+        assertFalse(registry.takeAdmissionProfile(player).isPresent());
+    }
 }

@@ -2,6 +2,7 @@ package com.minekube.connect.bedrock;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
+import com.minekube.connect.api.player.bedrock.BedrockIdentityVerifier;
 import com.minekube.connect.config.ConnectConfig;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -138,11 +139,7 @@ public final class BedrockIdentityKeyProvider {
     }
 
     private Instant failureBackoffUntil(Instant current) {
-        Instant retryAt = current.plusSeconds(METADATA_FAILURE_BACKOFF_SECONDS);
-        if (cachedKeys != null && retryAt.isAfter(cachedKeys.staleUntil)) {
-            return cachedKeys.staleUntil;
-        }
-        return retryAt;
+        return current.plusSeconds(METADATA_FAILURE_BACKOFF_SECONDS);
     }
 
     private List<byte[]> staticKeys() {
@@ -162,9 +159,8 @@ public final class BedrockIdentityKeyProvider {
         }
         try {
             byte[] decoded = Base64.getDecoder().decode(encoded);
-            if (decoded.length == 32 || decoded.length == 44) {
-                keys.add(decoded);
-            }
+            BedrockIdentityVerifier.builder().publicKey(decoded);
+            keys.add(decoded);
         } catch (IllegalArgumentException ignored) {
             // Invalid configured material is not a usable verifier key.
         }
@@ -178,6 +174,7 @@ public final class BedrockIdentityKeyProvider {
         if (decoded.length != 32) {
             throw new IllegalArgumentException("metadata key is not an Ed25519 public key");
         }
+        BedrockIdentityVerifier.builder().publicKey(decoded);
         keys.add(decoded);
     }
 

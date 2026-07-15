@@ -3,6 +3,7 @@ package com.minekube.connect.bedrock;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.minekube.connect.bedrock.BedrockIdentityReadiness.Transport;
 import com.minekube.connect.config.ConnectConfig;
 import java.lang.reflect.Field;
 import java.util.Base64;
@@ -24,10 +25,38 @@ class BedrockIdentityReadinessTest {
         assertFalse(new BedrockIdentityReadiness(malformed,
                 new BedrockIdentityKeyProvider(malformed, new OkHttpClient())).isReady());
 
+        ConnectConfig unparseable = config("require");
+        setField(unparseable.getBedrockIdentity(), "publicKey",
+                Base64.getEncoder().encodeToString(new byte[44]));
+        assertFalse(new BedrockIdentityReadiness(unparseable,
+                new BedrockIdentityKeyProvider(unparseable, new OkHttpClient())).isReady());
+
         ConnectConfig valid = config("require");
         setField(valid.getBedrockIdentity(), "publicKey", encodedKey((byte) 2));
         assertTrue(new BedrockIdentityReadiness(valid,
                 new BedrockIdentityKeyProvider(valid, new OkHttpClient())).isReady());
+    }
+
+    @Test
+    void fansReadinessTransitionsToWatchAndLibp2pIndependently() {
+        ConnectConfig config = config("require");
+        setField(config.getBedrockIdentity(), "publicKey", encodedKey((byte) 4));
+        BedrockIdentityReadiness readiness = new BedrockIdentityReadiness(
+                config,
+                new BedrockIdentityKeyProvider(config, new OkHttpClient()));
+
+        assertTrue(readiness.observe(Transport.WATCH));
+        assertTrue(readiness.observe(Transport.LIBP2P));
+        setField(config.getBedrockIdentity(), "enforcement", "disabled");
+
+        assertTrue(readiness.refresh(Transport.WATCH));
+        assertTrue(readiness.refresh(Transport.LIBP2P));
+        assertFalse(readiness.refresh(Transport.WATCH));
+        assertFalse(readiness.refresh(Transport.LIBP2P));
+
+        setField(config.getBedrockIdentity(), "enforcement", "require");
+        assertTrue(readiness.refresh(Transport.LIBP2P));
+        assertTrue(readiness.refresh(Transport.WATCH));
     }
 
     @Test

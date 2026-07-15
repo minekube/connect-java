@@ -29,6 +29,7 @@ import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness;
+import com.minekube.connect.bedrock.BedrockIdentityReadiness.Transport;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.network.netty.LocalSession;
 import com.minekube.connect.platform.util.PlatformUtils;
@@ -269,7 +270,9 @@ final class Libp2pEndpointRuntime {
                                 : connectConfig.getSuperEndpoints(),
                         offlineMode,
                         authType,
-                        bedrockIdentityReadiness.capabilities(libp2pConfig.capabilities()),
+                        bedrockIdentityReadiness.capabilities(
+                                libp2pConfig.capabilities(),
+                                Transport.LIBP2P),
                         this::currentCapacity);
                 client = new PeerRegistrationClient(handshake);
                 PeerRegisterResult result = await(client.install(
@@ -346,7 +349,7 @@ final class Libp2pEndpointRuntime {
     }
 
     private void refreshRegistrationReadiness() {
-        if (!bedrockIdentityReadiness.refresh()) {
+        if (!bedrockIdentityReadiness.refresh(Transport.LIBP2P)) {
             return;
         }
         ActiveRegistration registration;

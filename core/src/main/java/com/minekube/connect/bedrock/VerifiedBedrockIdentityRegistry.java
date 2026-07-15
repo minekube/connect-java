@@ -13,14 +13,34 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import javax.inject.Singleton;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
 
 @Singleton
 public final class VerifiedBedrockIdentityRegistry {
+    private static final long ADMISSION_PROFILE_TTL_SECONDS = 30;
+    private static final ScheduledExecutorService CLEANUP_EXECUTOR =
+            Executors.newSingleThreadScheduledExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "connect-bedrock-admission-cleanup");
+                thread.setDaemon(true);
+                return thread;
+            });
+
     private final Map<String, BedrockIdentityClaims> identities = new ConcurrentHashMap<>();
-    private final Map<String, GameProfile> admissionProfiles = new ConcurrentHashMap<>();
+    private final Map<String, AdmissionProfile> admissionProfiles = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService cleanupExecutor;
+
+    public VerifiedBedrockIdentityRegistry() {
+        this(CLEANUP_EXECUTOR);
+    }
+
+    VerifiedBedrockIdentityRegistry(ScheduledExecutorService cleanupExecutor) {
+        this.cleanupExecutor = Objects.requireNonNull(cleanupExecutor, "cleanupExecutor");
+    }
 
     public ConnectPlayer stage(Session session) {
         Objects.requireNonNull(session, "session");
@@ -39,10 +59,29 @@ public final class VerifiedBedrockIdentityRegistry {
                 rawProfile,
                 new Auth(session.getAuth().getPassthrough()),
                 "");
+        ConnectPlayer publicPlayer = publicPlayer(rawPlayer);
+        String sessionId = rawPlayer.getSessionId();
+        identities.remove(sessionId);
+        admissionProfiles.remove(sessionId);
         if (hasPrivateIdentity(rawProfile)) {
-            admissionProfiles.put(rawPlayer.getSessionId(), copy(rawProfile));
+            Object cleanupToken = new Object();
+            AdmissionProfile admissionProfile = new AdmissionProfile(copy(rawProfile), cleanupToken);
+            admissionProfiles.put(sessionId, admissionProfile);
+            try {
+                cleanupExecutor.schedule(
+                        () -> {
+                            admissionProfiles.computeIfPresent(
+                                    sessionId,
+                                    (ignored, current) -> current.cleanupToken == cleanupToken ? null : current);
+                        },
+                        ADMISSION_PROFILE_TTL_SECONDS,
+                        TimeUnit.SECONDS);
+            } catch (RuntimeException e) {
+                admissionProfiles.remove(sessionId, admissionProfile);
+                throw e;
+            }
         }
-        return publicPlayer(rawPlayer);
+        return publicPlayer;
     }
 
     public ConnectPlayer publicPlayer(ConnectPlayer player) {
@@ -60,7 +99,10 @@ public final class VerifiedBedrockIdentityRegistry {
 
     Optional<GameProfile> takeAdmissionProfile(ConnectPlayer player) {
         Objects.requireNonNull(player, "player");
-        return Optional.ofNullable(admissionProfiles.remove(player.getSessionId()));
+        AdmissionProfile admissionProfile = admissionProfiles.remove(player.getSessionId());
+        return admissionProfile == null
+                ? Optional.empty()
+                : Optional.of(admissionProfile.profile);
     }
 
     void clearClaims(ConnectPlayer player) {
@@ -100,5 +142,15 @@ public final class VerifiedBedrockIdentityRegistry {
                 .anyMatch(property ->
                         BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName()) ||
                                 BedrockIdentityProfiles.SCOPE_PROPERTY_NAME.equals(property.getName()));
+    }
+
+    private static final class AdmissionProfile {
+        private final GameProfile profile;
+        private final Object cleanupToken;
+
+        private AdmissionProfile(GameProfile profile, Object cleanupToken) {
+            this.profile = profile;
+            this.cleanupToken = cleanupToken;
+        }
     }
 }

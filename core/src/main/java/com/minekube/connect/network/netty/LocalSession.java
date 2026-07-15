@@ -109,14 +109,23 @@ public final class LocalSession {
             throw new IllegalStateException("Connection has already been connected.");
         }
 
+        ConnectPlayer stagedPlayer = api.stageAdmission(sessionProposal);
+        try {
+            connect(stagedPlayer);
+        } catch (RuntimeException | Error e) {
+            api.discardAdmission(stagedPlayer);
+            throw e;
+        }
+    }
+
+    private void connect(ConnectPlayer stagedPlayer) {
         final Context context = new Context(
-                api.stageAdmission(sessionProposal),
+                stagedPlayer,
                 createAddress(sessionProposal.getSession().getPlayer().getAddr()),
                 sessionProposal,
                 sessionProposal.getEndpointId(),
                 sessionProposal.getEndpointOrgId(),
-                sessionProposal.getProtocol()
-        );
+                sessionProposal.getProtocol());
 
         // Use platform-specific event loop if available (e.g., BungeeCord's event loops)
         // Otherwise fall back to default event loop group
@@ -136,7 +145,7 @@ public final class LocalSession {
                     @Override
                     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause)
                             throws Exception {
-                        LocalSession.this.exceptionCaught(cause);
+                        LocalSession.this.exceptionCaught(cause, context.player);
                         super.exceptionCaught(ctx, cause);
                     }
 
@@ -163,14 +172,19 @@ public final class LocalSession {
                 .connect()
                 .addListener((future) -> {
                     if (!future.isSuccess()) {
-                        exceptionCaught(future.cause());
+                        exceptionCaught(future.cause(), context.player);
                         return;
                     }
-                    api.addPlayer(context.player);
+                    try {
+                        api.addPlayer(context.player);
+                    } catch (RuntimeException | Error e) {
+                        exceptionCaught(e, context.player);
+                    }
                 });
     }
 
-    private void exceptionCaught(Throwable cause) {
+    private void exceptionCaught(Throwable cause, ConnectPlayer player) {
+        api.discardAdmission(player);
         cause.printStackTrace();
         // Reject session proposal in case we are still able to.
         sessionProposal.reject(StatusProto.fromThrowable(cause));

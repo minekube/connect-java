@@ -96,6 +96,10 @@ public class SimpleConnectApi implements ConnectApi {
         return proposal.stageAdmission(verifiedBedrockIdentities);
     }
 
+    public void discardAdmission(ConnectPlayer player) {
+        verifiedBedrockIdentities.remove(player);
+    }
+
     @Override
     public Optional<BedrockIdentityClaims> getVerifiedBedrockIdentity(ConnectPlayer player) {
         if (player == null || !players.containsValue(player)) {

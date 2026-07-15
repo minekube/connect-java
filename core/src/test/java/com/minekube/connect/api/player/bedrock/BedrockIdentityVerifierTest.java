@@ -21,11 +21,12 @@ import org.junit.jupiter.api.Test;
 class BedrockIdentityVerifierTest {
     private static final Gson GSON = new Gson();
     private static final Instant NOW = Instant.parse("2026-07-05T12:00:00Z");
+    private static final String VALID_NONCE = "AAAAAAAAAAAAAAAAAAAAAA";
 
     @Test
     void verifiesEndpointScopedBedrockXuidEnvelopeFromGameProfileProperty() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id");
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id");
         GameProfile profile = profileWithEnvelope(envelope);
 
         BedrockIdentityVerifier verifier = BedrockIdentityVerifier.builder()
@@ -51,7 +52,7 @@ class BedrockIdentityVerifierTest {
     @Test
     void rejectsTamperedEnvelopeSignature() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id")
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id")
                 .replace("BedrockSteve", "SpoofedSteve");
         BedrockIdentityVerifier verifier = verifier(keyPair, "session-1");
 
@@ -63,9 +64,29 @@ class BedrockIdentityVerifierTest {
     }
 
     @Test
+    void rejectsNonceUnlessItIsCanonicalUnpaddedBase64UrlForSixteenBytes() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        BedrockIdentityVerifier verifier = verifier(keyPair, "session-1");
+        for (String nonce : Arrays.asList(
+                Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[15]),
+                Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[17]),
+                VALID_NONCE + "==",
+                "AAAAAAAAAAAAAAAAAAAAA+")) {
+            String envelope = signedEnvelope(
+                    keyPair, nonce, "session-1", "endpoint-id", "endpoint", "org-id");
+
+            BedrockIdentityVerificationException error = assertThrows(
+                    BedrockIdentityVerificationException.class,
+                    () -> verifier.verify(profileWithEnvelope(envelope)));
+
+            assertTrue(error.getMessage().contains("nonce"));
+        }
+    }
+
+    @Test
     void rejectsScopeMismatch() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id");
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id");
         BedrockIdentityVerifier verifier = BedrockIdentityVerifier.builder()
                 .publicKey(keyPair.getPublic().getEncoded())
                 .now(NOW)
@@ -86,7 +107,7 @@ class BedrockIdentityVerifierTest {
     @Test
     void verifiesWhenEndpointIdAndOrgIdAreNotLocallyConfigured() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id");
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id");
         BedrockIdentityVerifier verifier = BedrockIdentityVerifier.builder()
                 .publicKey(keyPair.getPublic().getEncoded())
                 .now(NOW)
@@ -105,7 +126,7 @@ class BedrockIdentityVerifierTest {
     @Test
     void rejectsPolicyMismatchWhenExpectedPolicyIsConfigured() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id");
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id");
         BedrockIdentityVerifier verifier = BedrockIdentityVerifier.builder()
                 .publicKey(keyPair.getPublic().getEncoded())
                 .now(NOW)
@@ -127,7 +148,7 @@ class BedrockIdentityVerifierTest {
     @Test
     void rejectsReplayWhenCacheSeesSameEndpointSessionNonceTwice() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id");
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id");
         BedrockIdentityReplayCache replayCache = new BedrockIdentityReplayCache();
         BedrockIdentityVerifier verifier = BedrockIdentityVerifier.builder()
                 .publicKey(keyPair.getPublic().getEncoded())
@@ -167,7 +188,7 @@ class BedrockIdentityVerifierTest {
     @Test
     void rejectsBedrockProfileUuidMismatch() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id");
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id");
         GameProfile profile = profileWithEnvelope(
                 "BedrockSteve",
                 UUID.fromString("00000000-0000-0000-0000-000000000001"),
@@ -183,7 +204,7 @@ class BedrockIdentityVerifierTest {
     @Test
     void rejectsBedrockProfileNameMismatch() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
-        String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id");
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id");
         GameProfile profile = profileWithEnvelope(
                 "SpoofedSteve",
                 UUID.fromString("f912bf90-8349-565f-9dc0-9891923c0cc3"),
@@ -199,7 +220,8 @@ class BedrockIdentityVerifierTest {
     @Test
     void verifiesLinkedJavaProfileBinding() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
-        String envelope = signedLinkedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id");
+        String envelope = signedLinkedEnvelope(
+                keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id");
         GameProfile profile = profileWithEnvelope(
                 "JavaSteve",
                 UUID.fromString("b5f7f978-5f58-4a21-b105-737f16c90785"),
@@ -215,7 +237,7 @@ class BedrockIdentityVerifierTest {
     void rejectsUnknownEnvelopeFieldsBeforeSignatureVerification() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
         String envelope = signedEnvelope(
-                keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id")
+                keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id")
                 .replace("\"version\":1,", "\"version\":1,\"unexpected\":true,");
 
         BedrockIdentityVerificationException error = assertThrows(
@@ -230,7 +252,7 @@ class BedrockIdentityVerifierTest {
         KeyPair keyPair = ed25519KeyPair();
         String hostileField = "forged-log\n" + "x".repeat(4096);
         String envelope = signedEnvelope(
-                keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id")
+                keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id")
                 .replace(
                         "\"version\":1,",
                         "\"version\":1," + GSON.toJson(hostileField) + ":true,");
@@ -246,7 +268,7 @@ class BedrockIdentityVerifierTest {
     void rejectsDuplicateNestedEnvelopeFieldsBeforeSignatureVerification() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
         String envelope = signedEnvelope(
-                keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id")
+                keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "org-id")
                 .replace(
                         "\"endpoint\":{\"id\":\"endpoint-id\",",
                         "\"endpoint\":{\"id\":\"endpoint-id\",\"id\":\"endpoint-id\",");

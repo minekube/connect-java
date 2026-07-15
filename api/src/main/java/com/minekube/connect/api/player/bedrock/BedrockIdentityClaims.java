@@ -151,6 +151,7 @@ public class BedrockIdentityClaims {
      *
      * @return canonical XUID from the verified signed envelope
      */
+    @java.beans.Transient
     public String getBedrockXuid() {
         return bedrockXuid;
     }

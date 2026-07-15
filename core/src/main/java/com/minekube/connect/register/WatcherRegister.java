@@ -32,6 +32,7 @@ import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness;
+import com.minekube.connect.bedrock.BedrockIdentityReadiness.Transport;
 import com.minekube.connect.network.netty.LocalSession;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
@@ -106,7 +107,7 @@ public class WatcherRegister {
     }
 
     private void refreshWatchReadiness() {
-        if (bedrockIdentityReadiness != null && bedrockIdentityReadiness.refresh()) {
+        if (bedrockIdentityReadiness != null && bedrockIdentityReadiness.refresh(Transport.WATCH)) {
             watch();
         }
     }
