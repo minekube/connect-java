@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import lombok.Getter;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 
 public class SessionProposal {
     private static final Gson GSON = new Gson();
@@ -43,6 +44,8 @@ public class SessionProposal {
     private final String endpointId;
     @Getter
     private final String endpointOrgId;
+    @Getter
+    private final SessionProtocol protocol;
 
     private final AtomicReference<State> state = new AtomicReference<>(State.ACCEPTED);
 
@@ -60,6 +63,9 @@ public class SessionProposal {
         Scope scope = parseScope(session);
         this.endpointId = firstNonEmpty(endpointId, scope.endpoint_id);
         this.endpointOrgId = firstNonEmpty(endpointOrgId, scope.endpoint_org_id);
+        this.protocol = session == null
+                ? SessionProtocol.SESSION_PROTOCOL_UNSPECIFIED
+                : session.getProtocol();
     }
 
     public enum State {

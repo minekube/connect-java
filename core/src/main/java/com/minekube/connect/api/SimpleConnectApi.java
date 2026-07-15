@@ -31,9 +31,11 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
+import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
 import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 
@@ -46,6 +48,7 @@ public class SimpleConnectApi implements ConnectApi {
                     .build();
 
     private final ConnectLogger logger;
+    private final Map<String, BedrockIdentityClaims> verifiedBedrockIdentities = Maps.newConcurrentMap();
 
     @Override
     public Collection<ConnectPlayer> getPlayers() {
@@ -77,18 +80,37 @@ public class SimpleConnectApi implements ConnectApi {
         return players.put(player.getUniqueId(), player);
     }
 
+    @Override
+    public Optional<BedrockIdentityClaims> getVerifiedBedrockIdentity(ConnectPlayer player) {
+        if (player == null || !players.containsValue(player)) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(verifiedBedrockIdentities.get(player.getSessionId()));
+    }
+
+    /** Internal admission hook; raw envelopes never enter the registry. */
+    public void recordVerifiedBedrockIdentity(ConnectPlayer player, BedrockIdentityClaims claims) {
+        if (player != null && claims != null) {
+            verifiedBedrockIdentities.put(player.getSessionId(), claims);
+        }
+    }
+
     /**
      * This method is invoked when the player is no longer on the server, but the related platform-
      * dependant event hasn't fired yet
      */
     public boolean setPendingRemove(ConnectPlayer player) {
+        verifiedBedrockIdentities.remove(player.getSessionId());
         pendingRemove.put(player.getUniqueId(), player);
         return players.remove(player.getUniqueId(), player);
     }
 
     public void playerRemoved(UUID uuid) {
         pendingRemove.invalidate(uuid);
-        players.remove(uuid);
+        ConnectPlayer player = players.remove(uuid);
+        if (player != null) {
+            verifiedBedrockIdentities.remove(player.getSessionId());
+        }
     }
 
     private ConnectPlayer getPendingRemovePlayer(UUID uuid) {

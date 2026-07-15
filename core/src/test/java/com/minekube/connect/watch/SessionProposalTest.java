@@ -7,9 +7,27 @@ import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfile;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfileProperty;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 import org.junit.jupiter.api.Test;
 
 class SessionProposalTest {
+    @Test
+    void preservesTrustedProtocolMarkerWithoutInferringJava() {
+        Session bedrock = Session.newBuilder().setProtocol(SessionProtocol.SESSION_PROTOCOL_BEDROCK).build();
+        Session java = Session.newBuilder().setProtocol(SessionProtocol.SESSION_PROTOCOL_JAVA).build();
+        Session legacy = Session.getDefaultInstance();
+        Session unknown = Session.newBuilder().setProtocolValue(99).build();
+
+        assertEquals(SessionProtocol.SESSION_PROTOCOL_BEDROCK,
+                new SessionProposal(bedrock, reason -> {}).getProtocol());
+        assertEquals(SessionProtocol.SESSION_PROTOCOL_JAVA,
+                new SessionProposal(java, reason -> {}).getProtocol());
+        assertEquals(SessionProtocol.SESSION_PROTOCOL_UNSPECIFIED,
+                new SessionProposal(legacy, reason -> {}).getProtocol());
+        assertEquals(SessionProtocol.UNRECOGNIZED,
+                new SessionProposal(unknown, reason -> {}).getProtocol());
+    }
+
     @Test
     void parsesBedrockIdentityScopeSidecarFromLegacyWatchSession() {
         Session session = Session.newBuilder()

@@ -21,7 +21,7 @@ class SpigotDataHandlerTest {
 
     @Test
     void removeSelfIsIdempotentWhenHandshakeReplacementReentersPipeline() throws Exception {
-        SpigotDataHandler handler = new SpigotDataHandler(null, "packet-handler", null, null, null);
+        SpigotDataHandler handler = new SpigotDataHandler(null, "packet-handler", null, null, null, null);
         EmbeddedChannel channel = new EmbeddedChannel(handler);
         Method removeSelf = SpigotDataHandler.class.getDeclaredMethod("removeSelf");
         removeSelf.setAccessible(true);

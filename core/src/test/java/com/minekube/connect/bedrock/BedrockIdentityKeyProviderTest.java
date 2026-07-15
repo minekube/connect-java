@@ -2,6 +2,7 @@ package com.minekube.connect.bedrock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.minekube.connect.config.ConnectConfig;
 import java.lang.reflect.Field;
@@ -61,6 +62,22 @@ class BedrockIdentityKeyProviderTest {
             BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(config, new OkHttpClient());
 
             assertKeys(provider.keys(), fallback);
+        }
+    }
+
+    @Test
+    void rejectsMetadataWithUnexpectedIssuerOrInvalidKeySize() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setBody("{"
+                    + "\"issuer\":\"unexpected\","
+                    + "\"algorithm\":\"Ed25519\","
+                    + "\"current_public_key\":\"" + Base64.getEncoder().encodeToString(new byte[31]) + "\","
+                    + "\"cache_max_age_seconds\":120"
+                    + "}"));
+            BedrockIdentityKeyProvider provider = new BedrockIdentityKeyProvider(
+                    config(server.url("/keys.json").toString()), new OkHttpClient());
+
+            assertTrue(provider.keys().isEmpty());
         }
     }
 

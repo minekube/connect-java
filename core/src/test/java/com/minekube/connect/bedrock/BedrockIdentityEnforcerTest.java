@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.UUID;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -134,6 +135,39 @@ class BedrockIdentityEnforcerTest {
     }
 
     @Test
+    void requireModeLeavesMarkedJavaWithoutReservedIdentityUnchanged() {
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
+                config("require", base64(new byte[32]), "trusted_bedrock_xuid"),
+                mock(ConnectLogger.class),
+                () -> NOW);
+
+        BedrockIdentityEnforcer.Decision decision = enforcer.verify(
+                player("session-1", profileWithoutEnvelope()),
+                "",
+                "",
+                SessionProtocol.SESSION_PROTOCOL_JAVA);
+
+        assertTrue(decision.allowed());
+        assertEquals(null, decision.verifiedClaims());
+    }
+
+    @Test
+    void requireModeRejectsMarkedBedrockWithoutReservedIdentity() {
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
+                config("require", base64(new byte[32]), "trusted_bedrock_xuid"),
+                mock(ConnectLogger.class),
+                () -> NOW);
+
+        BedrockIdentityEnforcer.Decision decision = enforcer.verify(
+                player("session-1", profileWithoutEnvelope()),
+                "",
+                "",
+                SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+
+        assertFalse(decision.allowed());
+    }
+
+    @Test
     void warnModeLogsAndAllowsMissingIdentity() {
         ConnectLogger logger = mock(ConnectLogger.class);
         BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(
@@ -220,6 +254,7 @@ class BedrockIdentityEnforcerTest {
         setField(bedrockIdentity, "enforcement", enforcement);
         setField(bedrockIdentity, "publicKey", publicKey);
         setField(bedrockIdentity, "expectedPolicy", expectedPolicy);
+        setField(bedrockIdentity, "expectedIssuer", "minekube-connect-test");
         return config;
     }
 
@@ -265,7 +300,7 @@ class BedrockIdentityEnforcerTest {
         envelope.principal.type = "bedrock_xuid";
         envelope.principal.bedrock_xuid = "2533274790395904";
         envelope.principal.bedrock_username = "BedrockSteve";
-        envelope.principal.bedrock_derived_uuid = "00000000-0000-0000-0000-000000000001";
+        envelope.principal.bedrock_derived_uuid = "f912bf90-8349-565f-9dc0-9891923c0cc3";
 
         Signature signer = Signature.getInstance("Ed25519");
         signer.initSign(keyPair.getPrivate());

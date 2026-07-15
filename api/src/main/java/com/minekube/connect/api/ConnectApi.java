@@ -26,7 +26,9 @@
 package com.minekube.connect.api;
 
 import com.minekube.connect.api.player.ConnectPlayer;
+import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
 import java.util.Collection;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface ConnectApi {
@@ -62,4 +64,12 @@ public interface ConnectApi {
      * @return ConnectPlayer if the given uuid is a player tunneled by Connect
      */
     ConnectPlayer getPlayer(UUID uuid);
+
+    /**
+     * Returns Edge-verified Bedrock identity claims for a currently connected Connect session.
+     * Java, disabled, warn-failed, rejected, and disconnected sessions return empty.
+     */
+    default Optional<BedrockIdentityClaims> getVerifiedBedrockIdentity(ConnectPlayer player) {
+        return Optional.empty();
+    }
 }

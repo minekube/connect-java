@@ -114,6 +114,14 @@ public class ConnectConfig {
          */
         private int metadataCacheSeconds = 300;
         /**
+         * Maximum additional time expired remote metadata may be used when refresh fails.
+         */
+        private int metadataMaxStaleSeconds = 600;
+        /**
+         * Expected issuer published by the Moxy verifier metadata and signed envelopes.
+         */
+        private String expectedIssuer = "minekube-connect";
+        /**
          * Expected Connect Edge Bedrock authentication policy.
          */
         private String expectedPolicy = "trusted_bedrock_xuid";

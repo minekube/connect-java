@@ -19,6 +19,7 @@ import java.util.Objects;
 import java.util.function.Supplier;
 import javax.inject.Named;
 import okhttp3.OkHttpClient;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 
 public final class BedrockIdentityEnforcer {
     private static final String MODE_DISABLED = "disabled";
@@ -58,7 +59,7 @@ public final class BedrockIdentityEnforcer {
 
     public Decision verify(LocalSession.Context context) {
         Objects.requireNonNull(context, "context");
-        return verify(context.getPlayer(), context.getEndpointId(), context.getEndpointOrgId());
+        return verify(context.getPlayer(), context.getEndpointId(), context.getEndpointOrgId(), context.getProtocol());
     }
 
     public void reject(LocalSession.Context context, Decision decision) {
@@ -71,14 +72,36 @@ public final class BedrockIdentityEnforcer {
     }
 
     public Decision verify(ConnectPlayer player) {
-        return verify(player, "", "");
+        return verify(player, "", "", SessionProtocol.SESSION_PROTOCOL_BEDROCK);
     }
 
     Decision verify(ConnectPlayer player, String endpointId, String endpointOrgId) {
+        return verify(player, endpointId, endpointOrgId, SessionProtocol.SESSION_PROTOCOL_BEDROCK);
+    }
+
+    Decision verify(
+            ConnectPlayer player,
+            String endpointId,
+            String endpointOrgId,
+            SessionProtocol protocol) {
         Objects.requireNonNull(player, "player");
+        Objects.requireNonNull(protocol, "protocol");
         BedrockIdentityConfig bedrockIdentity = config.getBedrockIdentity();
         String mode = mode(bedrockIdentity);
         if (MODE_DISABLED.equals(mode)) {
+            return Decision.allowed(null);
+        }
+
+        boolean hasEnvelope = hasReservedEnvelope(player);
+        if (protocol == SessionProtocol.SESSION_PROTOCOL_JAVA) {
+            if (!hasEnvelope) {
+                return Decision.allowed(null);
+            }
+            return rejectOrWarn(player, mode, "reserved identity property on Java session");
+        }
+        if (protocol != SessionProtocol.SESSION_PROTOCOL_BEDROCK && !hasEnvelope) {
+            // Old senders did not authenticate a player edition. Preserve legacy joins,
+            // but do not infer Java or create a trusted unlinked Bedrock identity.
             return Decision.allowed(null);
         }
 
@@ -96,6 +119,11 @@ public final class BedrockIdentityEnforcer {
             }
             return Decision.allowed(null);
         }
+    }
+
+    private Decision rejectOrWarn(ConnectPlayer player, String mode, String reason) {
+        warn(player, reason);
+        return MODE_REQUIRE.equals(mode) ? Decision.rejected(REJECT_MESSAGE) : Decision.allowed(null);
     }
 
     private BedrockIdentityClaims verifyWithKeys(
@@ -141,6 +169,7 @@ public final class BedrockIdentityEnforcer {
                 .sessionId(player.getSessionId())
                 .protocol(PROTOCOL_BEDROCK)
                 .bedrockAuthPolicy(bedrockIdentity.getExpectedPolicy())
+                .expectedIssuer(bedrockIdentity.getExpectedIssuer())
                 .replayCache(replayCache);
         if (!isEmpty(endpointId)) {
             builder.endpointId(endpointId);
@@ -185,6 +214,11 @@ public final class BedrockIdentityEnforcer {
 
     private static boolean isEmpty(String value) {
         return value == null || value.isEmpty();
+    }
+
+    private static boolean hasReservedEnvelope(ConnectPlayer player) {
+        return player.getGameProfile().getProperties().stream()
+                .anyMatch(property -> BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName()));
     }
 
     public static final class Decision {

@@ -30,6 +30,10 @@ bedrock-identity:
   metadata-url: ""
   # Seconds to cache successful verifier metadata.
   metadata-cache-seconds: 300
+  # Hard stale-if-error bound for expired remote keys. Require mode fails closed after this.
+  metadata-max-stale-seconds: 600
+  # Issuer expected in Moxy metadata and signed envelopes.
+  expected-issuer: minekube-connect
   # Expected Connect Edge Bedrock authentication policy.
   expected-policy: trusted_bedrock_xuid
 

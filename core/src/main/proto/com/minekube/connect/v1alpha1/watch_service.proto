@@ -4,6 +4,12 @@ package minekube.connect.v1alpha1;
 
 import "google/rpc/status.proto";
 
+enum SessionProtocol {
+  SESSION_PROTOCOL_UNSPECIFIED = 0;
+  SESSION_PROTOCOL_JAVA = 1;
+  SESSION_PROTOCOL_BEDROCK = 2;
+}
+
 service WatchService {
   // Watch watches for session proposals for taking player connections.
   rpc Watch(stream WatchRequest) returns (stream WatchResponse);
@@ -52,6 +58,9 @@ message Session {
   // Additional transport-specific addresses for establishing the player connection.
   // Older clients ignore this field and continue using tunnel_service_addr.
   repeated TunnelTransport tunnel_transports = 5;
+  // The player protocol determined by the authenticated Connect Edge.
+  // Legacy senders omit this field and decode as SESSION_PROTOCOL_UNSPECIFIED.
+  SessionProtocol protocol = 6;
 }
 
 message TunnelTransport {

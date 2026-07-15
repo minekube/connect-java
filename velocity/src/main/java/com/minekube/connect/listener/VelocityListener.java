@@ -117,6 +117,9 @@ public final class VelocityListener {
                                 Component.text(decision.message())));
                         return;
                     }
+                    if (decision.verifiedClaims() != null) {
+                        api.recordVerifiedBedrockIdentity(ctx.getPlayer(), decision.verifiedClaims());
+                    }
                     // Means the TunnelService has already authenticated the player
                     event.setResult(PreLoginEvent.PreLoginComponentResult.forceOfflineMode());
                     playerCache.put(event.getConnection(), ctx.getPlayer());

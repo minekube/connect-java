@@ -44,24 +44,26 @@ final class BedrockIdentityKeyProvider {
             return cachedKeys.keys;
         }
         try {
-            List<byte[]> remoteKeys = fetchKeys(metadataUrl);
-            if (!remoteKeys.isEmpty()) {
-                int cacheSeconds = config.getBedrockIdentity().getMetadataCacheSeconds();
+            RemoteKeys remoteKeys = fetchKeys(metadataUrl);
+            if (!remoteKeys.keys.isEmpty()) {
+                int cacheSeconds = metadataCacheSeconds(remoteKeys.cacheSeconds);
                 if (cacheSeconds <= 0) {
                     cacheSeconds = 300;
                 }
-                cachedKeys = new CachedKeys(remoteKeys, now.get().plusSeconds(cacheSeconds));
-                return remoteKeys;
+                Instant fetchedAt = now.get();
+                cachedKeys = new CachedKeys(remoteKeys.keys, fetchedAt.plusSeconds(cacheSeconds),
+                        fetchedAt.plusSeconds(cacheSeconds + metadataMaxStaleSeconds()));
+                return remoteKeys.keys;
             }
         } catch (IOException | JsonSyntaxException | IllegalArgumentException ignored) {
-            if (cachedKeys != null && !cachedKeys.keys.isEmpty()) {
+            if (cachedKeys != null && !cachedKeys.keys.isEmpty() && now.get().isBefore(cachedKeys.staleUntil)) {
                 return cachedKeys.keys;
             }
         }
         return staticKeys;
     }
 
-    private List<byte[]> fetchKeys(String metadataUrl) throws IOException {
+    private RemoteKeys fetchKeys(String metadataUrl) throws IOException {
         Request request = new Request.Builder().url(metadataUrl).get().build();
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
@@ -72,17 +74,18 @@ final class BedrockIdentityKeyProvider {
                 throw new IOException("metadata body is empty");
             }
             VerifierMetadata metadata = GSON.fromJson(body.charStream(), VerifierMetadata.class);
-            if (metadata == null || !"Ed25519".equals(metadata.algorithm)) {
-                return Collections.emptyList();
+            if (metadata == null || !"Ed25519".equals(metadata.algorithm) ||
+                    !config.getBedrockIdentity().getExpectedIssuer().equals(metadata.issuer)) {
+                return RemoteKeys.empty();
             }
             List<byte[]> keys = new ArrayList<>();
-            addKey(keys, metadata.current_public_key);
+            addMetadataKey(keys, metadata.current_public_key);
             if (metadata.previous_public_keys != null) {
                 for (String key : metadata.previous_public_keys) {
-                    addKey(keys, key);
+                    addMetadataKey(keys, key);
                 }
             }
-            return keys;
+            return new RemoteKeys(keys, metadata.cache_max_age_seconds);
         }
     }
 
@@ -105,19 +108,60 @@ final class BedrockIdentityKeyProvider {
         keys.add(decoded);
     }
 
+    private static void addMetadataKey(List<byte[]> keys, String encoded) {
+        if (encoded == null || encoded.isEmpty()) {
+            throw new IllegalArgumentException("metadata key is empty");
+        }
+        byte[] decoded = Base64.getDecoder().decode(encoded);
+        if (decoded.length != 32) {
+            throw new IllegalArgumentException("metadata key is not an Ed25519 public key");
+        }
+        keys.add(decoded);
+    }
+
+    private int metadataCacheSeconds(int remoteCacheSeconds) {
+        int configured = config.getBedrockIdentity().getMetadataCacheSeconds();
+        if (configured <= 0) {
+            return remoteCacheSeconds;
+        }
+        return remoteCacheSeconds <= 0 ? configured : Math.min(configured, remoteCacheSeconds);
+    }
+
+    private int metadataMaxStaleSeconds() {
+        return Math.max(0, config.getBedrockIdentity().getMetadataMaxStaleSeconds());
+    }
+
     private static final class CachedKeys {
         private final List<byte[]> keys;
         private final Instant expiresAt;
+        private final Instant staleUntil;
 
-        private CachedKeys(List<byte[]> keys, Instant expiresAt) {
+        private CachedKeys(List<byte[]> keys, Instant expiresAt, Instant staleUntil) {
             this.keys = Collections.unmodifiableList(new ArrayList<>(keys));
             this.expiresAt = expiresAt;
+            this.staleUntil = staleUntil;
+        }
+    }
+
+    private static final class RemoteKeys {
+        private final List<byte[]> keys;
+        private final int cacheSeconds;
+
+        private RemoteKeys(List<byte[]> keys, int cacheSeconds) {
+            this.keys = keys;
+            this.cacheSeconds = cacheSeconds;
+        }
+
+        private static RemoteKeys empty() {
+            return new RemoteKeys(Collections.emptyList(), 0);
         }
     }
 
     private static final class VerifierMetadata {
+        String issuer;
         String algorithm;
         String current_public_key;
         List<String> previous_public_keys;
+        int cache_max_age_seconds;
     }
 }

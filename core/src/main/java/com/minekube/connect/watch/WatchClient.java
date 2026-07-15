@@ -47,6 +47,8 @@ public class WatchClient {
     private static final String ENDPOINT_HEADER = "Connect-Endpoint";
     private static final String ENDPOINT_OFFLINE_MODE_HEADER = ENDPOINT_HEADER + "-Offline-Mode";
     private static final String ENDPOINT_PARENTS_HEADER = ENDPOINT_HEADER + "-Parents";
+    private static final String CAPABILITIES_HEADER = "Connect-Capabilities";
+    private static final String BEDROCK_IDENTITY_V1_CAPABILITY = "bedrock-identity-v1";
     private static final String WATCH_URL = System.getenv().getOrDefault(
             "CONNECT_WATCH_URL", "wss://watch-connect.minekube.net");
 
@@ -62,7 +64,8 @@ public class WatchClient {
     public WebSocket watch(Watcher watcher) {
         Request.Builder request = new Request.Builder()
                 .url(WATCH_URL)
-                .header(ENDPOINT_HEADER, config.getEndpoint());
+                .header(ENDPOINT_HEADER, config.getEndpoint())
+                .header(CAPABILITIES_HEADER, BEDROCK_IDENTITY_V1_CAPABILITY);
 
         if (config.getAllowOfflineModePlayers() != null) {
             request = request.header(ENDPOINT_OFFLINE_MODE_HEADER,

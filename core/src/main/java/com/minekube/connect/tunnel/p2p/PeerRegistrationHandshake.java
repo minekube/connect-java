@@ -40,6 +40,7 @@ import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterCommit;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterInit;
 
 final class PeerRegistrationHandshake {
+    static final String BEDROCK_IDENTITY_V1_CAPABILITY = "bedrock-identity-v1";
     private final EndpointPeerIdentity identity;
     private final String endpoint;
     private final String token;
@@ -107,6 +108,9 @@ final class PeerRegistrationHandshake {
         this.offlineMode = Objects.requireNonNull(offlineMode, "offlineMode");
         this.authType = Objects.requireNonNull(authType, "authType");
         this.capabilities = new ArrayList<>(Objects.requireNonNull(capabilities, "capabilities"));
+        if (!this.capabilities.contains(BEDROCK_IDENTITY_V1_CAPABILITY)) {
+            this.capabilities.add(BEDROCK_IDENTITY_V1_CAPABILITY);
+        }
         this.capacitySupplier = Objects.requireNonNull(capacitySupplier, "capacitySupplier");
     }
 

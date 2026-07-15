@@ -33,6 +33,7 @@ import com.minekube.connect.SpigotPlugin;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
 import com.minekube.connect.bedrock.BedrockIdentityEnforcer.Decision;
+import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.network.netty.LocalSession.Context;
 import com.minekube.connect.util.ClassNames;
@@ -48,18 +49,21 @@ public final class SpigotDataHandler extends CommonDataHandler {
     private final String packetHandlerName;
     private final ConnectLogger logger;
     private final BedrockIdentityEnforcer bedrockIdentityEnforcer;
+    private final SimpleConnectApi api;
 
     public SpigotDataHandler(
             Context sessionCtx,
             String packetHandlerName,
             ConnectConfig config,
             ConnectLogger logger,
-            BedrockIdentityEnforcer bedrockIdentityEnforcer) {
+            BedrockIdentityEnforcer bedrockIdentityEnforcer,
+            SimpleConnectApi api) {
         super(config);
         this.sessionCtx = sessionCtx;
         this.packetHandlerName = packetHandlerName;
         this.logger = logger;
         this.bedrockIdentityEnforcer = bedrockIdentityEnforcer;
+        this.api = api;
     }
 
     private void removeSelf() {
@@ -243,6 +247,9 @@ public final class SpigotDataHandler extends CommonDataHandler {
         }
         Decision decision = bedrockIdentityEnforcer.verify(sessionCtx);
         if (decision.allowed()) {
+            if (decision.verifiedClaims() != null) {
+                api.recordVerifiedBedrockIdentity(sessionCtx.getPlayer(), decision.verifiedClaims());
+            }
             return true;
         }
         bedrockIdentityEnforcer.reject(sessionCtx, decision);

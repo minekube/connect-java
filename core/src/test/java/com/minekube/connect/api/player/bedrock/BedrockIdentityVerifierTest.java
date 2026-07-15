@@ -228,7 +228,7 @@ class BedrockIdentityVerifierTest {
         envelope.principal.type = "bedrock_xuid";
         envelope.principal.bedrock_xuid = "2533274790395904";
         envelope.principal.bedrock_username = "BedrockSteve";
-        envelope.principal.bedrock_derived_uuid = "00000000-0000-0000-0000-000000000001";
+        envelope.principal.bedrock_derived_uuid = "f912bf90-8349-565f-9dc0-9891923c0cc3";
 
         Signature signer = Signature.getInstance("Ed25519");
         signer.initSign(keyPair.getPrivate());

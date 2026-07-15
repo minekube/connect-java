@@ -62,6 +62,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -140,7 +141,8 @@ public final class LocalSession {
                 createAddress(sessionProposal.getSession().getPlayer().getAddr()),
                 sessionProposal,
                 sessionProposal.getEndpointId(),
-                sessionProposal.getEndpointOrgId()
+                sessionProposal.getEndpointOrgId(),
+                sessionProposal.getProtocol()
         );
 
         // Use platform-specific event loop if available (e.g., BungeeCord's event loops)
@@ -235,6 +237,7 @@ public final class LocalSession {
         final @NotNull SessionProposal sessionProposal;
         final @NotNull String endpointId;
         final @NotNull String endpointOrgId;
+        final @NotNull SessionProtocol protocol;
 
         AtomicReference<TunnelConn> tunnelConn = new AtomicReference<>(null);
     }
