@@ -54,6 +54,14 @@ public final class BedrockIdentityEnforcer {
     public BedrockIdentityEnforcer(
             ConnectConfig config,
             ConnectLogger logger,
+            BedrockIdentityKeyProvider keyProvider,
+            BedrockAdmissionCoordinator admissionCoordinator) {
+        this(config, logger, Instant::now, keyProvider, admissionCoordinator);
+    }
+
+    public BedrockIdentityEnforcer(
+            ConnectConfig config,
+            ConnectLogger logger,
             @Named("defaultHttpClient") OkHttpClient httpClient) {
         this(config, logger, Instant::now, new BedrockIdentityKeyProvider(config, httpClient),
                 (BedrockAdmissionCoordinator) null);
