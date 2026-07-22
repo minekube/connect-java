@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/minekube/connect-java/compare/0.12.0...0.12.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* **core:** prevent Paper startup config binding collision ([#59](https://github.com/minekube/connect-java/issues/59)) ([3cab908](https://github.com/minekube/connect-java/commit/3cab908b759f440026526efbb314a88956715ccb))
+
 ## [0.12.0](https://github.com/minekube/connect-java/compare/0.11.0...0.12.0) (2026-07-15)
 
 
