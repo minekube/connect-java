@@ -38,16 +38,13 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
 
 ## Injector Scoping (config availability)
 
-- `ConnectConfig` is bound only in the child injector that `ConnectPlatform.init()`
-  creates via `ConfigLoadedModule`, after the config file is loaded. The parent
-  injector (built in each platform's `onLoad`) is config-agnostic.
-- Do NOT make anything reachable from the parent/platform injector inject
-  `ConnectConfig` directly. Guice resolves it as a just-in-time binding on the
-  parent, which then collides with the child binding
-  (`JitBindingAlreadySet`, crash before token init). Instead depend on the
-  parent-bound `ConfigHolder` and read `configHolder.get()` lazily (post-init).
-- Regression guard: `core/.../module/BedrockParentInjectorStartupTest`
-  (introduced for the 0.12.0 Paper startup regression).
+- The parent injector binds `ConfigHolder`; `ConnectPlatform.init()` populates it
+  before `ConfigLoadedModule` binds `ConnectConfig` in the child injector.
+- Anything reachable while constructing the parent/platform injector must avoid
+  injecting `ConnectConfig` directly. Depend on the parent-bound `ConfigHolder`
+  and read `configHolder.get()` lazily after initialization instead.
+- The Bedrock identity graph follows this pattern; see
+  `core/.../module/BedrockParentInjectorStartupTest` for the regression guard.
 
 ## Velocity Join Bugs
 

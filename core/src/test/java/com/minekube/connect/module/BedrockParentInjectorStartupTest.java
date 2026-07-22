@@ -17,25 +17,11 @@ import okhttp3.OkHttpClient;
 import org.junit.jupiter.api.Test;
 
 /**
- * Regression test for the connect-java 0.12.0 Paper startup crash.
+ * Regression guard for resolving the Bedrock graph before configuration is loaded.
  *
- * <p>PR #57 wired the Bedrock identity graph ({@link BedrockIdentityEnforcer} and its
- * {@code BedrockIdentityKeyProvider}) with a hard dependency on {@link ConnectConfig}. That graph is
- * resolved by the platform injector while constructing the platform, i.e. <em>before</em>
- * {@code ConnectPlatform.init()} loads the config. {@code ConnectConfig} is only bound in the child
- * injector that {@code init()} creates via {@link ConfigLoadedModule}. Resolving the Bedrock graph
- * from the parent injector therefore forced Guice to create a just-in-time {@code ConnectConfig}
- * binding on the parent, which then collided with the child binding:
- *
- * <pre>
- * [Guice/JitBindingAlreadySet]: A just-in-time binding to ConnectConfig was already configured
- * on a parent injector at ConfigLoadedModule.config(ConfigLoadedModule.java:49)
- * </pre>
- *
- * <p>The connector crashed in {@code SpigotPlugin.onLoad()} before token initialization, so
- * {@code plugins/Connect/token.json} was never created. The fix makes the Bedrock graph resolve
- * config lazily through the parent-bound {@link ConfigHolder} so no {@code ConnectConfig} binding is
- * ever established on the parent injector.
+ * <p>The production parent injector builds the platform before {@code ConnectPlatform.init()}
+ * creates the config child. The graph must resolve config lazily through the parent-bound
+ * {@link ConfigHolder}, so the loaded {@link ConnectConfig} can be bound in the child afterward.
  */
 class BedrockParentInjectorStartupTest {
 
