@@ -79,6 +79,21 @@ class BedrockIdentityEnforcerTest {
     }
 
     @Test
+    void retainsLegacyConfigConstructor() throws Exception {
+        Constructor<BedrockIdentityEnforcer> constructor = BedrockIdentityEnforcer.class.getConstructor(
+                ConnectConfig.class,
+                ConnectLogger.class,
+                BedrockIdentityKeyProvider.class,
+                BedrockAdmissionCoordinator.class);
+
+        assertNotNull(constructor.newInstance(
+                new ConnectConfig(),
+                mock(ConnectLogger.class),
+                new BedrockIdentityKeyProvider(new ConnectConfig(), new OkHttpClient()),
+                null));
+    }
+
+    @Test
     void legacyConstructorUsesContextAdmissionRegistry() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
         ConnectConfig config = config(

@@ -36,6 +36,16 @@ gh -R minekube/connect-java release view <version> --json tagName,targetCommitis
 curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<version>/connect-velocity.jar
 ```
 
+## Injector Scoping (config availability)
+
+- The parent injector binds `ConfigHolder`; `ConnectPlatform.init()` populates it
+  before `ConfigLoadedModule` binds `ConnectConfig` in the child injector.
+- Anything reachable while constructing the parent/platform injector must avoid
+  injecting `ConnectConfig` directly. Depend on the parent-bound `ConfigHolder`
+  and read `configHolder.get()` lazily after initialization instead.
+- The Bedrock identity graph follows this pattern; see
+  `core/.../module/BedrockParentInjectorStartupTest` for the regression guard.
+
 ## Velocity Join Bugs
 
 - For Velocity proxy issues, test both `CONFIGURATION` and `PLAY` state packet
@@ -57,3 +67,10 @@ Run targeted module tests for packet/session fixes, then the broader build:
 Do not call production fixed from a Connect Java release alone. Confirm the
 released jar is in the hub image, the hub pod logs the expected plugin version,
 and Moxy accepts a tunnel with the same `connectorVersion`.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.

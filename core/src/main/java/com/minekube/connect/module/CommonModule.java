@@ -125,20 +125,16 @@ public class CommonModule extends AbstractModule {
         return HttpUtils.defaultOkHttpClient();
     }
 
-    @Provides
-    @Singleton
-    public BedrockIdentityKeyProvider bedrockIdentityKeyProvider(
-            ConnectConfig config,
-            @Named("defaultHttpClient") OkHttpClient httpClient) {
-        return new BedrockIdentityKeyProvider(config, httpClient);
-    }
+    // BedrockIdentityKeyProvider is bound just-in-time (@Inject @Singleton) so it and the enforcer
+    // can be resolved by the config-agnostic parent injector without pulling ConnectConfig into it.
+    // See BedrockParentInjectorStartupTest.
 
     @Provides
     @Singleton
     public BedrockIdentityReadiness bedrockIdentityReadiness(
-            ConnectConfig config,
+            ConfigHolder configHolder,
             BedrockIdentityKeyProvider keyProvider) {
-        return new BedrockIdentityReadiness(config, keyProvider);
+        return new BedrockIdentityReadiness(configHolder.get(), keyProvider);
     }
 
     @Provides
