@@ -10,6 +10,7 @@ import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityReplayCache;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityVerificationException;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityVerifier;
+import com.minekube.connect.config.ConfigHolder;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.config.ConnectConfig.BedrockIdentityConfig;
 import com.minekube.connect.network.netty.LocalSession;
@@ -28,20 +29,26 @@ public final class BedrockIdentityEnforcer {
     private static final String PROTOCOL_BEDROCK = "bedrock";
     private static final String REJECT_MESSAGE = "Bedrock identity verification failed";
 
-    private final ConnectConfig config;
+    private final Supplier<ConnectConfig> config;
     private final ConnectLogger logger;
     private final Supplier<Instant> now;
     private final BedrockIdentityKeyProvider keyProvider;
     private final BedrockAdmissionCoordinator admissionCoordinator;
     private final BedrockIdentityReplayCache replayCache = new BedrockIdentityReplayCache();
 
+    /**
+     * Injection seam used by the plugin. The config is resolved lazily from {@link ConfigHolder} so
+     * this enforcer can be constructed by the (config-agnostic) parent injector while the platform
+     * injector is built, before {@code ConnectPlatform.init()} loads the configuration.
+     */
     @Inject
     public BedrockIdentityEnforcer(
-            ConnectConfig config,
+            ConfigHolder configHolder,
             ConnectLogger logger,
             BedrockIdentityKeyProvider keyProvider,
             BedrockAdmissionCoordinator admissionCoordinator) {
-        this(config, logger, Instant::now, keyProvider, admissionCoordinator);
+        this(Objects.requireNonNull(configHolder, "configHolder")::get, logger, Instant::now,
+                keyProvider, admissionCoordinator);
     }
 
     public BedrockIdentityEnforcer(
@@ -89,11 +96,29 @@ public final class BedrockIdentityEnforcer {
             Supplier<Instant> now,
             BedrockIdentityKeyProvider keyProvider,
             BedrockAdmissionCoordinator admissionCoordinator) {
+        this(constant(config), logger, now, keyProvider, admissionCoordinator);
+    }
+
+    private BedrockIdentityEnforcer(
+            Supplier<ConnectConfig> config,
+            ConnectLogger logger,
+            Supplier<Instant> now,
+            BedrockIdentityKeyProvider keyProvider,
+            BedrockAdmissionCoordinator admissionCoordinator) {
         this.config = Objects.requireNonNull(config, "config");
         this.logger = Objects.requireNonNull(logger, "logger");
         this.now = Objects.requireNonNull(now, "now");
         this.keyProvider = Objects.requireNonNull(keyProvider, "keyProvider");
         this.admissionCoordinator = admissionCoordinator;
+    }
+
+    private static Supplier<ConnectConfig> constant(ConnectConfig config) {
+        Objects.requireNonNull(config, "config");
+        return () -> config;
+    }
+
+    private ConnectConfig config() {
+        return Objects.requireNonNull(config.get(), "config");
     }
 
     BedrockIdentityEnforcer(
@@ -180,7 +205,7 @@ public final class BedrockIdentityEnforcer {
             SessionProtocol protocol) {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(protocol, "protocol");
-        BedrockIdentityConfig bedrockIdentity = config.getBedrockIdentity();
+        BedrockIdentityConfig bedrockIdentity = config().getBedrockIdentity();
         BedrockIdentityConfiguration identityConfiguration = BedrockIdentityConfiguration.from(bedrockIdentity);
         if (identityConfiguration.isDisabled()) {
             return Decision.allowed(null);
@@ -280,7 +305,7 @@ public final class BedrockIdentityEnforcer {
                 .publicKey(publicKey)
                 .now(now)
                 .endpointId(endpointId)
-                .endpointName(config.getEndpoint())
+                .endpointName(config().getEndpoint())
                 .orgId(endpointOrgId)
                 .sessionId(player.getSessionId())
                 .protocol(PROTOCOL_BEDROCK)

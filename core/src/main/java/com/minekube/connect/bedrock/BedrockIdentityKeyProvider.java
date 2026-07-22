@@ -2,7 +2,9 @@ package com.minekube.connect.bedrock;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
+import com.google.inject.name.Named;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityVerifier;
+import com.minekube.connect.config.ConfigHolder;
 import com.minekube.connect.config.ConnectConfig;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -16,29 +18,49 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import javax.inject.Inject;
+import javax.inject.Singleton;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
+@Singleton
 public final class BedrockIdentityKeyProvider {
     private static final Gson GSON = new Gson();
     private static final long METADATA_BODY_LIMIT_BYTES = 64 * 1024;
     private static final long METADATA_CALL_TIMEOUT_SECONDS = 5;
     private static final long METADATA_FAILURE_BACKOFF_SECONDS = 5;
 
-    private final ConnectConfig config;
+    private final Supplier<ConnectConfig> config;
     private final OkHttpClient httpClient;
     private final Supplier<Instant> now;
     private CachedKeys cachedKeys;
     private Instant nextRefreshAt = Instant.MIN;
+
+    /**
+     * Injection seam used by the plugin. The config is resolved lazily from {@link ConfigHolder} so
+     * this provider can be constructed by the (config-agnostic) parent injector before
+     * {@code ConnectPlatform.init()} loads the configuration.
+     */
+    @Inject
+    public BedrockIdentityKeyProvider(
+            ConfigHolder configHolder,
+            @Named("defaultHttpClient") OkHttpClient httpClient) {
+        this(Objects.requireNonNull(configHolder, "configHolder")::get, httpClient, Instant::now);
+    }
 
     public BedrockIdentityKeyProvider(ConnectConfig config, OkHttpClient httpClient) {
         this(config, httpClient, Instant::now);
     }
 
     BedrockIdentityKeyProvider(ConnectConfig config, OkHttpClient httpClient, Supplier<Instant> now) {
+        this(constant(config), httpClient, now);
+    }
+
+    private BedrockIdentityKeyProvider(
+            Supplier<ConnectConfig> config, OkHttpClient httpClient, Supplier<Instant> now) {
         this.config = Objects.requireNonNull(config, "config");
         this.httpClient = Objects.requireNonNull(httpClient, "httpClient").newBuilder()
                 .callTimeout(METADATA_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -48,9 +70,18 @@ public final class BedrockIdentityKeyProvider {
         this.now = Objects.requireNonNull(now, "now");
     }
 
+    private static Supplier<ConnectConfig> constant(ConnectConfig config) {
+        Objects.requireNonNull(config, "config");
+        return () -> config;
+    }
+
+    private ConnectConfig config() {
+        return Objects.requireNonNull(config.get(), "config");
+    }
+
     synchronized List<byte[]> keys() {
         List<byte[]> staticKeys = staticKeys();
-        String metadataUrl = config.getBedrockIdentity().getMetadataUrl();
+        String metadataUrl = config().getBedrockIdentity().getMetadataUrl();
         if (metadataUrl == null || metadataUrl.isEmpty()) {
             return staticKeys;
         }
@@ -83,7 +114,7 @@ public final class BedrockIdentityKeyProvider {
 
     synchronized boolean hasUsableKeys() {
         List<byte[]> keys = keys();
-        String metadataUrl = config.getBedrockIdentity().getMetadataUrl();
+        String metadataUrl = config().getBedrockIdentity().getMetadataUrl();
         if (metadataUrl == null || metadataUrl.isEmpty()) {
             return !keys.isEmpty();
         }
@@ -103,7 +134,7 @@ public final class BedrockIdentityKeyProvider {
             }
             VerifierMetadata metadata = GSON.fromJson(readBody(body), VerifierMetadata.class);
             if (metadata == null || !"Ed25519".equals(metadata.algorithm) ||
-                    !config.getBedrockIdentity().getExpectedIssuer().equals(metadata.issuer)) {
+                    !config().getBedrockIdentity().getExpectedIssuer().equals(metadata.issuer)) {
                 throw new IllegalArgumentException("metadata scope is invalid");
             }
             List<byte[]> keys = new ArrayList<>();
@@ -178,9 +209,9 @@ public final class BedrockIdentityKeyProvider {
 
     private List<byte[]> staticKeys() {
         List<byte[]> keys = new ArrayList<>();
-        addKey(keys, config.getBedrockIdentity().getPublicKey());
-        if (config.getBedrockIdentity().getPublicKeys() != null) {
-            for (String key : config.getBedrockIdentity().getPublicKeys()) {
+        addKey(keys, config().getBedrockIdentity().getPublicKey());
+        if (config().getBedrockIdentity().getPublicKeys() != null) {
+            for (String key : config().getBedrockIdentity().getPublicKeys()) {
                 addKey(keys, key);
             }
         }
@@ -213,7 +244,7 @@ public final class BedrockIdentityKeyProvider {
     }
 
     private int metadataCacheSeconds(int remoteCacheSeconds) {
-        int configured = config.getBedrockIdentity().getMetadataCacheSeconds();
+        int configured = config().getBedrockIdentity().getMetadataCacheSeconds();
         if (configured <= 0) {
             return remoteCacheSeconds;
         }
@@ -221,7 +252,7 @@ public final class BedrockIdentityKeyProvider {
     }
 
     private int metadataMaxStaleSeconds() {
-        return Math.max(0, config.getBedrockIdentity().getMetadataMaxStaleSeconds());
+        return Math.max(0, config().getBedrockIdentity().getMetadataMaxStaleSeconds());
     }
 
     private static final class CachedKeys {
