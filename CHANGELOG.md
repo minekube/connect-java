@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2](https://github.com/minekube/connect-java/compare/0.12.1...0.12.2) (2026-07-24)
+
+
+### Bug Fixes
+
+* **core:** align libp2p endpoint runtime constructor ([#62](https://github.com/minekube/connect-java/issues/62)) ([b617725](https://github.com/minekube/connect-java/commit/b6177259eeb050a60537665dbd9ed7790ef78e24))
+
 ## [0.12.1](https://github.com/minekube/connect-java/compare/0.12.0...0.12.1) (2026-07-22)
 
 
