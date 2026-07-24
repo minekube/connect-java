@@ -46,6 +46,26 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
 - The Bedrock identity graph follows this pattern; see
   `core/.../module/BedrockParentInjectorStartupTest` for the regression guard.
 
+## libp2p Runtime Isolation (reflective boundary)
+
+- The parent-facing wrappers `Libp2pEndpoint` and `Libp2pTunnelTransport` load
+  their isolated runtimes through `Libp2pRuntimeLoader.classLoader()` and resolve
+  the runtime constructor/methods reflectively by exact signature
+  (`getDeclaredConstructor(...)`). This coupling is string/type based, not
+  compile-time checked.
+- When an isolated runtime's constructor changes (e.g. new injected deps), update
+  the wrapper's reflective lookup AND its `newInstance(...)` in lock-step, and add
+  the new deps to the wrapper's `@Inject` constructor so Guice provides them.
+  A drift throws `NoSuchMethodException` at runtime → wrapper sets `runtime=null`,
+  logs "Failed to initialize Connect libp2p endpoint runtime", the endpoint never
+  starts, and joins fail with "No available Browser Hub". This is JDK-independent
+  (fails identically on Java 11/21/26), not an upstream jvm-libp2p issue.
+- Only parent-loaded types (e.g. `com.minekube.connect.bedrock.*`, api/config
+  types) may cross this boundary as parameter types; child-first prefixes
+  (`io.libp2p.*`, `io.netty.*`, `kotlin*`) must not appear in wrapper signatures
+  (guarded by `Libp2pRuntimeBoundaryTest`). Init guard:
+  `core/.../tunnel/p2p/Libp2pEndpointRuntimeInitTest`.
+
 ## Velocity Join Bugs
 
 - For Velocity proxy issues, test both `CONFIGURATION` and `PLAY` state packet

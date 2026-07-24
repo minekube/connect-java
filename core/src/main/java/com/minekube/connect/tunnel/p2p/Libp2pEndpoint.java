@@ -28,6 +28,8 @@ import com.google.inject.name.Named;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
+import com.minekube.connect.bedrock.BedrockIdentityReadiness;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.platform.util.PlatformUtils;
 import java.lang.reflect.Constructor;
@@ -54,7 +56,9 @@ public class Libp2pEndpoint {
             PlatformUtils platformUtils,
             ConnectLogger logger,
             PlatformInjector platformInjector,
-            SimpleConnectApi api) {
+            SimpleConnectApi api,
+            BedrockIdentityReadiness bedrockIdentityReadiness,
+            BedrockAdmissionCoordinator admissionCoordinator) {
         this.logger = logger;
         try {
             Class<?> runtimeClass = Class.forName(
@@ -68,7 +72,9 @@ public class Libp2pEndpoint {
                     PlatformUtils.class,
                     ConnectLogger.class,
                     PlatformInjector.class,
-                    SimpleConnectApi.class);
+                    SimpleConnectApi.class,
+                    BedrockIdentityReadiness.class,
+                    BedrockAdmissionCoordinator.class);
             constructor.setAccessible(true);
             this.runtime = constructor.newInstance(
                     dataDirectory,
@@ -77,7 +83,9 @@ public class Libp2pEndpoint {
                     platformUtils,
                     logger,
                     platformInjector,
-                    api);
+                    api,
+                    bedrockIdentityReadiness,
+                    admissionCoordinator);
             this.startMethod = runtimeClass.getDeclaredMethod("start");
             this.startBootstrapMethod = runtimeClass.getDeclaredMethod(
                     "start", List.class, List.class, boolean.class);
