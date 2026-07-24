@@ -10,6 +10,7 @@ import com.google.inject.Injector;
 import com.google.inject.Key;
 import com.google.inject.name.Names;
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
 import com.minekube.connect.config.ConfigHolder;
 import com.minekube.connect.config.ConnectConfig;
@@ -27,15 +28,51 @@ class BedrockParentInjectorStartupTest {
 
     /**
      * Mirrors the production ordering: a parent injector (with only pre-config bindings available)
-     * resolves the Bedrock enforcer the way {@code SpigotPlatformModule.platformInjector(...)} does,
-     * and only afterwards does {@code ConnectPlatform.init()} create the config-owning child injector.
+     * resolves the Bedrock enforcer the way
+     * {@code SpigotPlatformModule.platformInjector(...)} does, and only afterwards does
+     * {@code ConnectPlatform.init()} create the config-owning child injector.
      */
     @Test
     void resolvingBedrockGraphDoesNotBindConfigOnParentInjector() {
-        Injector parent = Guice.createInjector(new AbstractModule() {
+        Injector parent = preConfigParentInjector();
+
+        // The platform injector resolves the Bedrock enforcer before config load.
+        parent.getInstance(BedrockIdentityEnforcer.class);
+
+        assertParentStaysConfigAgnostic(parent);
+    }
+
+    /**
+     * Mirrors {@code ConnectPlatform}/{@code SpigotPlatform} construction: both inject
+     * {@link BedrockAdmissionCoordinator} directly from the parent/platform injector, before
+     * {@code ConnectPlatform.init()} loads the config. The reported 0.12.0 crash surfaced through
+     * this exact {@code SpigotPlatform -> BedrockAdmissionCoordinator} injection point (moxy#470),
+     * so the coordinator graph must also resolve without pulling {@link ConnectConfig} onto the
+     * parent. This guards the coordinator path that
+     * {@link #resolvingBedrockGraphDoesNotBindConfigOnParentInjector()} (enforcer only) does not
+     * exercise.
+     */
+    @Test
+    void resolvingAdmissionCoordinatorDoesNotBindConfigOnParentInjector() {
+        Injector parent = preConfigParentInjector();
+
+        // ConnectPlatform/SpigotPlatform resolve the admission coordinator during construction.
+        parent.getInstance(BedrockAdmissionCoordinator.class);
+
+        assertParentStaysConfigAgnostic(parent);
+    }
+
+    /**
+     * Pre-config parent injector: it binds only what is available before
+     * {@code ConnectPlatform.init()} loads the configuration (notably {@link ConfigHolder}, but
+     * not {@link ConnectConfig}).
+     */
+    private static Injector preConfigParentInjector() {
+        return Guice.createInjector(new AbstractModule() {
             @Override
             protected void configure() {
-                // ConfigHolder is bound on the parent and populated by init() before config is read.
+                // ConfigHolder is bound on the parent and populated by init() before config is
+                // read.
                 bind(ConfigHolder.class).toInstance(new ConfigHolder());
                 bind(ConnectLogger.class).toInstance(mock(ConnectLogger.class));
                 bind(OkHttpClient.class)
@@ -43,15 +80,15 @@ class BedrockParentInjectorStartupTest {
                         .toInstance(new OkHttpClient());
             }
         });
+    }
 
-        // The platform injector resolves the Bedrock enforcer before config load.
-        parent.getInstance(BedrockIdentityEnforcer.class);
-
+    private static void assertParentStaysConfigAgnostic(Injector parent) {
         // Regression guard: resolving the Bedrock graph must NOT create a ConnectConfig binding on
         // the parent, otherwise the child ConfigLoadedModule below fails with JitBindingAlreadySet.
         assertNull(
                 parent.getExistingBinding(Key.get(ConnectConfig.class)),
-                "resolving the Bedrock graph must not establish a ConnectConfig binding on the parent injector");
+                "resolving the Bedrock graph must not establish a ConnectConfig binding on the "
+                        + "parent injector");
 
         // Reproduces ConnectPlatform.init(): the loaded config is bound in a child injector.
         ConnectConfig loaded = new ConnectConfig();
