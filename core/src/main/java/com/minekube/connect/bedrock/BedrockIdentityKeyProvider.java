@@ -2,6 +2,8 @@ package com.minekube.connect.bedrock;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
+import com.google.inject.Inject;
+import com.google.inject.Singleton;
 import com.google.inject.name.Named;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityVerifier;
 import com.minekube.connect.config.ConfigHolder;
@@ -18,8 +20,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
-import javax.inject.Inject;
-import javax.inject.Singleton;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;

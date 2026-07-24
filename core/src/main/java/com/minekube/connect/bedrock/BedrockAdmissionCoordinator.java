@@ -1,5 +1,7 @@
 package com.minekube.connect.bedrock;
 
+import com.google.inject.Inject;
+import com.google.inject.Singleton;
 import com.google.rpc.Status;
 import com.minekube.connect.api.player.Auth;
 import com.minekube.connect.api.player.ConnectPlayer;
@@ -18,8 +20,6 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import javax.inject.Inject;
-import javax.inject.Singleton;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;

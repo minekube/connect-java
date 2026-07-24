@@ -1,6 +1,7 @@
 package com.minekube.connect.bedrock;
 
 import com.google.inject.Inject;
+import com.google.inject.name.Named;
 import com.google.rpc.Code;
 import com.google.rpc.Status;
 import com.minekube.connect.api.logger.ConnectLogger;
@@ -18,7 +19,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
-import javax.inject.Named;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 import okhttp3.OkHttpClient;
 
