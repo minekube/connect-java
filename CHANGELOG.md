@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.3](https://github.com/minekube/connect-java/compare/0.12.2...0.12.3) (2026-07-24)
+
+
+### Bug Fixes
+
+* **core:** support Velocity 4 Guice injection ([#64](https://github.com/minekube/connect-java/issues/64)) ([b4bec7d](https://github.com/minekube/connect-java/commit/b4bec7d8ed850a12fbd6ee1f768f888d122ff1d2))
+
 ## [0.12.2](https://github.com/minekube/connect-java/compare/0.12.1...0.12.2) (2026-07-24)
 
 
