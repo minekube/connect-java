@@ -1,12 +1,12 @@
 package com.minekube.connect.bedrock;
 
+import com.google.inject.Singleton;
 import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import javax.inject.Singleton;
 
 @Singleton
 public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {

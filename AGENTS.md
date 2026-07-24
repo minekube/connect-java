@@ -46,6 +46,19 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
 - The Bedrock identity graph follows this pattern; see
   `core/.../module/BedrockParentInjectorStartupTest` for the regression guard.
 
+## DI annotations (Guice provider portability)
+
+- Annotate injectable constructors/scopes/qualifiers with `com.google.inject.*`
+  (`Inject`, `Singleton`, `name.Named`) — the codebase standard. Never use
+  `javax.inject.*`: Velocity ships Guice as a `provided` runtime and the plugin
+  builds a child of Velocity's own injector (`VelocityPlugin`), so it runs on the
+  platform's Guice. Velocity 4.0.0 provides Guice 7, which dropped `javax.inject`
+  support (recognizes only `com.google.inject`/`jakarta.inject`), so a
+  `javax.inject`-annotated class is unprovisionable there ("Cant create plugin
+  connect"), while Spigot/Bungee (shaded Guice 6) and Velocity 3.x (Guice 5) still
+  accept `javax`. Guarded by
+  `core/.../bedrock/BedrockVelocityGuice7ProvisioningTest`.
+
 ## libp2p Runtime Isolation (reflective boundary)
 
 - The parent-facing wrappers `Libp2pEndpoint` and `Libp2pTunnelTransport` load

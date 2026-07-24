@@ -1,6 +1,7 @@
 package com.minekube.connect.util;
 
 import com.google.inject.Inject;
+import com.google.inject.name.Named;
 import com.minekube.connect.api.ConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.config.ConnectConfig;
@@ -13,7 +14,6 @@ import java.util.Map;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import javax.inject.Named;
 import org.bstats.MetricsBase;
 import org.bstats.charts.AdvancedPie;
 import org.bstats.charts.DrilldownPie;
