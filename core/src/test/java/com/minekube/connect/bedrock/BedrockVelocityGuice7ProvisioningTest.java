@@ -31,12 +31,14 @@ import org.junit.jupiter.api.Test;
  * <p><b>Root cause.</b> The Connect Velocity plugin does not shade Guice — {@code
  * velocity/build.gradle.kts} marks it {@code provided} — and {@code VelocityPlugin} builds a
  * <em>child</em> of Velocity's own injector, so the Connect graph is provisioned by whatever Guice
- * the platform ships. Velocity 4.0.0 (a new major) ships Guice 7, which dropped {@code javax.inject}
- * support and recognizes only {@code com.google.inject} and {@code jakarta.inject} annotations.
+ * the platform ships. Velocity 4.0.0 (a new major) ships Guice 7, which dropped
+ * {@code javax.inject} support and recognizes only {@code com.google.inject} and {@code
+ * jakarta.inject} annotations.
  * {@link BedrockIdentityKeyProvider} and {@link BedrockAdmissionCoordinator} were annotated with
  * {@code javax.inject.Inject}/{@code @Singleton}, so under Guice 7 they had no discoverable
  * {@code @Inject} constructor and no no-arg constructor and could not be provisioned as the
- * {@code BedrockIdentityKeyProvider} parameter of {@code CommonModule.bedrockIdentityReadiness(...)}
+ * {@code BedrockIdentityKeyProvider} parameter of
+ * {@code CommonModule.bedrockIdentityReadiness(...)}
  * — failing the whole {@code VelocityPlugin} injector. Spigot/Bungee shade their own Guice 6 and
  * Velocity 3.x ships Guice 5; both still recognize {@code javax.inject}, which is why only Velocity
  * 4.0.0 broke. The javax dependency was introduced in #59 (which replaced an explicit
@@ -44,9 +46,10 @@ import org.junit.jupiter.api.Test;
  *
  * <p><b>Test limitation.</b> This repo compiles and tests against Guice 6 (see
  * {@code Versions.guiceVersion}), which recognizes BOTH {@code javax.inject} and {@code
- * com.google.inject}. Provisioning the graph through a real Guice-6 injector therefore succeeds even
- * with the javax annotations and cannot reproduce the failure. No Guice 7 / Velocity 4.0.0 harness
- * is on the classpath, so these tests instead replicate Guice 7's exact injectable-constructor
+ * com.google.inject}. Provisioning the graph through a real Guice-6 injector therefore succeeds
+ * even with the javax annotations and cannot reproduce the failure. No Guice 7 / Velocity 4.0.0
+ * harness is on the classpath, so these tests instead replicate Guice 7's exact
+ * injectable-constructor
  * discovery rule and forbid {@code javax.inject} annotations on the Connect DI classes that sit on
  * the Velocity plugin graph. They fail before the fix and pass after it.
  */
@@ -105,9 +108,10 @@ class BedrockVelocityGuice7ProvisioningTest {
     }
 
     /**
-     * Positive graph check: {@code BedrockIdentityKeyProvider} and {@code BedrockAdmissionCoordinator}
-     * still resolve through a real Guice injector wired the way {@code CommonModule} plus the
-     * parent-injector pattern do it. Green under Guice 6 both before and after the fix; documents
+     * Positive graph check: {@code BedrockIdentityKeyProvider} and
+     * {@code BedrockAdmissionCoordinator} still resolve through a real Guice injector wired like
+     * {@code CommonModule} plus the parent-injector pattern. Green under Guice 6 both before and
+     * after the fix; documents
      * the wiring and guards against unrelated graph breakage.
      */
     @Test
@@ -131,9 +135,10 @@ class BedrockVelocityGuice7ProvisioningTest {
 
     /**
      * Replicates Guice 7's {@code InjectionPoint.forConstructorOf} rule: a type is provisionable
-     * only if it has exactly one constructor annotated with an inject annotation Guice 7 recognizes,
-     * or (failing that) an injectable no-arg constructor. Under {@code javax.inject} annotations
-     * Guice 7 sees neither, producing the "no @Inject constructor and no no-arg constructor"
+     * only if it has exactly one constructor annotated with an inject annotation Guice 7
+     * recognizes, or (failing that) an injectable no-arg constructor. Under {@code javax.inject}
+     * annotations Guice 7 sees neither, producing the
+     * "no @Inject constructor and no no-arg constructor"
      * failure.
      */
     private static void assertGuice7CanProvision(Class<?> type) {
@@ -152,9 +157,9 @@ class BedrockVelocityGuice7ProvisioningTest {
                 injectConstructors.size() == 1 || hasInjectableNoArgConstructor(type);
         assertTrue(provisionable,
                 type.getName() + " has NO @Inject-annotated constructor that Guice 7 recognizes "
-                        + "(it uses only javax.inject, which Guice 7 on Velocity 4.0.0 ignores) and "
-                        + "NO no-arg constructor, so Guice 7 cannot provision it — reproducing the "
-                        + "\"Cant create plugin connect\" failure.");
+                        + "(it uses only javax.inject, which Guice 7 on Velocity 4.0.0 ignores) "
+                        + "and NO no-arg constructor, so Guice 7 cannot provision it — "
+                        + "reproducing the \"Cant create plugin connect\" failure.");
     }
 
     private static boolean hasGuice7InjectAnnotation(Constructor<?> constructor) {
