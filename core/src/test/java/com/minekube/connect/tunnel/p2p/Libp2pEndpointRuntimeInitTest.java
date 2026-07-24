@@ -26,9 +26,12 @@
 package com.minekube.connect.tunnel.p2p;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.mock;
 
 import com.minekube.connect.api.logger.ConnectLogger;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
+import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
@@ -56,28 +59,38 @@ class Libp2pEndpointRuntimeInitTest {
     @Test
     void initializesRuntimeAcrossIsolatedLoaderBoundary(@TempDir Path dataDirectory) throws Exception {
         ConnectLogger logger = mock(ConnectLogger.class);
+        BedrockAdmissionCoordinator admissionCoordinator = new BedrockAdmissionCoordinator(
+                new VerifiedBedrockIdentityRegistry());
 
-        // Only the dependency *types* drive the reflective constructor lookup, so
-        // null values for the isolated runtime's collaborators are sufficient to
-        // exercise resolution + construction across the class-loader boundary.
-        Libp2pEndpoint endpoint = new Libp2pEndpoint(
-                dataDirectory,
-                null,   // ConnectConfig
-                "connect-token",
-                null,   // PlatformUtils
-                logger,
-                null,   // PlatformInjector
-                null,   // SimpleConnectApi
-                null,   // BedrockIdentityReadiness
-                null);  // BedrockAdmissionCoordinator
+        try {
+            Libp2pEndpoint endpoint = new Libp2pEndpoint(
+                    dataDirectory,
+                    null,   // ConnectConfig
+                    "connect-token",
+                    null,   // PlatformUtils
+                    logger,
+                    null,   // PlatformInjector
+                    null,   // SimpleConnectApi
+                    null,   // BedrockIdentityReadiness
+                    admissionCoordinator);
 
-        Field runtimeField = Libp2pEndpoint.class.getDeclaredField("runtime");
-        runtimeField.setAccessible(true);
-        Object runtime = runtimeField.get(endpoint);
+            Field runtimeField = Libp2pEndpoint.class.getDeclaredField("runtime");
+            runtimeField.setAccessible(true);
+            Object runtime = runtimeField.get(endpoint);
 
-        assertNotNull(runtime,
-                "Libp2pEndpoint must resolve and construct the isolated Libp2pEndpointRuntime; "
-                        + "a null runtime means the reflective constructor lookup failed "
-                        + "(NoSuchMethodException) and the libp2p endpoint will never start.");
+            assertNotNull(runtime,
+                    "Libp2pEndpoint must resolve and construct the isolated Libp2pEndpointRuntime; "
+                            + "a null runtime means the reflective constructor lookup failed "
+                            + "(NoSuchMethodException) and the libp2p endpoint will never start.");
+
+            Field admissionCoordinatorField = runtime.getClass().getDeclaredField("admissionCoordinator");
+            admissionCoordinatorField.setAccessible(true);
+            Object runtimeAdmissionCoordinator = admissionCoordinatorField.get(runtime);
+
+            assertNotNull(runtimeAdmissionCoordinator);
+            assertSame(admissionCoordinator, runtimeAdmissionCoordinator);
+        } finally {
+            admissionCoordinator.close();
+        }
     }
 }
