@@ -41,23 +41,15 @@ import org.junit.jupiter.api.io.TempDir;
  * Guards the reflective boundary between {@link Libp2pEndpoint} (parent class
  * loader) and {@code Libp2pEndpointRuntime} (isolated child-first class loader).
  *
- * <p>The endpoint wrapper resolves the runtime constructor reflectively via
- * {@code getDeclaredConstructor(...)}. If the wrapper's parameter list drifts
- * from the runtime's actual constructor — as it did when PR #57 added the
- * trusted-Bedrock-identity dependencies to the runtime but not to the wrapper —
- * the lookup throws {@link NoSuchMethodException}, the wrapper silently sets its
- * runtime to {@code null}, logs "Failed to initialize Connect libp2p endpoint
- * runtime", and every player join later fails with "No available Browser Hub".
- *
- * <p>This drift is not tied to any JDK version: the reflective lookup either
- * matches an existing constructor or it does not, identically on Java 11, 21 and
- * 26. Constructing the wrapper and asserting the runtime is non-null keeps the
- * two constructor signatures in lock-step.
+ * <p>The wrapper's constructor parameter list must match the runtime constructor
+ * exactly. Supplying a real admission coordinator also verifies that the
+ * injected dependency crosses the boundary unchanged.
  */
 class Libp2pEndpointRuntimeInitTest {
 
     @Test
-    void initializesRuntimeAcrossIsolatedLoaderBoundary(@TempDir Path dataDirectory) throws Exception {
+    void initializesRuntimeAcrossIsolatedLoaderBoundary(
+            @TempDir Path dataDirectory) throws Exception {
         ConnectLogger logger = mock(ConnectLogger.class);
         BedrockAdmissionCoordinator admissionCoordinator = new BedrockAdmissionCoordinator(
                 new VerifiedBedrockIdentityRegistry());
@@ -83,7 +75,8 @@ class Libp2pEndpointRuntimeInitTest {
                             + "a null runtime means the reflective constructor lookup failed "
                             + "(NoSuchMethodException) and the libp2p endpoint will never start.");
 
-            Field admissionCoordinatorField = runtime.getClass().getDeclaredField("admissionCoordinator");
+            Field admissionCoordinatorField = runtime.getClass()
+                    .getDeclaredField("admissionCoordinator");
             admissionCoordinatorField.setAccessible(true);
             Object runtimeAdmissionCoordinator = admissionCoordinatorField.get(runtime);
 
