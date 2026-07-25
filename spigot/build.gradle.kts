@@ -16,6 +16,8 @@ dependencies {
     }
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.5")
+    testImplementation("org.mockito:mockito-core:4.11.0")
+    testImplementation(testFixtures(projects.core))
     testImplementation("com.mojang", "authlib", authlibVersion)
     testImplementation("io.netty", "netty-transport", Versions.nettyVersion)
     testImplementation("dev.folia", "folia-api", Versions.spigotVersion) {

@@ -8,17 +8,29 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        # Run the full build (incl. the per-platform plugin startup tests) on more than one JDK so a
+        # JDK-version-dependent DI/reflective startup regression is caught in CI. 17 is the primary
+        # (release) toolchain and the only one that publishes artifacts; 21 is the highest JDK
+        # Gradle 8.5 can run on. The Java-26-class reflective/DI failures (Guice 7 provisioning,
+        # Libp2pEndpointRuntime constructor arity) are additionally guarded by signature-level
+        # reflective tests that are independent of the running JDK, so they are covered even though
+        # the build cannot run on JDK 26 until Gradle is upgraded.
+        java: ['17', '21']
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Fetch all history for git describe
 
-      - name: Set up JDK 17
+      - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: ${{ matrix.java }}
           cache: 'gradle'
 
       - name: Setup Gradle
@@ -29,21 +41,21 @@ jobs:
 
       - name: Archive artifacts (Connect Bungee)
         uses: actions/upload-artifact@v4
-        if: success()
+        if: success() && matrix.java == '17'
         with:
           name: Connect Bungee
           path: bungee/build/libs/connect-bungee.jar
 
       - name: Archive artifacts (Connect Spigot)
         uses: actions/upload-artifact@v4
-        if: success()
+        if: success() && matrix.java == '17'
         with:
           name: Connect Spigot
           path: spigot/build/libs/connect-spigot.jar
 
       - name: Archive artifacts (Connect Velocity)
         uses: actions/upload-artifact@v4
-        if: success()
+        if: success() && matrix.java == '17'
         with:
           name: Connect Velocity
           path: velocity/build/libs/connect-velocity.jar

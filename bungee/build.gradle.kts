@@ -6,6 +6,18 @@ var guavaVersion = "21.0"
 dependencies {
     api(projects.core)
     implementation("cloud.commandframework", "cloud-bungee", Versions.cloudVersion)
+
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.5")
+    testImplementation("org.mockito:mockito-core:4.11.0")
+    testImplementation(testFixtures(projects.core))
+    // Bungee plugin classes (e.g. BungeeListener) are needed on the test classpath for the
+    // per-platform startup test's reflective DI-graph walk.
+    testImplementation("net.md-5", "bungeecord-api", bungeeApiVersion)
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 relocate("com.google.inject")
