@@ -3,6 +3,7 @@ import net.kyori.blossom.BlossomExtension
 
 plugins {
     idea // used to let Intellij recognize protobuf generated sources
+    `java-test-fixtures` // shared startup/DI provisioning checks reused by per-platform tests
     id("net.kyori.blossom")
     id("com.google.protobuf")
 }

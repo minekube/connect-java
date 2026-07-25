@@ -99,6 +99,21 @@ Do not call production fixed from a Connect Java release alone. Confirm the
 released jar is in the hub image, the hub pod logs the expected plugin version,
 and Moxy accepts a tunnel with the same `connectorVersion`.
 
+### Per-platform startup/DI regression guard
+
+- Each platform (Velocity/Spigot/Bungee) has a plugin startup smoke test
+  (`<platform>/src/test/.../<Platform>PluginStartupTest`) plus core
+  `startup/PluginGraphStartupTest`, sharing the `core` test fixture
+  `core/src/testFixtures/.../startup/StartupGraphProvisioning`: it walks the real
+  `@Inject` graph and replays Guice 7's injectable-constructor rule, so a provider
+  made unprovisionable on any platform's injector (the Velocity 4 / Guice 7 class
+  of bug) fails the suite. The Velocity test fails on the pre-fix `javax.inject`
+  annotations and passes on the fix. Add new platform DI classes to that
+  platform test's `*GraphRoots()`.
+- `pullrequest.yml` runs `./gradlew build` on a JDK matrix (17, 21); the
+  Java-26-class reflective bugs (Guice 7 DI, `Libp2pEndpointRuntime` ctor arity)
+  are guarded by signature-level tests independent of the running JDK.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
