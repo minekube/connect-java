@@ -33,6 +33,9 @@ import com.google.inject.AbstractModule;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
 import com.google.inject.name.Names;
+import com.minekube.connect.addon.AddonManagerAddon;
+import com.minekube.connect.addon.DebugAddon;
+import com.minekube.connect.addon.PacketHandlerAddon;
 import com.minekube.connect.addon.data.SpigotDataAddon;
 import com.minekube.connect.addon.data.SpigotDataHandler;
 import com.minekube.connect.api.ConnectApi;
@@ -84,6 +87,9 @@ class SpigotPluginStartupTest {
         List<Class<?>> roots = new ArrayList<>(StartupGraphProvisioning.coreRuntimeGraphRoots());
         roots.add(SpigotPlatform.class);
         roots.add(SpigotDataAddon.class);
+        roots.add(AddonManagerAddon.class);
+        roots.add(DebugAddon.class);
+        roots.add(PacketHandlerAddon.class);
         roots.add(SpigotCommandUtil.class);
         roots.add(SpigotPlatformUtils.class);
         roots.add(SpigotInjector.class);
@@ -112,6 +118,12 @@ class SpigotPluginStartupTest {
                 "walk must include member-injected SpigotListener");
         assertTrue(graph.contains(PaperProfileListener.class),
                 "walk must include member-injected PaperProfileListener");
+        assertTrue(graph.contains(AddonManagerAddon.class),
+                "walk must include member-injected AddonManagerAddon");
+        assertTrue(graph.contains(DebugAddon.class),
+                "walk must include member-injected DebugAddon");
+        assertTrue(graph.contains(PacketHandlerAddon.class),
+                "walk must include member-injected PacketHandlerAddon");
     }
 
     /**
