@@ -34,6 +34,7 @@ import com.google.inject.Guice;
 import com.google.inject.Injector;
 import com.google.inject.name.Names;
 import com.minekube.connect.addon.data.SpigotDataAddon;
+import com.minekube.connect.addon.data.SpigotDataHandler;
 import com.minekube.connect.api.ConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.packet.PacketHandlers;
@@ -41,9 +42,16 @@ import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
 import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
 import com.minekube.connect.inject.CommonPlatformInjector;
+import com.minekube.connect.inject.spigot.SpigotInjector;
+import com.minekube.connect.listener.PaperProfileListener;
+import com.minekube.connect.listener.SpigotListener;
+import com.minekube.connect.listener.SpigotListenerRegistration;
 import com.minekube.connect.module.ServerCommonModule;
 import com.minekube.connect.platform.util.PlatformUtils;
 import com.minekube.connect.startup.StartupGraphProvisioning;
+import com.minekube.connect.util.SpigotCommandUtil;
+import com.minekube.connect.util.SpigotPlatformUtils;
+import com.minekube.connect.util.SpigotVersionSpecificMethods;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -55,7 +63,8 @@ import org.junit.jupiter.api.io.TempDir;
  * Per-platform startup / smoke test for the Bukkit/Spigot/Paper plugin.
  *
  * <p>Asserts the Spigot plugin DI graph — the {@code ServerCommonModule} + {@code SpigotPlatform}
- * graph {@link SpigotPlugin#onLoad()} builds — is provisionable under Velocity 4-class Guice 7 and
+ * graph {@link SpigotPlugin#onLoad()} builds — including the concrete platform/listener/addon
+ * bindings — is provisionable under Velocity 4-class Guice 7 and
  * that a real Guice injector wires the shared graph up cleanly with no {@code ProvisionException}.
  * Like every platform's injector it carries the Bedrock identity graph, so it fails on the pre-fix
  * commit (javax-annotated Bedrock providers) and passes on the fix — see {@link
@@ -75,6 +84,14 @@ class SpigotPluginStartupTest {
         List<Class<?>> roots = new ArrayList<>(StartupGraphProvisioning.coreRuntimeGraphRoots());
         roots.add(SpigotPlatform.class);
         roots.add(SpigotDataAddon.class);
+        roots.add(SpigotCommandUtil.class);
+        roots.add(SpigotPlatformUtils.class);
+        roots.add(SpigotInjector.class);
+        roots.add(SpigotVersionSpecificMethods.class);
+        roots.add(SpigotListenerRegistration.class);
+        roots.add(SpigotListener.class);
+        roots.add(PaperProfileListener.class);
+        roots.add(SpigotDataHandler.class);
         return roots;
     }
 
@@ -89,6 +106,12 @@ class SpigotPluginStartupTest {
                         + String.join("\n", violations));
         assertTrue(graph.contains(BedrockIdentityKeyProvider.class),
                 "walk must reach BedrockIdentityKeyProvider (the class that failed on Velocity 4)");
+        assertTrue(graph.contains(SpigotDataAddon.class),
+                "walk must include member-injected SpigotDataAddon");
+        assertTrue(graph.contains(SpigotListener.class),
+                "walk must include member-injected SpigotListener");
+        assertTrue(graph.contains(PaperProfileListener.class),
+                "walk must include member-injected PaperProfileListener");
     }
 
     /**

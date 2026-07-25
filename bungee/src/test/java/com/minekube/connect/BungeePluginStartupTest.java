@@ -40,10 +40,15 @@ import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
 import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
 import com.minekube.connect.inject.CommonPlatformInjector;
+import com.minekube.connect.inject.bungee.BungeeInjector;
 import com.minekube.connect.listener.BungeeListener;
+import com.minekube.connect.listener.BungeeListenerRegistration;
 import com.minekube.connect.module.ProxyCommonModule;
 import com.minekube.connect.platform.util.PlatformUtils;
+import com.minekube.connect.pluginmessage.BungeeSkinApplier;
 import com.minekube.connect.startup.StartupGraphProvisioning;
+import com.minekube.connect.util.BungeeCommandUtil;
+import com.minekube.connect.util.BungeePlatformUtils;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -55,7 +60,8 @@ import org.junit.jupiter.api.io.TempDir;
  * Per-platform startup / smoke test for the BungeeCord plugin.
  *
  * <p>Asserts the Bungee plugin DI graph — the {@code ProxyCommonModule} + {@code BungeePlatformModule}
- * graph {@link BungeePlugin#onLoad()} builds — is provisionable under Velocity 4-class Guice 7 and
+ * graph {@link BungeePlugin#onLoad()} builds — including the concrete platform/listener bindings —
+ * is provisionable under Velocity 4-class Guice 7 and
  * that a real Guice injector wires the shared graph up cleanly with no {@code ProvisionException}.
  * Like every platform's injector it carries the Bedrock identity graph, so it fails on the pre-fix
  * commit (javax-annotated Bedrock providers) and passes on the fix — see {@link
@@ -74,6 +80,11 @@ class BungeePluginStartupTest {
     private static List<Class<?>> bungeeGraphRoots() {
         List<Class<?>> roots = new ArrayList<>(StartupGraphProvisioning.coreRuntimeGraphRoots());
         roots.add(BungeeListener.class);
+        roots.add(BungeeCommandUtil.class);
+        roots.add(BungeePlatformUtils.class);
+        roots.add(BungeeInjector.class);
+        roots.add(BungeeSkinApplier.class);
+        roots.add(BungeeListenerRegistration.class);
         return roots;
     }
 
@@ -88,6 +99,8 @@ class BungeePluginStartupTest {
                         + String.join("\n", violations));
         assertTrue(graph.contains(BedrockIdentityKeyProvider.class),
                 "walk must reach BedrockIdentityKeyProvider (the class that failed on Velocity 4)");
+        assertTrue(graph.contains(BungeeListener.class),
+                "walk must include member-injected BungeeListener");
     }
 
     /**

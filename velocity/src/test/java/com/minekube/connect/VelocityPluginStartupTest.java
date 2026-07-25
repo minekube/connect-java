@@ -39,10 +39,15 @@ import com.minekube.connect.api.packet.PacketHandlers;
 import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
 import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
+import com.minekube.connect.inject.velocity.VelocityInjector;
 import com.minekube.connect.listener.VelocityListener;
+import com.minekube.connect.listener.VelocityListenerRegistration;
 import com.minekube.connect.module.ProxyCommonModule;
 import com.minekube.connect.module.VelocityPlatformModule;
 import com.minekube.connect.startup.StartupGraphProvisioning;
+import com.minekube.connect.util.VelocityCommandUtil;
+import com.minekube.connect.util.VelocityPlatformUtils;
+import com.minekube.connect.util.VelocitySkinApplier;
 import com.velocitypowered.api.event.EventManager;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -73,11 +78,16 @@ import org.slf4j.Logger;
 class VelocityPluginStartupTest {
     @TempDir Path tempDir;
 
-    /** Velocity-specific classes Guice touches, on top of the shared core graph. */
+    /** Velocity module bindings and providers, on top of the shared core graph. */
     private static List<Class<?>> velocityGraphRoots() {
         List<Class<?>> roots = new ArrayList<>(StartupGraphProvisioning.coreRuntimeGraphRoots());
         roots.add(VelocityPlugin.class);
         roots.add(VelocityListener.class);
+        roots.add(VelocityCommandUtil.class);
+        roots.add(VelocityPlatformUtils.class);
+        roots.add(VelocityInjector.class);
+        roots.add(VelocitySkinApplier.class);
+        roots.add(VelocityListenerRegistration.class);
         return roots;
     }
 
@@ -99,6 +109,8 @@ class VelocityPluginStartupTest {
         // Guard the guard: the walk must actually reach the class that regressed.
         assertTrue(graph.contains(BedrockIdentityKeyProvider.class),
                 "walk must reach BedrockIdentityKeyProvider (the class that failed on Velocity 4)");
+        assertTrue(graph.contains(VelocityListener.class),
+                "walk must include member-injected VelocityListener");
     }
 
     /**

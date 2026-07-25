@@ -43,6 +43,7 @@ import com.minekube.connect.config.ConfigHolder;
 import com.minekube.connect.inject.CommonPlatformInjector;
 import com.minekube.connect.module.ServerCommonModule;
 import com.minekube.connect.platform.util.PlatformUtils;
+import com.minekube.connect.register.WatcherRegister;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -106,6 +107,8 @@ class PluginGraphStartupTest {
                 "walk must reach BedrockAdmissionCoordinator");
         assertTrue(graph.contains(BedrockIdentityEnforcer.class),
                 "walk must reach BedrockIdentityEnforcer");
+        assertTrue(graph.contains(WatcherRegister.class),
+                "walk must include member-injected WatcherRegister");
     }
 
     /**

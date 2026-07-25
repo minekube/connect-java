@@ -149,11 +149,10 @@ public final class StartupGraphProvisioning {
         Deque<Class<?>> queue = new ArrayDeque<>();
         Set<Class<?>> visited = new LinkedHashSet<>();
 
-        // A root that Guice itself constructs (has an injectable constructor) is part of the graph
-        // to check; roots created inside @Provides methods (no injectable constructor) are seeds
-        // only and are covered through the dependencies they expose.
+        // Roots created inside @Provides methods with no injection members are seeds only and are
+        // covered through the dependencies they expose.
         for (Class<?> root : roots) {
-            if (isConnectConcrete(root) && hasInjectConstructor(root)) {
+            if (isConnectConcrete(root) && hasInjectMember(root)) {
                 discovered.add(root);
             }
             enqueue(root, queue, visited);
@@ -162,7 +161,7 @@ public final class StartupGraphProvisioning {
         while (!queue.isEmpty()) {
             Class<?> type = queue.poll();
             for (Class<?> dependency : injectedDependencies(type)) {
-                if (isConnectConcrete(dependency)) {
+                if (isConnectConcrete(dependency) && hasInjectMember(dependency)) {
                     discovered.add(dependency);
                 }
                 enqueue(dependency, queue, visited);
@@ -199,28 +198,28 @@ public final class StartupGraphProvisioning {
             }
         }
 
-        // A type with no @Inject constructor is not just-in-time constructed by Guice: it is
-        // supplied by an @Provides method / toInstance / linked binding (e.g. ConfigLoader,
-        // SimpleConnectApi, BedrockIdentityReadiness are built with `new` inside CommonModule), so
-        // Guice never inspects it for an injectable constructor and the javax regression cannot
-        // apply. Only the classes Guice itself instantiates via constructor injection are subject to
-        // Guice 7's discovery rule — exactly the population the Velocity 4 failure came from.
-        if (injectConstructors.isEmpty()) {
+        // Types with no injection members are supplied by an @Provides method / toInstance /
+        // linked binding (e.g. ConfigLoader, SimpleConnectApi, BedrockIdentityReadiness are built
+        // with `new` inside CommonModule), so Guice never inspects them for injection and the javax
+        // regression cannot apply.
+        if (!hasInjectMember(type)) {
             return violations;
         }
 
-        if (guice7InjectConstructors.size() > 1) {
-            violations.add(type.getName() + " has more than one Guice 7 @Inject constructor: "
-                    + guice7InjectConstructors);
-        }
+        if (!injectConstructors.isEmpty()) {
+            if (guice7InjectConstructors.size() > 1) {
+                violations.add(type.getName() + " has more than one Guice 7 @Inject constructor: "
+                        + guice7InjectConstructors);
+            }
 
-        boolean provisionable =
-                guice7InjectConstructors.size() == 1 || hasInjectableNoArgConstructor(type);
-        if (!provisionable) {
-            violations.add(type.getName() + " has an @Inject constructor that Guice 7 does NOT "
-                    + "recognize (it uses only javax.inject, which Guice 7 on Velocity 4.0.0 "
-                    + "ignores) and NO no-arg constructor, so Guice 7 cannot provision it — "
-                    + "reproducing the \"Cant create plugin connect\" failure.");
+            boolean provisionable =
+                    guice7InjectConstructors.size() == 1 || hasInjectableNoArgConstructor(type);
+            if (!provisionable) {
+                violations.add(type.getName() + " has an @Inject constructor that Guice 7 does NOT "
+                        + "recognize (it uses only javax.inject, which Guice 7 on Velocity 4.0.0 "
+                        + "ignores) and NO no-arg constructor, so Guice 7 cannot provision it — "
+                        + "reproducing the \"Cant create plugin connect\" failure.");
+            }
         }
 
         for (String offender : javaxInjectAnnotations(type)) {
@@ -282,6 +281,30 @@ public final class StartupGraphProvisioning {
         return injectConstructor(type) != null;
     }
 
+    private static boolean hasInjectMember(Class<?> type) {
+        for (Class<?> current = type; current != null && current != Object.class;
+                current = current.getSuperclass()) {
+            try {
+                if (hasInjectConstructor(current)) {
+                    return true;
+                }
+                for (Field field : current.getDeclaredFields()) {
+                    if (hasAnnotationNamed(field, INJECT_ANNOTATIONS)) {
+                        return true;
+                    }
+                }
+                for (Method method : current.getDeclaredMethods()) {
+                    if (hasAnnotationNamed(method, INJECT_ANNOTATIONS)) {
+                        return true;
+                    }
+                }
+            } catch (NoClassDefFoundError | RuntimeException ignored) {
+                return false;
+            }
+        }
+        return false;
+    }
+
     private static boolean isConnectConcrete(Class<?> type) {
         return type.getName().startsWith(CONNECT_PACKAGE)
                 && !type.isInterface()
@@ -312,20 +335,23 @@ public final class StartupGraphProvisioning {
 
     private static List<String> javaxInjectAnnotations(Class<?> type) {
         List<String> offenders = new ArrayList<>();
-        collectJavaxInject(type, offenders); // class-level scope, e.g. @Singleton
-        for (Constructor<?> constructor : type.getDeclaredConstructors()) {
-            collectJavaxInject(constructor, offenders);
-            for (Parameter parameter : constructor.getParameters()) {
-                collectJavaxInject(parameter, offenders);
+        for (Class<?> current = type; current != null && current != Object.class;
+                current = current.getSuperclass()) {
+            collectJavaxInject(current, offenders); // class-level scope, e.g. @Singleton
+            for (Constructor<?> constructor : current.getDeclaredConstructors()) {
+                collectJavaxInject(constructor, offenders);
+                for (Parameter parameter : constructor.getParameters()) {
+                    collectJavaxInject(parameter, offenders);
+                }
             }
-        }
-        for (Field field : type.getDeclaredFields()) {
-            collectJavaxInject(field, offenders);
-        }
-        for (Method method : type.getDeclaredMethods()) {
-            collectJavaxInject(method, offenders);
-            for (Parameter parameter : method.getParameters()) {
-                collectJavaxInject(parameter, offenders);
+            for (Field field : current.getDeclaredFields()) {
+                collectJavaxInject(field, offenders);
+            }
+            for (Method method : current.getDeclaredMethods()) {
+                collectJavaxInject(method, offenders);
+                for (Parameter parameter : method.getParameters()) {
+                    collectJavaxInject(parameter, offenders);
+                }
             }
         }
         return offenders;
