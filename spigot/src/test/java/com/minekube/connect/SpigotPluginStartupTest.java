@@ -51,6 +51,7 @@ import com.minekube.connect.listener.SpigotListener;
 import com.minekube.connect.listener.SpigotListenerRegistration;
 import com.minekube.connect.module.ServerCommonModule;
 import com.minekube.connect.platform.util.PlatformUtils;
+import com.minekube.connect.register.AddonRegister;
 import com.minekube.connect.startup.StartupGraphProvisioning;
 import com.minekube.connect.util.SpigotCommandUtil;
 import com.minekube.connect.util.SpigotPlatformUtils;
@@ -86,6 +87,7 @@ class SpigotPluginStartupTest {
     private static List<Class<?>> spigotGraphRoots() {
         List<Class<?>> roots = new ArrayList<>(StartupGraphProvisioning.coreRuntimeGraphRoots());
         roots.add(SpigotPlatform.class);
+        roots.add(AddonRegister.class);
         roots.add(SpigotDataAddon.class);
         roots.add(AddonManagerAddon.class);
         roots.add(DebugAddon.class);
@@ -124,6 +126,8 @@ class SpigotPluginStartupTest {
                 "walk must include member-injected DebugAddon");
         assertTrue(graph.contains(PacketHandlerAddon.class),
                 "walk must include member-injected PacketHandlerAddon");
+        assertTrue(graph.contains(AddonRegister.class),
+                "walk must include eager AddonRegister");
     }
 
     /**

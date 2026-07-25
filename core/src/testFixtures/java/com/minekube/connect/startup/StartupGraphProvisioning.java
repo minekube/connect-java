@@ -30,7 +30,11 @@ import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
 import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
 import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
+import com.minekube.connect.command.TestCommand;
+import com.minekube.connect.command.main.MainCommand;
 import com.minekube.connect.packet.PacketHandlersImpl;
+import com.minekube.connect.register.CommandRegister;
+import com.minekube.connect.register.ListenerRegister;
 import com.minekube.connect.register.WatchHealthServer;
 import com.minekube.connect.register.WatcherRegister;
 import com.minekube.connect.tunnel.Tunneler;
@@ -118,6 +122,10 @@ public final class StartupGraphProvisioning {
         return List.of(
                 ConnectPlatform.class,
                 PacketHandlersImpl.class,
+                CommandRegister.class,
+                ListenerRegister.class,
+                TestCommand.class,
+                MainCommand.class,
                 Libp2pEndpoint.class,
                 Libp2pTunnelTransport.class,
                 WebSocketTunnelTransport.class,
