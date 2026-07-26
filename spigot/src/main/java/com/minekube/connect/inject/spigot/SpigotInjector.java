@@ -336,10 +336,9 @@ public final class SpigotInjector extends CommonPlatformInjector {
      * com.viaversion.viaversion.platform.WrappedChannelInitializer}). Connect supports both, so it
      * is resolved reflectively by name instead of being bound at compile time.
      *
-     * <p>Every failure degrades to "unwrap skipped" instead of propagating. A missing accessor
-     * surfaces as {@link NoSuchMethodError}, which is an {@link Error} and therefore escapes the
-     * {@code catch} in {@code ConnectPlatform.enable()} - Connect then fails to enable at all and no
-     * player can join, which is far worse than double-injected Via handlers.
+     * <p>Every failure degrades to "unwrap skipped" instead of propagating. With reflective lookup,
+     * a missing accessor name raises {@link NoSuchMethodException} and is skipped in favour of the
+     * next known name; if none match, the wrapper is returned with a warning.
      */
     @SuppressWarnings("unchecked")
     private ChannelInitializer<Channel> unwrapViaInitializer(
