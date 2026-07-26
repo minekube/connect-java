@@ -109,7 +109,8 @@ public final class SpigotPlatformModule extends AbstractModule {
         final String VIAVERSION_DOWNLOAD_URL = "https://ci.viaversion.com/job/ViaVersion/";
         boolean isViaVersion = Bukkit.getPluginManager().getPlugin("ViaVersion") != null;
         if (isViaVersion) {
-            // Ensure that we have the latest 4.0.0 changes and not an older ViaVersion version
+            // Ensure that ViaVersion exposes the API introduced in 4.0.0, rather than an older
+            // version. The injector resolves later ViaVersion accessor changes reflectively.
             if (getClassSilently("com.viaversion.viaversion.api.ViaManager") == null) {
                 logger.warn("The plugin version of ViaVersion is too old, " +
                                 "please install the latest release from {}",

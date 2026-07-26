@@ -80,11 +80,9 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
 ## Third-party platform APIs (ViaVersion & friends)
 
 - Connect runs against a wide range of server/plugin versions, so an API that
-  drifts across majors must not be bound at compile time. ViaVersion 5.0 renamed
-  `BukkitChannelInitializer.getOriginal()` to `original()`; because the compile-only
-  dep was pinned to Via 4.0.0 this built fine and threw `NoSuchMethodError` on
-  Spigot/CraftBukkit with Via 5.x. Resolve such accessors reflectively by name
-  (newest first) and degrade to skipping the workaround; see
+  drifts across majors must not be bound at compile time. Resolve cross-version
+  accessors reflectively by name (newest first) and degrade to skipping the
+  workaround with a warning when no known accessor exists; see
   `SpigotInjector#unwrapViaInitializer` and `SpigotInjectorViaLegacyPathTest`.
 - Only plain Spigot/CraftBukkit takes Via's wrapping (legacy) injector path. On
   Paper `BukkitViaInjector` registers a `ChannelInitializeListener` instead, which
