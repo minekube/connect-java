@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.4](https://github.com/minekube/connect-java/compare/0.12.3...0.12.4) (2026-07-26)
+
+
+### Bug Fixes
+
+* **spigot:** support ViaVersion 5.x legacy initializer unwrapping ([#67](https://github.com/minekube/connect-java/issues/67)) ([0b44a3e](https://github.com/minekube/connect-java/commit/0b44a3e533eaeff3f8de3326dcf2171753af9a46))
+
 ## [0.12.3](https://github.com/minekube/connect-java/compare/0.12.2...0.12.3) (2026-07-24)
 
 
