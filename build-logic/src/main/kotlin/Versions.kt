@@ -32,7 +32,10 @@ object Versions {
     const val cloudVersion = "1.5.0"
     const val adventureApiVersion = "4.10.0"
     const val adventurePlatformVersion = "4.0.0"
-    const val viaVersionVersion = "4.0.0"
+    // Compile-only (platform-provided). Must stay on a 5.x: Via 5.0 renamed
+    // BukkitChannelInitializer#getOriginal() to original(), and SpigotInjector resolves both names
+    // reflectively so Via 4.x servers keep working. See SpigotInjectorViaLegacyPathTest.
+    const val viaVersionVersion = "5.11.0"
     const val gRPCVersion = "1.44.0"
     const val protocVersion = "3.19.4"
     const val bstatsVersion = "3.0.2"

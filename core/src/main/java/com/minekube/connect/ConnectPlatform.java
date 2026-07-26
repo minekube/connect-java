@@ -133,8 +133,15 @@ public class ConnectPlatform {
                 logger.error("Failed to inject the packet listener!");
                 return false;
             }
-        } catch (Exception exception) {
-            logger.error("Failed to inject the packet listener!", exception);
+        } catch (Throwable throwable) {
+            // Platform injectors reflect against server/plugin internals, so signature drift (e.g.
+            // a method removed in a new ViaVersion major) arrives as an Error such as
+            // NoSuchMethodError rather than an Exception. Catching Throwable here logs it through
+            // Connect's logger and reports a normal injection failure instead of letting an
+            // unhandled Error escape onEnable(). A false return may still make the platform
+            // disable the plugin—SpigotPlatform.enable() does—so this buys an orderly,
+            // diagnosable failure, not continued operation.
+            logger.error("Failed to inject the packet listener!", throwable);
             return false;
         }
 

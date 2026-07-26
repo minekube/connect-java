@@ -20,6 +20,12 @@ dependencies {
     testImplementation(testFixtures(projects.core))
     testImplementation("com.mojang", "authlib", authlibVersion)
     testImplementation("io.netty", "netty-transport", Versions.nettyVersion)
+    // Real ViaVersion 5.x on the test classpath so SpigotInjectorViaLegacyPathTest exercises the
+    // legacy (non-Paper) injector unwrap against the actual BukkitChannelInitializer API.
+    // viaversion-bukkit publishes no transitive deps, so viaversion-common (which holds the
+    // ViaChannelInitializer superclass declaring original()) has to be requested explicitly.
+    testImplementation("com.viaversion", "viaversion-bukkit", Versions.viaVersionVersion)
+    testImplementation("com.viaversion", "viaversion-common", Versions.viaVersionVersion)
     testImplementation("dev.folia", "folia-api", Versions.spigotVersion) {
         attributes {
             attribute(TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 17)
@@ -51,3 +57,6 @@ relocate("org.yaml")
 provided("com.mojang", "authlib", authlibVersion)
 provided("com.google.code.gson", "gson", gsonVersion)
 provided("com.viaversion", "viaversion-bukkit", Versions.viaVersionVersion)
+// Since Via 5.0 BukkitChannelInitializer extends ViaChannelInitializer, which lives here, so javac
+// needs it on the compile classpath to resolve the type. Provided by the ViaVersion plugin jar.
+provided("com.viaversion", "viaversion-common", Versions.viaVersionVersion)
