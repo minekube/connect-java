@@ -12,8 +12,8 @@ import com.minekube.connect.api.logger.ConnectLogger;
 import org.junit.jupiter.api.Test;
 
 /**
- * Guards that a failing platform injector stays a contained, logged failure instead of taking the
- * whole plugin down.
+ * Guards that a failing platform injector is reported and logged as a failed enable result rather
+ * than letting its {@link Error} propagate out of {@code enable()}.
  *
  * <p>Platform injectors reflect against server and plugin internals (NMS, ViaVersion, ProtocolLib),
  * so signature drift arrives as an {@link Error} - the ViaVersion 5.x
@@ -34,8 +34,8 @@ class ConnectPlatformEnableFailureContainmentTest {
         ConnectLogger logger = mock(ConnectLogger.class);
 
         assertFalse(platform(injector, logger).enable(),
-                "an injector Error must be reported as a failed injection, not propagate out of "
-                        + "enable() and get the plugin disabled by the platform");
+                "an injector Error must be reported and logged as a failed injection, with "
+                        + "enable() returning false instead of allowing it to propagate");
         verify(logger).error("Failed to inject the packet listener!", error);
     }
 

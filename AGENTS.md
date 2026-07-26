@@ -89,11 +89,12 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
 - Only plain Spigot/CraftBukkit takes Via's wrapping (legacy) injector path. On
   Paper `BukkitViaInjector` registers a `ChannelInitializeListener` instead, which
   Connect's local channel picks up for free — so Paper never exercises the unwrap.
-- Injector failures must stay contained: `ConnectPlatform.enable()` catches
+- Injector failures must stay diagnosable: `ConnectPlatform.enable()` catches
   `Throwable` (not `Exception`) because reflective signature drift arrives as an
-  `Error`, which would otherwise escape `onEnable()` and get the plugin disabled —
-  no player can join at all. Guarded by
-  `core/.../ConnectPlatformEnableFailureContainmentTest`.
+  `Error`, making it a logged, orderly injection failure rather than an unhandled
+  `Error` escaping `onEnable()`. `SpigotPlatform.enable()` still disables the plugin
+  on a false return, so the value is the diagnosable log line, not continued operation.
+  Guarded by `core/.../ConnectPlatformEnableFailureContainmentTest`.
 - Compile-only platform deps live in `build-logic/.../Versions.kt` and are excluded
   from the shaded jar by `provided(...)`; the `viaversion-bukkit` artifact declares
   no transitive deps, so `viaversion-common` must be requested explicitly.
