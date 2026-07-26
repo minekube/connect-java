@@ -133,8 +133,12 @@ public class ConnectPlatform {
                 logger.error("Failed to inject the packet listener!");
                 return false;
             }
-        } catch (Exception exception) {
-            logger.error("Failed to inject the packet listener!", exception);
+        } catch (Throwable throwable) {
+            // Throwable, not Exception: platform injectors reflect against server/plugin internals,
+            // so signature drift (e.g. a method removed in a new ViaVersion major) arrives as an
+            // Error such as NoSuchMethodError. Letting that escape onEnable() makes the platform
+            // disable the plugin outright instead of reporting a contained injection failure.
+            logger.error("Failed to inject the packet listener!", throwable);
             return false;
         }
 

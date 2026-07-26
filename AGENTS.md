@@ -77,6 +77,27 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
   guarded by `Libp2pRuntimeBoundaryTest`, and constructor alignment by
   `core/.../tunnel/p2p/Libp2pEndpointRuntimeInitTest`.
 
+## Third-party platform APIs (ViaVersion & friends)
+
+- Connect runs against a wide range of server/plugin versions, so an API that
+  drifts across majors must not be bound at compile time. ViaVersion 5.0 renamed
+  `BukkitChannelInitializer.getOriginal()` to `original()`; because the compile-only
+  dep was pinned to Via 4.0.0 this built fine and threw `NoSuchMethodError` on
+  Spigot/CraftBukkit with Via 5.x. Resolve such accessors reflectively by name
+  (newest first) and degrade to skipping the workaround; see
+  `SpigotInjector#unwrapViaInitializer` and `SpigotInjectorViaLegacyPathTest`.
+- Only plain Spigot/CraftBukkit takes Via's wrapping (legacy) injector path. On
+  Paper `BukkitViaInjector` registers a `ChannelInitializeListener` instead, which
+  Connect's local channel picks up for free — so Paper never exercises the unwrap.
+- Injector failures must stay contained: `ConnectPlatform.enable()` catches
+  `Throwable` (not `Exception`) because reflective signature drift arrives as an
+  `Error`, which would otherwise escape `onEnable()` and get the plugin disabled —
+  no player can join at all. Guarded by
+  `core/.../ConnectPlatformEnableFailureContainmentTest`.
+- Compile-only platform deps live in `build-logic/.../Versions.kt` and are excluded
+  from the shaded jar by `provided(...)`; the `viaversion-bukkit` artifact declares
+  no transitive deps, so `viaversion-common` must be requested explicitly.
+
 ## Velocity Join Bugs
 
 - For Velocity proxy issues, test both `CONFIGURATION` and `PLAY` state packet

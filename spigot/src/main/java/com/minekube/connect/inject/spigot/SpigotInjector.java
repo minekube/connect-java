@@ -57,6 +57,14 @@ import lombok.Getter;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 public final class SpigotInjector extends CommonPlatformInjector {
+    /**
+     * Names ViaVersion has used for the accessor returning the wrapped, original channel
+     * initializer, newest first: {@code original()} since Via 5.0, {@code getOriginal()} on Via 4.x.
+     *
+     * @see #unwrapViaInitializer(ChannelInitializer)
+     */
+    private static final String[] VIA_ORIGINAL_ACCESSORS = {"original", "getOriginal"};
+
     private final ConnectLogger logger;
     private final BedrockIdentityEnforcer bedrockIdentityEnforcer;
     private final String packetHandlerName;
@@ -303,7 +311,7 @@ public final class SpigotInjector extends CommonPlatformInjector {
                 childHandler = (ChannelInitializer<Channel>) childHandlerField.get(handler);
                 // ViaVersion non-Paper-injector workaround so we aren't double-injecting
                 if (isViaVersion && childHandler instanceof BukkitChannelInitializer) {
-                    childHandler = ((BukkitChannelInitializer) childHandler).getOriginal();
+                    childHandler = unwrapViaInitializer(childHandler);
                 }
                 break;
             } catch (Exception e) {
@@ -317,6 +325,53 @@ public final class SpigotInjector extends CommonPlatformInjector {
             throw new RuntimeException();
         }
         return childHandler;
+    }
+
+    /**
+     * Unwraps ViaVersion's legacy (non-Paper) channel initializer so we initialize the server's own
+     * initializer instead of Via's wrapper, which would double-inject Via's handlers.
+     *
+     * <p>The accessor was renamed across Via majors: {@code getOriginal()} on Via 4.x, {@code
+     * original()} since Via 5.0 (pulled up into {@code
+     * com.viaversion.viaversion.platform.WrappedChannelInitializer}). Connect supports both, so it
+     * is resolved reflectively by name instead of being bound at compile time.
+     *
+     * <p>Every failure degrades to "unwrap skipped" instead of propagating. A missing accessor
+     * surfaces as {@link NoSuchMethodError}, which is an {@link Error} and therefore escapes the
+     * {@code catch} in {@code ConnectPlatform.enable()} - Connect then fails to enable at all and no
+     * player can join, which is far worse than double-injected Via handlers.
+     */
+    @SuppressWarnings("unchecked")
+    private ChannelInitializer<Channel> unwrapViaInitializer(
+            ChannelInitializer<Channel> viaInitializer) {
+        for (String accessor : VIA_ORIGINAL_ACCESSORS) {
+            Method method;
+            try {
+                method = viaInitializer.getClass().getMethod(accessor);
+            } catch (NoSuchMethodException e) {
+                continue; // older/newer Via, try the next known name
+            }
+            try {
+                method.setAccessible(true);
+                Object original = method.invoke(viaInitializer);
+                if (original instanceof ChannelInitializer) {
+                    return (ChannelInitializer<Channel>) original;
+                }
+                logger.warn(accessor + "() on " + viaInitializer.getClass().getName()
+                        + " returned " + original + " instead of a ChannelInitializer, "
+                        + "continuing without unwrapping it.");
+                return viaInitializer;
+            } catch (Throwable throwable) {
+                logger.warn("Failed to unwrap ViaVersion's channel initializer via "
+                        + accessor + "(), continuing without unwrapping it: " + throwable);
+                return viaInitializer;
+            }
+        }
+        logger.warn("Could not unwrap ViaVersion's channel initializer: none of "
+                + String.join("(), ", VIA_ORIGINAL_ACCESSORS) + "() exists on "
+                + viaInitializer.getClass().getName() + ". Continuing without unwrapping it, "
+                + "please report this with your ViaVersion version.");
+        return viaInitializer;
     }
 
     @Override
