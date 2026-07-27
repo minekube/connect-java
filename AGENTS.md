@@ -43,6 +43,26 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
   `core/.../release/ReleaseAssetVerificationTest`; keep that test's step and
   upload-step names in sync when editing `release.yml`.
 
+### Repairing a release that published no assets
+
+- Use `release-repair.yml` (default branch, manual dispatch, `contents: write`
+  as its only permission). It checks the tag out, builds at the JDK that tag's
+  own `release.yml` pinned, and uploads only the assets that release is missing.
+  Never dispatch `release.yml` at an old tag instead: it rewrites the live
+  `latest` release, dragging the stable `releases/download/latest/*.jar` URLs
+  backwards. Boundary and guards pinned by
+  `core/.../release/ReleaseRepairCapabilityTest`; keep its step names in sync.
+- Asset naming is per-era: tags up to 0.7.0 published version-suffixed jars
+  (`connect-spigot-0.6.2.jar`), 0.7.1 onwards publish bare names. The repair
+  derives which from the tag's own release workflow, so a repair does not rename.
+- `0.6.0` and `0.7.0` are the only zero-asset releases and are **not**
+  repairable. Their `bungee/build.gradle.kts` requests `bungeecord-proxy` with
+  transitive deps, and `net.md-5:bungeecord-{api,log,protocol,query}` at
+  `1.20-R0.3-SNAPSHOT` / `1.21-R0.1-SNAPSHOT` are 404 on every repository those
+  tags declare - only `bungeecord-proxy` itself survives upstream. `main` avoids
+  this with `includeTransitiveDeps = false`; back-porting that into a tag would
+  change what the tag builds, so it is a rewrite, not a repair.
+
 ## Injector Scoping (config availability)
 
 - The parent injector binds `ConfigHolder`; `ConnectPlatform.init()` populates it
