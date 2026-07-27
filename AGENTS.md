@@ -36,12 +36,38 @@ gh -R minekube/connect-java release view <version> --json tagName,targetCommitis
 curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<version>/connect-velocity.jar
 ```
 
-- `release.yml`'s "Verify published release assets" step now enforces this in CI:
-  it re-reads each published release from the API (never the upload step's own
-  output) and fails when no real downloadable build jar landed, so metadata-only
-  assets like `LICENSE` cannot pass as a release. Pinned by
+- `release.yml`'s "Verify published release assets" step re-reads each published
+  release from the API (never the upload step's own output) and rejects
+  metadata-only assets such as `LICENSE`. Its broad negative filter is
+  intentionally weaker than `release-repair.yml`'s positive plugin-jar
+  allowlist; tightening it is a separate follow-up. Pinned by
   `core/.../release/ReleaseAssetVerificationTest`; keep that test's step and
   upload-step names in sync when editing `release.yml`.
+
+### Repairing a release that published no assets
+
+- Use `release-repair.yml` (default branch, manual dispatch). It builds at the
+  JDK that tag's own `release.yml` pinned and uploads only missing or broken
+  assets. Never dispatch `release.yml` at an old tag instead: it rewrites the
+  live `latest` release, dragging the stable `releases/download/latest/*.jar`
+  URLs backwards. Boundary and guards pinned by
+  `core/.../release/ReleaseRepairCapabilityTest`; keep its step names in sync.
+- A repair EXECUTES old, unreviewed tagged source. Never collapse the workflow's
+  read-only `build` / write-only `publish` job boundary or substitute
+  step-level token scoping; the workflow comments and
+  `ReleaseRepairCapabilityTest` own the exact boundary, artifact-name
+  allowlist, race handling, and landed-verification details. Top-level
+  `permissions: {}` must remain explicit.
+- Asset naming is per-era: tags up to 0.7.0 published version-suffixed jars
+  (`connect-spigot-0.6.2.jar`), 0.7.1 onwards publish bare names. The repair
+  derives which from the tag's own release workflow, so a repair does not rename.
+- `0.6.0` and `0.7.0` are the only zero-asset releases and are **not**
+  repairable. Their `bungee/build.gradle.kts` requests `bungeecord-proxy` with
+  transitive deps, and `net.md-5:bungeecord-{api,log,protocol,query}` at
+  `1.20-R0.3-SNAPSHOT` / `1.21-R0.1-SNAPSHOT` are 404 on every repository those
+  tags declare - only `bungeecord-proxy` itself survives upstream. `main` avoids
+  this with `includeTransitiveDeps = false`; back-porting that into a tag would
+  change what the tag builds, so it is a rewrite, not a repair.
 
 ## Injector Scoping (config availability)
 

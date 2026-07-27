@@ -1,0 +1,586 @@
+name: release-repair
+
+# Repairs the assets of an EXISTING published release, from that release's
+# tagged source, on CI runners.
+#
+# Why this is a separate workflow on the default branch, and not the
+# `release_tag` input on release.yml:
+#
+#   1. GitHub compiles a workflow_dispatch run from the workflow file AT THE
+#      DISPATCHED REF. An input added to release.yml would simply not exist
+#      when release.yml is dispatched at an old tag - the old file is the one
+#      that runs, and for every tag before 0.7.1 that file has no
+#      workflow_dispatch trigger at all. Dispatching THIS workflow (which lives
+#      on the default branch) and checking out the tag is the only shape that
+#      works for every tag, including tags cut before this file existed.
+#
+#   2. release.yml rewrites the live `latest` release - the stable download URLs
+#      https://github.com/minekube/connect-java/releases/download/latest/*.jar
+#      that download sites and server owners point at. Re-running it at an OLD
+#      tag would drag `latest` backwards and silently downgrade everyone using
+#      those URLs. This workflow never WRITES a release other than the one being
+#      repaired; it reads the pointers for immutability checks and refuses them
+#      as repair targets outright.
+#
+# WHY TWO JOBS, and why that is the whole security model:
+#
+# A repair necessarily EXECUTES OLD TAGGED SOURCE - a Gradle build, its
+# plugins, and whatever those resolve. That source is not reviewed as part of
+# the repair, and for the tags this exists to fix it is years old. So the
+# question is not "is the build trustworthy" but "what can it reach".
+#
+# Scoping the token to individual steps does NOT answer that. Within one job,
+# a build step can append to $GITHUB_PATH or $GITHUB_ENV and have a LATER,
+# token-bearing step in that same job execute a tool it planted. Step-level
+# `env:` is not a sandbox; the job is the boundary.
+#
+# So the write capability lives in a job that never sees the tag:
+#
+#   build   - permissions: contents: read. Checks the tag out and runs its
+#             Gradle build. Holds NO write capability, so nothing it plants can
+#             be escalated into a release write, a ref update, or a pointer
+#             move. Hands its output on as an artifact.
+#   publish - permissions: contents: write. Checks out NOTHING, runs NO tag
+#             code, and only downloads that artifact and uploads it to the one
+#             release named by the dispatch input.
+#
+# Top-level permissions are `{}` so neither job inherits anything it was not
+# explicitly granted. No registry scope exists anywhere in this file, so
+# publishing connect's jars to a package registry is not "guarded against"
+# here - it is unrepresentable. ReleaseRepairCapabilityTest asserts the split
+# and the boundary; a token on the build job, or a checkout in the publish job,
+# turns that suite red.
+#
+# This workflow publishes GitHub Release assets only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to repair (e.g. 0.6.0).
+        required: true
+        type: string
+
+# Nothing is inherited. Each job is granted exactly what it needs, below.
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+env:
+  ASSET_ARTIFACT: release-assets
+
+jobs:
+  # Runs the untrusted tagged source. Read-only by construction: there is no
+  # write capability in this job for a planted tool to reach.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read # Read the tag and its release. NEVER write here.
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      # GUARD 0, before anything is even checked out: `latest` and
+      # `latest-prerelease` are not versions, they are the live pointers whose
+      # download URLs are published to users. Repairing them is never what
+      # anybody means, and rebuilding an old tag into them is exactly the
+      # silent downgrade this workflow exists to make impossible.
+      - name: Refuse to repair a pointer release
+        run: |
+          set -euo pipefail
+
+          case "$RELEASE_TAG" in
+            latest | latest-prerelease)
+              echo "::error::$RELEASE_TAG is a live pointer release, not a version."
+              echo "::error::Repairing it would republish old jars at the stable download URLs"
+              echo "::error::and downgrade every consumer of them. Refusing."
+              exit 1
+              ;;
+          esac
+
+          if ! printf '%s' "$RELEASE_TAG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::$RELEASE_TAG is not a connect-java version tag (expected N.N.N)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release_tag }}
+          persist-credentials: false
+
+      # Provenance: a repair must build the tag, not a branch that merely
+      # happens to be named like one. A moving ref would produce assets that do
+      # not correspond to the release they are attached to.
+      - name: Confirm the checkout is the tagged commit
+        run: |
+          set -euo pipefail
+
+          TAG_SHA=$(git rev-parse -q --verify "refs/tags/${RELEASE_TAG}^{commit}" || true)
+          HEAD_SHA=$(git rev-parse HEAD)
+
+          if [ -z "$TAG_SHA" ]; then
+            echo "::error::${RELEASE_TAG} is not a tag in this repository."
+            echo "::error::Repair rebuilds tagged source; it does not build branches."
+            exit 1
+          fi
+          if [ "$TAG_SHA" != "$HEAD_SHA" ]; then
+            echo "::error::Checked-out HEAD ($HEAD_SHA) is not tag ${RELEASE_TAG} ($TAG_SHA)."
+            exit 1
+          fi
+
+          echo "Repairing ${RELEASE_TAG} from tagged commit ${TAG_SHA}."
+
+      # GUARD 1, before the build rather than after it: repair fills holes. A
+      # release that already publishes a real plugin jar is complete, and
+      # re-uploading over it would replace exactly the bytes server owners
+      # already run. Failing here costs seconds instead of a full Gradle build.
+      #
+      # Classified by name/type, not counted: a release carrying only LICENSE
+      # has a positive asset count and still offers nothing anyone can run,
+      # which is precisely the state 0.6.0/0.7.0-era holes leave behind.
+      #
+      # This is a READ, and it runs before any tag code executes.
+      - name: Refuse to repair a complete release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::No published release exists for $RELEASE_TAG to repair."
+            echo "::error::Repair fills holes in an existing release; it does not create one."
+            exit 1
+          fi
+
+          RELEASE_JSON=$(gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")
+
+          echo "$RELEASE_TAG currently publishes:"
+          printf '%s' "$RELEASE_JSON" | jq -r '.assets[] | "  \(.name)\t\(.size)\t\(.state)"'
+
+          EXISTING_BUILDS=$(printf '%s' "$RELEASE_JSON" | jq '
+            [.assets[]
+              | select(.state == "uploaded")
+              | select(.size > 0)
+              | select(.name | test("^connect-(spigot|velocity|bungee).*\\.jar$"))] | length')
+
+          if [ "$EXISTING_BUILDS" -gt 0 ]; then
+            echo "::error::Release $RELEASE_TAG already publishes $EXISTING_BUILDS plugin jar(s)."
+            echo "::error::Refusing to modify a complete release. Repair fills holes only."
+            exit 1
+          fi
+
+      # The tag's OWN toolchain, never the runner default. A newer JDK that
+      # fails to compile old tagged source produces a false red: it would
+      # condemn a tag that its own release path builds fine. Missing pin =>
+      # hard failure, because silently falling back to a default is the same
+      # false result wearing a green hat.
+      - name: Resolve the tag's pinned Java toolchain
+        id: toolchain
+        run: |
+          set -euo pipefail
+
+          TAG_WORKFLOW=.github/workflows/release.yml
+          if [ ! -f "$TAG_WORKFLOW" ]; then
+            echo "::error::$RELEASE_TAG has no $TAG_WORKFLOW; its release toolchain is unknown."
+            exit 1
+          fi
+
+          JAVA_VERSION=$(grep -Eo "java-version:[[:space:]]*['\"]?[0-9]+" "$TAG_WORKFLOW" \
+            | grep -Eo '[0-9]+$' | head -n1)
+
+          if [ -z "$JAVA_VERSION" ]; then
+            echo "::error::Could not read the Java version pinned by $RELEASE_TAG's $TAG_WORKFLOW."
+            echo "::error::Refusing to guess a toolchain: a wrong JDK produces a false result."
+            exit 1
+          fi
+
+          echo "java-version=$JAVA_VERSION" >> "$GITHUB_OUTPUT"
+          echo "$RELEASE_TAG pins JDK $JAVA_VERSION; Gradle comes from the tag's own wrapper:"
+          grep distributionUrl gradle/wrapper/gradle-wrapper.properties
+
+      - name: Set up the tag's JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ steps.toolchain.outputs.java-version }}
+          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      # ---------------------------------------------------------------------
+      # Everything from here on runs, or runs after, UNTRUSTED TAGGED SOURCE.
+      # No step below holds a write capability, and no step below may be given
+      # one: the tagged build can plant a tool on $GITHUB_PATH that a later
+      # step in this job would execute. That is why the release write lives in
+      # a separate job rather than in a later step of this one.
+      # ---------------------------------------------------------------------
+
+      # The same build the tag's own release path ran. A repaired release must
+      # not carry weaker provenance than one published on the normal path.
+      - name: Build
+        run: ./gradlew build
+
+      # Asset names follow the convention of the tag's OWN release workflow:
+      # tags up to 0.7.0 published version-suffixed jars, 0.7.1 onwards publish
+      # bare names. A repair that renamed them would not be a repair.
+      - name: Stage release assets
+        run: |
+          set -euo pipefail
+
+          if grep -q "connect-spigot-\${REF}\.jar" .github/workflows/release.yml; then
+            SUFFIX="-${RELEASE_TAG}"
+          else
+            SUFFIX=""
+          fi
+          echo "Asset naming for $RELEASE_TAG: connect-<platform>${SUFFIX}.jar"
+
+          mkdir -p build/release
+          cp spigot/build/libs/connect-spigot.jar "build/release/connect-spigot${SUFFIX}.jar"
+          cp velocity/build/libs/connect-velocity.jar "build/release/connect-velocity${SUFFIX}.jar"
+          cp bungee/build/libs/connect-bungee.jar "build/release/connect-bungee${SUFFIX}.jar"
+          cp LICENSE build/release/LICENSE
+
+          ls -la build/release/
+
+      - name: Hand the assets to the publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET_ARTIFACT }}
+          path: build/release/
+          if-no-files-found: error
+          retention-days: 1
+
+  # Holds the ONLY write capability in this workflow. It checks nothing out and
+  # runs no tag code, so there is no tagged source in this job to escalate it.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # GitHub Release asset upload. The ONLY write in this file.
+      # `packages` and every other registry scope are deliberately absent and
+      # must stay absent. Without them, pushing a build anywhere but this
+      # release's own asset list is not forbidden here, it is unrepresentable.
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ASSET_DIR: release-assets
+    steps:
+      # Repeated here on purpose rather than relied upon from the build job:
+      # this is the job that holds the write token, so the refusal that
+      # protects the pointer releases belongs where the capability is.
+      - name: Refuse to repair a pointer release
+        run: |
+          set -euo pipefail
+
+          case "$RELEASE_TAG" in
+            latest | latest-prerelease)
+              echo "::error::$RELEASE_TAG is a live pointer release, not a version."
+              echo "::error::Repairing it would republish old jars at the stable download URLs"
+              echo "::error::and downgrade every consumer of them. Refusing."
+              exit 1
+              ;;
+          esac
+
+          if ! printf '%s' "$RELEASE_TAG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::$RELEASE_TAG is not a connect-java version tag (expected N.N.N)."
+            exit 1
+          fi
+
+      - name: Collect the built assets
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ASSET_ARTIFACT }}
+          path: ${{ env.ASSET_DIR }}
+
+      # The artifact was produced by a job that ran untrusted tagged source, so
+      # its FILE NAMES are untrusted input to this job: they become the names of
+      # public release assets. Only the jars a connect release is supposed to
+      # carry, plus LICENSE, may pass. Regular files only - a symlink or a
+      # nested path is not something a repair produces.
+      - name: Validate the downloaded assets
+        run: |
+          set -euo pipefail
+
+          if [ ! -d "$ASSET_DIR" ]; then
+            echo "::error::The build job produced no asset directory."
+            exit 1
+          fi
+
+          REJECTED=""
+          ACCEPTED=""
+          JARS=0
+          while IFS= read -r path; do
+            base="$(basename "$path")"
+            if [ -L "$path" ] || [ ! -f "$path" ] || [ ! -s "$path" ]; then
+              REJECTED="$REJECTED $base"
+              continue
+            fi
+            if [ "$path" != "$ASSET_DIR/$base" ]; then
+              REJECTED="$REJECTED $path"
+              continue
+            fi
+            case "$base" in
+              LICENSE) ACCEPTED="$ACCEPTED $base" ;;
+              *)
+                if printf '%s' "$base" \
+                  | grep -Eq '^connect-(spigot|velocity|bungee)[A-Za-z0-9._-]*\.jar$'; then
+                  ACCEPTED="$ACCEPTED $base"
+                  JARS=$((JARS + 1))
+                else
+                  REJECTED="$REJECTED $base"
+                fi
+                ;;
+            esac
+          done < <(find "$ASSET_DIR" -mindepth 1)
+
+          echo "Accepted:$ACCEPTED"
+
+          if [ -n "$REJECTED" ]; then
+            echo "::error::The build job produced asset(s) a repair must not publish:$REJECTED"
+            echo "::error::Only connect-<platform>*.jar and LICENSE may become release assets."
+            exit 1
+          fi
+
+          if [ "$JARS" -eq 0 ]; then
+            echo "::error::The build job produced no plugin jar; there is nothing to repair with."
+            exit 1
+          fi
+
+      # Recorded before this job writes anything, and the build job cannot
+      # write at all, so this baseline predates every write the run performs.
+      - name: Record the live pointer releases
+        run: |
+          set -euo pipefail
+
+          for pointer in latest latest-prerelease; do
+            if ! gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$pointer" \
+              | jq -S '{tag_name, name, target_commitish, created_at, published_at,
+                        assets: [.assets[] | {name, size, updated_at}] | sort_by(.name)}' \
+              > "/tmp/pointer-$pointer.before.json"; then
+              echo "::error::Could not read the $pointer release; refusing to run blind."
+              exit 1
+            fi
+            echo "--- $pointer (before) ---"
+            cat "/tmp/pointer-$pointer.before.json"
+          done
+
+      # Repairing an existing release must not go through the `softprops`
+      # gh-release action that release.yml uses for fresh publishes: it PATCHes
+      # /releases/{id} to sync release metadata BEFORE uploading anything, which
+      # rewrites historical release notes. `gh release upload` only POSTs to
+      # /releases/{id}/assets, and only for the tag named here.
+      - name: Upload the missing assets
+        run: |
+          set -euo pipefail
+
+          INITIAL_RELEASE_JSON=$(gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")
+
+          FILES=()
+          for f in "$ASSET_DIR"/*; do
+            [ -f "$f" ] || continue
+            FILES+=("$f")
+          done
+
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "::error::Nothing to upload for $RELEASE_TAG: no staged assets exist."
+            exit 1
+          fi
+
+          # GUARD 2: never clobber an existing GOOD asset. A name that is
+          # absent is uploaded WITHOUT --clobber, so GitHub itself rejects the
+          # POST if a concurrent writer published that name in the meantime -
+          # that rejection is the atomic conditional the REST API does not
+          # otherwise offer. --clobber is reserved for names that are present
+          # but BROKEN, where replacing already-unusable bytes is the point.
+          RELEASE_JSON=$(gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")
+          ABSENT_LIST=()
+          BROKEN_LIST=()
+          SKIPPED=""
+          PUBLISHED_DURING_REPAIR=""
+          for f in "${FILES[@]}"; do
+            base="$(basename "$f")"
+            initial_asset_count=$(printf '%s' "$INITIAL_RELEASE_JSON" | jq -r --arg n "$base" \
+              '[.assets[] | select(.name == $n)] | length')
+            current_asset_count=$(printf '%s' "$RELEASE_JSON" | jq -r --arg n "$base" \
+              '[.assets[] | select(.name == $n)] | length')
+            good=$(printf '%s' "$RELEASE_JSON" | jq -r --arg n "$base" \
+              '[.assets[] | select(.name == $n and .state == "uploaded" and .size > 0)] | length')
+            if [ "$good" -gt 0 ]; then
+              SKIPPED="$SKIPPED $base"
+              if [ "$initial_asset_count" -eq 0 ]; then
+                PUBLISHED_DURING_REPAIR="$PUBLISHED_DURING_REPAIR $base"
+              fi
+            elif [ "$current_asset_count" -eq 0 ]; then
+              ABSENT_LIST+=("$f")
+            else
+              BROKEN_LIST+=("$f")
+            fi
+          done
+
+          if [ -n "$PUBLISHED_DURING_REPAIR" ]; then
+            echo "Skipping assets published since the initial release snapshot (not clobbered):$PUBLISHED_DURING_REPAIR"
+          fi
+
+          if [ -n "$SKIPPED" ]; then
+            echo "Keeping existing good assets (not clobbered):$SKIPPED"
+          fi
+
+          if [ "${#ABSENT_LIST[@]}" -eq 0 ] && [ "${#BROKEN_LIST[@]}" -eq 0 ]; then
+            echo "::error::Nothing to upload for $RELEASE_TAG: every built file is already published."
+            exit 1
+          fi
+
+          if [ "${#ABSENT_LIST[@]}" -gt 0 ]; then
+            echo "Uploading newly staged assets without clobber"
+            if ! gh release upload "$RELEASE_TAG" "${ABSENT_LIST[@]}" --repo "$GITHUB_REPOSITORY"; then
+              echo "::error::An asset classified as absent was rejected during upload; a concurrent release writer may have published one of ${ABSENT_LIST[*]}."
+              echo "::error::Refusing to retry with --clobber."
+              exit 1
+            fi
+          fi
+
+          if [ "${#BROKEN_LIST[@]}" -gt 0 ]; then
+            echo "Replacing broken release assets with clobber"
+            # A writer can replace a broken asset with a good one after this read and before
+            # --clobber. The prior bytes were already unusable; landed-asset and pointer checks
+            # below surface the result.
+            gh release upload "$RELEASE_TAG" "${BROKEN_LIST[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          fi
+
+      # A release that publishes nothing downloadable is indistinguishable from
+      # a healthy one: green run, release page exists, and the hole only
+      # surfaces when a server owner's download link 404s. Trusting the upload
+      # step we just ran would rebuild that same defect one layer up, so
+      # re-read the PUBLISHED release from the API and assert on the landed
+      # fact. Never conditional: the guard must not be skippable into silence.
+      - name: Verify published release assets
+        run: |
+          set -euo pipefail
+
+          # A positive asset count is not a release. LICENSE alone has a
+          # positive count and offers nothing anyone can run, so classify by
+          # name/type and require a real downloadable plugin jar.
+          BUILD_FILTER='[.assets[]
+            | select(.state == "uploaded")
+            | select(.size > 0)
+            | select(.name | test("^connect-(spigot|velocity|bungee).*\\.jar$"))]'
+
+          RELEASE_JSON=""
+          ASSET_COUNT=0
+          BUILD_COUNT=0
+          BUILD_NAMES=""
+          PROBE=""
+          PROBE_URL=""
+          PROBE_CODE=""
+
+          # Asset visibility is eventually consistent right after upload.
+          for attempt in $(seq 1 12); do
+            if ! RELEASE_JSON=$(gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG"); then
+              echo "Release $RELEASE_TAG is not readable yet (attempt $attempt); waiting..."
+              RELEASE_JSON=""
+              sleep 10
+              continue
+            fi
+
+            ASSET_COUNT=$(printf '%s' "$RELEASE_JSON" | jq '[.assets[] | select(.state == "uploaded")] | length')
+            BUILD_COUNT=$(printf '%s' "$RELEASE_JSON" | jq "$BUILD_FILTER | length")
+            BUILD_NAMES=$(printf '%s' "$RELEASE_JSON" | jq -r "$BUILD_FILTER | .[].name")
+
+            PROBE=""
+            PROBE_URL=""
+            PROBE_CODE=""
+            if [ "$BUILD_COUNT" -gt 0 ]; then
+              PROBE=$(printf '%s' "$BUILD_NAMES" | head -n1)
+              PROBE_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$PROBE"
+              if ! PROBE_CODE=$(curl -sSL -o /dev/null -w '%{http_code}' -r 0-0 "$PROBE_URL"); then
+                PROBE_CODE="000"
+              fi
+            fi
+
+            if [ "$ASSET_COUNT" -gt 0 ] && [ "$BUILD_COUNT" -gt 0 ]; then
+              case "$PROBE_CODE" in
+                200 | 206) break ;;
+              esac
+            fi
+
+            echo "Published assets are incomplete on $RELEASE_TAG (attempt $attempt); waiting..."
+            sleep 10
+          done
+
+          echo "--- $RELEASE_TAG ---"
+          if [ -n "$RELEASE_JSON" ]; then
+            printf '%s' "$RELEASE_JSON" | jq -r '.assets[] | "\(.name)\t\(.size)\t\(.state)"'
+          fi
+          echo "Real build artifacts published ($BUILD_COUNT):"
+          echo "${BUILD_NAMES:-  (none)}"
+
+          if [ -z "$RELEASE_JSON" ]; then
+            echo "::error::Release $RELEASE_TAG could not be read back from the API; the repair did not land."
+            exit 1
+          fi
+
+          if [ "$ASSET_COUNT" -eq 0 ]; then
+            echo "::error::Release $RELEASE_TAG still publishes ZERO downloadable assets."
+            echo "::error::A release with no artifact silently did not happen. Failing loudly."
+            exit 1
+          fi
+
+          if [ "$BUILD_COUNT" -eq 0 ]; then
+            echo "::error::Release $RELEASE_TAG has $ASSET_COUNT asset(s) but NO real build artifact."
+            echo "::error::Only LICENSE/checksums/signatures/SBOMs were published - no plugin jar."
+            exit 1
+          fi
+
+          if [ "$PROBE_CODE" != "200" ] && [ "$PROBE_CODE" != "206" ]; then
+            echo "::error::Build artifact $PROBE is listed on $RELEASE_TAG but not downloadable (HTTP $PROBE_CODE)."
+            echo "::error::$PROBE_URL"
+            exit 1
+          fi
+
+          echo "OK: $RELEASE_TAG publishes $BUILD_COUNT real build artifact(s) of $ASSET_COUNT assets;"
+          echo "OK: $PROBE downloads (HTTP $PROBE_CODE)."
+
+      # The steps above only ever name $RELEASE_TAG, so a pointer move is not
+      # something this workflow can express. That is an argument, not evidence -
+      # so read the pointers back and assert the landed fact, exactly as the
+      # asset check above refuses to trust its own upload step.
+      - name: Verify no pointer release moved
+        if: always()
+        run: |
+          set -euo pipefail
+
+          MOVED=""
+          for pointer in latest latest-prerelease; do
+            BEFORE="/tmp/pointer-$pointer.before.json"
+            if [ ! -f "$BEFORE" ]; then
+              echo "No recorded state for $pointer (the run stopped before the upload); nothing to compare."
+              continue
+            fi
+            gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$pointer" \
+              | jq -S '{tag_name, name, target_commitish, created_at, published_at,
+                        assets: [.assets[] | {name, size, updated_at}] | sort_by(.name)}' \
+              > "/tmp/pointer-$pointer.after.json"
+
+            if diff -u "$BEFORE" "/tmp/pointer-$pointer.after.json"; then
+              echo "OK: the $pointer release is byte-for-byte unchanged."
+            else
+              MOVED="$MOVED $pointer"
+            fi
+          done
+
+          if [ -n "$MOVED" ]; then
+            echo "::error::Pointer release(s) changed during this repair:$MOVED"
+            echo "::error::This workflow never names them, so this is either a concurrent"
+            echo "::error::release.yml run or something that must be understood before"
+            echo "::error::trusting the repaired assets. Failing loudly."
+            exit 1
+          fi
+
+          echo "NOTE: no package registry was touched, and the job that ran the tagged"
+          echo "NOTE: build held no write capability at all. Publishing elsewhere is"
+          echo "NOTE: unrepresentable in this workflow, not merely disallowed."
