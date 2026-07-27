@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.6](https://github.com/minekube/connect-java/compare/0.12.5...0.12.6) (2026-07-27)
+
+
+### Bug Fixes
+
+* **core:** isolate release repair from tagged build code ([#71](https://github.com/minekube/connect-java/issues/71)) ([f45f163](https://github.com/minekube/connect-java/commit/f45f16317964b04a6f5c9b10d1e7b50828de2ae9))
+
 ## [0.12.5](https://github.com/minekube/connect-java/compare/0.12.4...0.12.5) (2026-07-27)
 
 
