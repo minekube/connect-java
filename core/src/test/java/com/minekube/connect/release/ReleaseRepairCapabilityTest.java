@@ -47,16 +47,21 @@ import org.yaml.snakeyaml.Yaml;
 
 /**
  * {@code release-repair.yml} rebuilds an old tag and fills in the assets its original release never
- * published (0.6.0 and 0.7.0 shipped with an empty asset list). Rebuilding an old tag is exactly the
- * operation that can do the most damage if it is allowed to publish anywhere but that one release:
- * re-running {@code release.yml} at an old tag would drag the live {@code latest} release - the
- * stable {@code releases/download/latest/*.jar} URLs download sites hand out - backwards and
- * silently downgrade every consumer.
+ * published (0.6.0 and 0.7.0 shipped with an empty asset list).
  *
- * <p>These tests pin the capability boundary that makes that unrepresentable rather than merely
- * discouraged: {@code contents: write} and nothing else, no registry scope, no secret beyond the
- * job's own {@code GITHUB_TOKEN}, and no release named other than the one being repaired. A comment
- * saying so is an argument; this is the check that can fail.
+ * <p>A repair necessarily <em>executes old tagged source</em> - a Gradle build and whatever its
+ * plugins resolve - that nobody reviewed as part of the repair. So the security question is not
+ * whether that build is trustworthy but what it can reach, and the answer cannot be "we scoped the
+ * token to individual steps": within one job a build step can append to {@code $GITHUB_PATH} or
+ * {@code $GITHUB_ENV} and have a later token-bearing step in that same job execute a tool it
+ * planted. Step-level {@code env:} is not a sandbox. The job is the boundary.
+ *
+ * <p>Hence the split these tests pin: a {@code build} job with {@code contents: read} that runs the
+ * tag, and a {@code publish} job with {@code contents: write} that checks nothing out and runs none
+ * of it. Without that split, a compromised historical build could reach a write-scoped token and
+ * move the live {@code latest} release - the stable {@code releases/download/latest/*.jar} URLs
+ * download sites hand out - silently downgrading every consumer. A comment claiming the boundary is
+ * an argument; these are the checks that can fail.
  */
 class ReleaseRepairCapabilityTest {
 
@@ -64,9 +69,17 @@ class ReleaseRepairCapabilityTest {
             Paths.get("..", ".github", "workflows", "release-repair.yml");
     private static final Path REPOSITORY_GIT_PATH = Paths.get("..", ".git");
 
+    /** The job that runs untrusted tagged source. It must hold no write capability. */
+    private static final String BUILD_JOB = "build";
+
+    /** The job that holds the only write capability. It must run no tagged source. */
+    private static final String PUBLISH_JOB = "publish";
+
     /** The live pointer releases whose download URLs are published to users. */
     private static final List<String> POINTER_RELEASES =
             Arrays.asList("latest", "latest-prerelease");
+
+    private static final String POINTER_REFUSAL = "Refuse to repair a pointer release";
 
     private static String workflowText() throws Exception {
         if (!Files.exists(WORKFLOW_PATH)) {
@@ -82,8 +95,7 @@ class ReleaseRepairCapabilityTest {
 
     @SuppressWarnings("unchecked")
     private static Map<String, Object> workflow() throws Exception {
-        String text = workflowText();
-        if (text.isEmpty()) {
+        if (workflowText().isEmpty()) {
             return new LinkedHashMap<>();
         }
         try (InputStream in = Files.newInputStream(WORKFLOW_PATH)) {
@@ -92,24 +104,26 @@ class ReleaseRepairCapabilityTest {
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, Object> repairJob() throws Exception {
+    private static Map<String, Object> job(String name) throws Exception {
         Map<String, Object> workflow = workflow();
         if (workflow.isEmpty()) {
             return new LinkedHashMap<>();
         }
         Map<String, Object> jobs = (Map<String, Object>) workflow.get("jobs");
-        assertTrue(jobs != null && jobs.containsKey("repair"), "repair job is missing");
-        return (Map<String, Object>) jobs.get("repair");
+        assertTrue(jobs != null && jobs.containsKey(name),
+                "the " + name + " job is missing; the untrusted build and the write capability "
+                        + "must live in separate jobs");
+        return (Map<String, Object>) jobs.get(name);
     }
 
     @SuppressWarnings("unchecked")
-    private static List<Map<String, Object>> steps() throws Exception {
-        Map<String, Object> job = repairJob();
+    private static List<Map<String, Object>> steps(String jobName) throws Exception {
+        Map<String, Object> job = job(jobName);
         if (job.isEmpty()) {
             return List.of();
         }
         List<Map<String, Object>> steps = (List<Map<String, Object>>) job.get("steps");
-        assertTrue(steps != null && !steps.isEmpty(), "repair job has no steps");
+        assertTrue(steps != null && !steps.isEmpty(), jobName + " job has no steps");
         return steps;
     }
 
@@ -124,45 +138,161 @@ class ReleaseRepairCapabilityTest {
 
     private static String stepScript(List<Map<String, Object>> steps, String name) {
         int at = stepIndex(steps, name);
-        assertTrue(at >= 0, "repair job is missing the \"" + name + "\" step");
+        assertTrue(at >= 0, "missing the \"" + name + "\" step");
         Object run = steps.get(at).get("run");
         assertTrue(run instanceof String && !((String) run).isEmpty(),
                 "\"" + name + "\" must be a run step");
         return (String) run;
     }
 
-    /**
-     * The boundary itself. A repair that could also push to a package registry would be able to
-     * republish an old build as something users pull by default - the exact silent downgrade this
-     * workflow exists to avoid. Absent capability beats a guarded one.
-     */
-    @Test
     @SuppressWarnings("unchecked")
-    void repairGrantsContentsWriteAndNothingElse() throws Exception {
-        Map<String, Object> workflow = workflow();
-        assumeTrue(!workflow.isEmpty());
+    private static Map<String, Object> stepEnv(Map<String, Object> step) {
+        Object env = step.get("env");
+        return env instanceof Map ? (Map<String, Object>) env : Map.of();
+    }
 
-        Object permissions = workflow.get("permissions");
-        assertTrue(permissions instanceof Map,
-                "release-repair.yml must declare an explicit permissions block; inheriting the "
-                        + "repository default would hand the repair whatever scopes happen to be "
-                        + "enabled");
+    private static String stepLabel(Map<String, Object> step) {
+        Object name = step.get("name");
+        return name != null ? String.valueOf(name) : String.valueOf(step.get("uses"));
+    }
 
-        Map<String, Object> granted = (Map<String, Object>) permissions;
-        assertEquals(Map.of("contents", "write"), granted,
-                "release-repair.yml must grant contents:write and nothing else; it grants "
-                        + granted);
-
-        // A job-level block would silently widen the workflow-level grant.
-        Object jobPermissions = repairJob().get("permissions");
-        assertTrue(jobPermissions == null || Map.of("contents", "write").equals(jobPermissions),
-                "the repair job widens the workflow permissions to " + jobPermissions);
+    /** Every `run` script in a job, concatenated - for whole-job content assertions. */
+    private static String allScripts(List<Map<String, Object>> steps) {
+        StringBuilder sb = new StringBuilder();
+        for (Map<String, Object> step : steps) {
+            Object run = step.get("run");
+            if (run instanceof String) {
+                sb.append((String) run).append('\n');
+            }
+        }
+        return sb.toString();
     }
 
     /**
-     * The scope check above only proves the file does not <em>name</em> a registry permission. This
-     * proves it does not reach one another way: a registry login action, a docker/gradle publish, or
-     * a credential smuggled in through a secret other than the job's own GITHUB_TOKEN.
+     * THE split. This is the check that fails if anybody ever "simplifies" the workflow back into a
+     * single job, or grants the build job a write scope, or teaches the publish job to check
+     * something out.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void repairSplitsUntrustedBuildFromTheWriteCapability() throws Exception {
+        Map<String, Object> workflow = workflow();
+        assumeTrue(!workflow.isEmpty());
+
+        // Nothing may be inherited: an implicit repository default would hand both jobs whatever
+        // scopes happen to be enabled org-wide.
+        Object topLevel = workflow.get("permissions");
+        assertTrue(topLevel instanceof Map && ((Map<String, Object>) topLevel).isEmpty(),
+                "top-level permissions must be {} so neither job inherits anything; found "
+                        + topLevel);
+
+        Map<String, Object> build = job(BUILD_JOB);
+        Map<String, Object> publish = job(PUBLISH_JOB);
+
+        assertEquals(Map.of("contents", "read"), build.get("permissions"),
+                "the build job runs untrusted tagged source and must hold contents:read only; "
+                        + "it holds " + build.get("permissions"));
+        assertEquals(Map.of("contents", "write"), publish.get("permissions"),
+                "the publish job must hold contents:write and nothing else; it holds "
+                        + publish.get("permissions"));
+
+        // Belt and braces: no job may hold any write scope other than the publish job's contents.
+        for (Object value : ((Map<String, Object>) build.get("permissions")).values()) {
+            assertTrue(!"write".equals(value),
+                    "the build job grants a write scope; tagged source could reach it");
+        }
+
+        Object needs = publish.get("needs");
+        List<String> needsList = needs instanceof List
+                ? (List<String>) needs : List.of(String.valueOf(needs));
+        assertTrue(needsList.contains(BUILD_JOB),
+                "the publish job must depend on the build job; it needs " + needs);
+
+        // The publish job must never materialise the tag: no checkout, no toolchain, no Gradle.
+        List<Map<String, Object>> publishSteps = steps(PUBLISH_JOB);
+        for (Map<String, Object> step : publishSteps) {
+            Object uses = step.get("uses");
+            if (uses instanceof String) {
+                String action = (String) uses;
+                assertTrue(!action.startsWith("actions/checkout@"),
+                        "the publish job checks out source; it holds the write token and must "
+                                + "never materialise the tag");
+                assertTrue(!action.startsWith("actions/setup-java@")
+                                && !action.startsWith("gradle/"),
+                        "the publish job sets up a build toolchain (" + action + "); it must run "
+                                + "none of the tagged source");
+            }
+        }
+        String publishScripts = allScripts(publishSteps);
+        assertTrue(!publishScripts.contains("gradlew"),
+                "the publish job invokes Gradle; the write capability must never run tag code");
+
+        // And the write itself must live only there.
+        assertTrue(!allScripts(steps(BUILD_JOB)).contains("gh release upload"),
+                "the build job uploads release assets; the write must live in the publish job");
+        assertTrue(publishScripts.contains("gh release upload"),
+                "the publish job never uploads any asset");
+    }
+
+    /**
+     * The {@code $GITHUB_PATH} vector specifically. Even inside the read-only build job, a
+     * token-bearing step placed <em>after</em> the tagged build could be made to execute a tool the
+     * build planted. Nothing in that job may carry a credential once tag code has run.
+     */
+    @Test
+    void buildJobHoldsNoCredentialOnceTaggedCodeHasRun() throws Exception {
+        List<Map<String, Object>> build = steps(BUILD_JOB);
+        assumeTrue(!build.isEmpty());
+
+        // A job-level token would be visible to the tagged build itself.
+        Object jobEnv = job(BUILD_JOB).get("env");
+        if (jobEnv instanceof Map) {
+            assertTrue(!((Map<?, ?>) jobEnv).containsKey("GH_TOKEN"),
+                    "the build job declares a job-level GH_TOKEN; the tagged build would see it");
+        }
+
+        int buildAt = stepIndex(build, "Build");
+        assertTrue(buildAt >= 0, "the build job is missing the Build step");
+
+        List<String> offenders = new ArrayList<>();
+        for (int i = buildAt; i < build.size(); i++) {
+            if (stepEnv(build.get(i)).containsKey("GH_TOKEN")) {
+                offenders.add(stepLabel(build.get(i)));
+            }
+        }
+        assertTrue(offenders.isEmpty(),
+                "step(s) " + offenders + " carry GH_TOKEN at or after the tagged build; the build "
+                        + "can plant a tool on $GITHUB_PATH that a later step in the same job "
+                        + "executes, so no credential may follow it");
+    }
+
+    /**
+     * The artifact crossing the split was produced by a job that ran untrusted source, so its file
+     * <em>names</em> are untrusted input: they become the names of public release assets. Only what
+     * a connect release is supposed to carry may pass.
+     */
+    @Test
+    void publishJobValidatesTheHandoverArtifact() throws Exception {
+        List<Map<String, Object>> publish = steps(PUBLISH_JOB);
+        assumeTrue(!publish.isEmpty());
+
+        String validate = stepScript(publish, "Validate the downloaded assets");
+        assertTrue(validate.contains("^connect-(spigot|velocity|bungee)"),
+                "the publish job does not constrain which asset names may be published");
+        assertTrue(validate.contains("exit 1"), "the asset-name validation cannot fail the run");
+
+        int validateAt = stepIndex(publish, "Validate the downloaded assets");
+        int uploadAt = stepIndex(publish, "Upload the missing assets");
+        assertTrue(uploadAt >= 0, "the publish job is missing the upload step");
+        assertTrue(validateAt < uploadAt,
+                "the handover artifact is validated after it is uploaded; that is not validation");
+    }
+
+    /**
+     * The registry half of the boundary. The permission checks above only prove the file does not
+     * <em>name</em> a registry scope; this proves it does not reach one another way - a registry
+     * login action, a docker/gradle publish, or a credential smuggled in through a secret other
+     * than the job's own GITHUB_TOKEN.
      */
     @Test
     void repairNeverPublishesToAPackageRegistry() throws Exception {
@@ -211,25 +341,27 @@ class ReleaseRepairCapabilityTest {
     /**
      * {@code latest} and {@code latest-prerelease} are not versions, they are the live pointers
      * whose download URLs the release notes advertise. Repairing one would republish an old build at
-     * a stable URL and downgrade everyone using it, so the workflow must refuse the names outright
-     * and must never name any release but the one being repaired.
+     * a stable URL and downgrade everyone using it, so both jobs refuse the names outright - the
+     * publish job most of all, because it is the one holding the write token.
      */
     @Test
     void repairCannotWriteAPointerRelease() throws Exception {
         String text = workflowText();
         assumeTrue(!text.isEmpty());
-        List<Map<String, Object>> steps = steps();
 
-        String refusal = stepScript(steps, "Refuse to repair a pointer release");
-        for (String pointer : POINTER_RELEASES) {
-            assertTrue(refusal.contains(pointer),
-                    "the pointer refusal does not reject \"" + pointer + "\"");
+        for (String jobName : List.of(BUILD_JOB, PUBLISH_JOB)) {
+            List<Map<String, Object>> jobSteps = steps(jobName);
+            String refusal = stepScript(jobSteps, POINTER_REFUSAL);
+            for (String pointer : POINTER_RELEASES) {
+                assertTrue(refusal.contains(pointer),
+                        "the " + jobName + " job's pointer refusal does not reject \"" + pointer
+                                + "\"");
+            }
+            assertTrue(refusal.contains("exit 1"),
+                    "the " + jobName + " job's pointer refusal does not fail the run");
+            assertEquals(0, stepIndex(jobSteps, POINTER_REFUSAL),
+                    "the pointer refusal must be the first step of the " + jobName + " job");
         }
-        assertTrue(refusal.contains("exit 1"), "the pointer refusal does not fail the run");
-
-        // It has to run before anything is built or uploaded, otherwise it refuses too late.
-        assertEquals(0, stepIndex(steps, "Refuse to repair a pointer release"),
-                "the pointer refusal must be the first step");
 
         // release.yml writes `tag_name: latest`. Nothing in a repair may.
         assertTrue(!Pattern.compile("(?m)tag_name:\\s*latest").matcher(text).find(),
@@ -253,10 +385,10 @@ class ReleaseRepairCapabilityTest {
      */
     @Test
     void repairRefusesToClobberACompleteRelease() throws Exception {
-        List<Map<String, Object>> steps = steps();
-        assumeTrue(!steps.isEmpty());
+        List<Map<String, Object>> build = steps(BUILD_JOB);
+        assumeTrue(!build.isEmpty());
 
-        String guard = stepScript(steps, "Refuse to repair a complete release");
+        String guard = stepScript(build, "Refuse to repair a complete release");
         assertTrue(guard.contains("/releases/tags/"),
                 "the completeness guard must read the published release, not local state");
         assertTrue(guard.contains("connect-(spigot|velocity|bungee)"),
@@ -264,38 +396,25 @@ class ReleaseRepairCapabilityTest {
                         + "only LICENSE has a positive asset count and is still a hole");
         assertTrue(guard.contains("exit 1"), "the completeness guard does not fail the run");
 
-        int guardAt = stepIndex(steps, "Refuse to repair a complete release");
-        int buildAt = stepIndex(steps, "Build");
-        assertTrue(buildAt >= 0, "repair job is missing the Build step");
+        int guardAt = stepIndex(build, "Refuse to repair a complete release");
+        int buildAt = stepIndex(build, "Build");
+        assertTrue(buildAt >= 0, "the build job is missing the Build step");
         assertTrue(guardAt < buildAt,
                 "the completeness guard runs after the build; it must refuse before rebuilding");
 
-        // Guard 2: --clobber must apply only to holes, never to a published good asset.
-        String upload = stepScript(steps, "Upload the missing assets");
-        assertTrue(upload.contains("--clobber"), "the upload does not use --clobber");
+        // Guard 2, in the publish job: an ABSENT name uploads without --clobber, so GitHub's own
+        // rejection is the atomic conditional; --clobber may only reach a name already broken.
+        String upload = stepScript(steps(PUBLISH_JOB), "Upload the missing assets");
+        assertTrue(upload.contains("--clobber"), "the upload does not use --clobber at all");
+        assertTrue(upload.contains("ABSENT_LIST") && upload.contains("BROKEN_LIST"),
+                "the upload does not separate absent names from broken ones; --clobber would "
+                        + "then be able to reach an asset a concurrent writer just published");
+        assertTrue(Pattern.compile("gh release upload \"\\$RELEASE_TAG\" \"\\$\\{ABSENT_LIST\\[@\\]}\""
+                                + "(?!.*--clobber)").matcher(upload).find(),
+                "absent assets are uploaded with --clobber; that upload must be unconditional-"
+                        + "free so GitHub rejects a name published concurrently");
         assertTrue(upload.contains("state == \"uploaded\"") && upload.contains("size > 0"),
-                "the upload does not exclude already-good assets from --clobber");
-        assertTrue(upload.contains("INITIAL_RELEASE_JSON"),
-                "the upload does not retain the initial release snapshot");
-        assertTrue(upload.contains("initial_asset_count"),
-                "the upload does not distinguish initially absent assets");
-        assertTrue(upload.contains("[ \"$initial_asset_count\" -eq 0 ]"),
-                "the upload misclassifies assets that appeared during the repair");
-        assertTrue(upload.contains("ABSENT_LIST=()") && upload.contains("BROKEN_LIST=()"),
-                "the upload does not separate absent assets from broken assets");
-        int rereadAt = upload.indexOf("RELEASE_JSON=$(gh api");
-        int decisionAt = upload.indexOf("for f in \"${FILES[@]}\"");
-        assertTrue(rereadAt >= 0 && decisionAt > rereadAt,
-                "the upload does not re-read the release immediately before deciding what to "
-                        + "clobber");
-        assertTrue(upload.contains("PUBLISHED_DURING_REPAIR"),
-                "the upload does not report a newly published good asset that it skips");
-        int absentUploadAt = upload.indexOf(
-                "gh release upload \"$RELEASE_TAG\" \"${ABSENT_LIST[@]}\" --repo \"$GITHUB_REPOSITORY\"");
-        int brokenUploadAt = upload.indexOf(
-                "gh release upload \"$RELEASE_TAG\" \"${BROKEN_LIST[@]}\" --clobber --repo \"$GITHUB_REPOSITORY\"");
-        assertTrue(absentUploadAt >= 0 && brokenUploadAt > absentUploadAt,
-                "the upload does not use the atomic no-clobber path for absent assets");
+                "the upload does not classify already-good assets out of the clobber set");
     }
 
     /**
@@ -304,11 +423,12 @@ class ReleaseRepairCapabilityTest {
      * wrong as a false green, and here it would be recorded as "unrecoverable".
      */
     @Test
+    @SuppressWarnings("unchecked")
     void repairBuildsAtTheTagsOwnPinnedToolchain() throws Exception {
-        List<Map<String, Object>> steps = steps();
-        assumeTrue(!steps.isEmpty());
+        List<Map<String, Object>> build = steps(BUILD_JOB);
+        assumeTrue(!build.isEmpty());
 
-        String resolve = stepScript(steps, "Resolve the tag's pinned Java toolchain");
+        String resolve = stepScript(build, "Resolve the tag's pinned Java toolchain");
         assertTrue(resolve.contains(".github/workflows/release.yml"),
                 "the toolchain must be read from the tag's own release workflow");
         assertTrue(resolve.contains("java-version"), "the toolchain step reads no Java version");
@@ -316,12 +436,12 @@ class ReleaseRepairCapabilityTest {
                 "the toolchain step falls back to a default instead of failing; guessing a JDK "
                         + "produces a false result about whether the tag builds");
 
-        int at = stepIndex(steps, "Set up the tag's JDK");
-        assertTrue(at >= 0, "repair job is missing the JDK setup step");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> with = (Map<String, Object>) steps.get(at).get("with");
+        int at = stepIndex(build, "Set up the tag's JDK");
+        assertTrue(at >= 0, "the build job is missing the JDK setup step");
+        Map<String, Object> with = (Map<String, Object>) build.get(at).get("with");
         assertTrue(with != null, "the JDK setup step has no inputs");
-        assertEquals("${{ steps.toolchain.outputs.java-version }}", String.valueOf(with.get("java-version")),
+        assertEquals("${{ steps.toolchain.outputs.java-version }}",
+                String.valueOf(with.get("java-version")),
                 "the JDK is hard-coded instead of taken from the tag's pin");
 
         // The tag's checkout supplies its own Gradle wrapper; a pinned Gradle here would override it.
@@ -336,10 +456,10 @@ class ReleaseRepairCapabilityTest {
      */
     @Test
     void repairVerifiesTheLandedRelease() throws Exception {
-        List<Map<String, Object>> steps = steps();
-        assumeTrue(!steps.isEmpty());
+        List<Map<String, Object>> publish = steps(PUBLISH_JOB);
+        assumeTrue(!publish.isEmpty());
 
-        String verify = stepScript(steps, "Verify published release assets");
+        String verify = stepScript(publish, "Verify published release assets");
 
         List<String> required = Arrays.asList(
                 "gh api",              // reads the API, not the local build output
@@ -356,84 +476,40 @@ class ReleaseRepairCapabilityTest {
                 + "; it must assert on the published release, not on local build output");
 
         assertTrue(!verify.contains("build/libs") && !verify.contains("build/release"),
-                "the repair verification reads local build output; those jars exist even when "
+                "the repair verification reads local build output; those files exist even when "
                         + "the upload never happened");
 
         // Wrong-artifact-type is its own failure mode and the more dangerous one, because the
-        // release looks populated. LICENSE alone must not satisfy the guard.
+        // release looks populated. A positive asset count must not be satisfiable by LICENSE, a
+        // checksum manifest, an SBOM or a source archive: only a real plugin jar counts.
         assertTrue(verify.contains("^connect-(spigot|velocity|bungee).*\\\\.jar$"),
-                "the repair verification does not require a plugin jar asset by name");
-        assertTrue(verify.contains("size > 0"),
-                "the repair verification counts zero-byte plugin assets");
+                "the landed check does not require a real plugin jar by name; an asset such as "
+                        + "source.tar.gz could satisfy it while no build landed");
         assertTrue(Pattern.compile("BUILD_COUNT\"\\s*-eq\\s*0").matcher(verify).find(),
                 "the repair verification does not fail on a zero build-artifact count");
 
         // Unconditional: a guard that can be gated off is not a guard.
-        assertTrue(steps.get(stepIndex(steps, "Verify published release assets")).get("if") == null,
+        assertTrue(publish.get(stepIndex(publish, "Verify published release assets")).get("if") == null,
                 "the repair verification is conditional; it must always run");
 
-        int verifyAt = stepIndex(steps, "Verify published release assets");
-        int uploadAt = stepIndex(steps, "Upload the missing assets");
-        assertTrue(verifyAt > uploadAt,
+        assertTrue(stepIndex(publish, "Verify published release assets")
+                        > stepIndex(publish, "Upload the missing assets"),
                 "the repair verification runs before the upload; it would see the old release");
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void repairKeepsTheWriteTokenOutOfTaggedBuildLogic() throws Exception {
-        Map<String, Object> job = repairJob();
-        assumeTrue(!job.isEmpty());
-
-        Map<String, Object> jobEnv = (Map<String, Object>) job.get("env");
-        assertTrue(jobEnv == null || !jobEnv.containsKey("GH_TOKEN"),
-                "the write token is exposed to every step in the repair job");
-
-        List<Map<String, Object>> steps = steps();
-        Map<String, Object> build = steps.get(stepIndex(steps, "Build"));
-        Map<String, Object> buildEnv = (Map<String, Object>) build.get("env");
-        assertTrue(buildEnv == null || !buildEnv.containsKey("GH_TOKEN"),
-                "the tagged build can access the write-scoped GitHub token");
-
-        Map<String, Object> checkout = null;
-        for (Map<String, Object> step : steps) {
-            Object uses = step.get("uses");
-            if (uses instanceof String && ((String) uses).startsWith("actions/checkout@")) {
-                checkout = step;
-                break;
-            }
-        }
-        assertTrue(checkout != null, "release-repair.yml never checks out the repository");
-        Map<String, Object> checkoutWith = (Map<String, Object>) checkout.get("with");
-        assertEquals(Boolean.FALSE, checkoutWith.get("persist-credentials"),
-                "the checkout leaves the write token in the tagged build's git config");
-
-        List<String> apiSteps = Arrays.asList(
-                "Refuse to repair a complete release",
-                "Record the live pointer releases",
-                "Upload the missing assets",
-                "Verify published release assets",
-                "Verify no pointer release moved");
-        for (String name : apiSteps) {
-            Map<String, Object> env =
-                    (Map<String, Object>) steps.get(stepIndex(steps, name)).get("env");
-            assertEquals("${{ secrets.GITHUB_TOKEN }}", env.get("GH_TOKEN"),
-                    "the API step " + name + " does not receive the scoped GitHub token");
-        }
     }
 
     /**
      * "The workflow only names $RELEASE_TAG, so it cannot move a pointer" is an argument about the
-     * source. This is the check on the landed fact: record both pointer releases before the build
-     * and assert they are unchanged afterwards, so a move shows up as a red run rather than as a
-     * server owner's surprise downgrade.
+     * source. This is the check on the landed fact: record both pointer releases before anything is
+     * written and assert they are unchanged afterwards, so a move shows up as a red run rather than
+     * as a server owner's surprise downgrade.
      */
     @Test
     void repairProvesNoPointerReleaseMoved() throws Exception {
-        List<Map<String, Object>> steps = steps();
-        assumeTrue(!steps.isEmpty());
+        List<Map<String, Object>> publish = steps(PUBLISH_JOB);
+        assumeTrue(!publish.isEmpty());
 
-        String before = stepScript(steps, "Record the live pointer releases");
-        String after = stepScript(steps, "Verify no pointer release moved");
+        String before = stepScript(publish, "Record the live pointer releases");
+        String after = stepScript(publish, "Verify no pointer release moved");
         for (String pointer : POINTER_RELEASES) {
             assertTrue(before.contains(pointer) && after.contains(pointer),
                     "the pointer-immutability check does not cover \"" + pointer + "\"");
@@ -444,13 +520,12 @@ class ReleaseRepairCapabilityTest {
         assertTrue(after.contains("diff"), "the pointer check never compares before against after");
         assertTrue(after.contains("exit 1"), "the pointer check cannot fail the run");
 
-        int recordAt = stepIndex(steps, "Record the live pointer releases");
-        int buildAt = stepIndex(steps, "Build");
-        int uploadAt = stepIndex(steps, "Upload the missing assets");
-        int checkAt = stepIndex(steps, "Verify no pointer release moved");
-        assertTrue(recordAt < buildAt,
-                "the pointer state is recorded after the build; the baseline must predate any "
-                        + "work this run does");
+        int recordAt = stepIndex(publish, "Record the live pointer releases");
+        int uploadAt = stepIndex(publish, "Upload the missing assets");
+        int checkAt = stepIndex(publish, "Verify no pointer release moved");
+        assertTrue(recordAt < uploadAt,
+                "the pointer baseline is recorded after the upload; it must predate every write "
+                        + "this run performs");
         assertTrue(checkAt > uploadAt,
                 "the pointer check runs before the upload and would never observe a move");
     }
@@ -483,23 +558,26 @@ class ReleaseRepairCapabilityTest {
         assertEquals(Boolean.TRUE, ((Map<String, Object>) inputs.get("release_tag")).get("required"),
                 "release_tag must be required; an empty tag would repair the dispatch ref");
 
-        List<Map<String, Object>> steps = steps();
+        List<Map<String, Object>> build = steps(BUILD_JOB);
         Map<String, Object> checkout = null;
-        for (Map<String, Object> step : steps) {
+        for (Map<String, Object> step : build) {
             Object uses = step.get("uses");
             if (uses instanceof String && ((String) uses).startsWith("actions/checkout@")) {
                 checkout = step;
                 break;
             }
         }
-        assertTrue(checkout != null, "release-repair.yml never checks out the repository");
+        assertTrue(checkout != null, "the build job never checks out the repository");
         Map<String, Object> with = (Map<String, Object>) checkout.get("with");
         assertTrue(with != null, "the checkout step has no inputs");
         assertEquals("${{ inputs.release_tag }}", String.valueOf(with.get("ref")),
                 "the checkout must build the requested tag, not the dispatch ref");
+        assertEquals(Boolean.FALSE, with.get("persist-credentials"),
+                "the checkout persists credentials into .git/config, handing the tagged Gradle "
+                        + "build a usable token");
 
         // Provenance: the checked-out HEAD must be proven to be the tag, not a branch of that name.
-        String provenance = stepScript(steps, "Confirm the checkout is the tagged commit");
+        String provenance = stepScript(build, "Confirm the checkout is the tagged commit");
         assertTrue(provenance.contains("refs/tags/") && provenance.contains("exit 1"),
                 "the repair does not prove it built the tagged commit");
     }

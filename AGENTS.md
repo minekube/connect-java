@@ -45,13 +45,21 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
 
 ### Repairing a release that published no assets
 
-- Use `release-repair.yml` (default branch, manual dispatch, `contents: write`
-  as its only permission). It checks the tag out, builds at the JDK that tag's
-  own `release.yml` pinned, and uploads only missing or broken assets.
-  Never dispatch `release.yml` at an old tag instead: it rewrites the live
-  `latest` release, dragging the stable `releases/download/latest/*.jar` URLs
-  backwards. Boundary and guards pinned by
+- Use `release-repair.yml` (default branch, manual dispatch). It builds at the
+  JDK that tag's own `release.yml` pinned and uploads only missing or broken
+  assets. Never dispatch `release.yml` at an old tag instead: it rewrites the
+  live `latest` release, dragging the stable `releases/download/latest/*.jar`
+  URLs backwards. Boundary and guards pinned by
   `core/.../release/ReleaseRepairCapabilityTest`; keep its step names in sync.
+- A repair EXECUTES old, unreviewed tagged source, so the workflow is split into
+  two jobs and must stay split: `build` (`contents: read`) checks the tag out and
+  runs Gradle; `publish` (`contents: write`, `needs: build`) checks out nothing,
+  runs no tag code, and only uploads the handover artifact. Top-level
+  `permissions: {}`. Step-level `env:` is NOT a substitute: within one job the
+  tagged build can append to `$GITHUB_PATH`/`$GITHUB_ENV` and have a later
+  token-bearing step in that same job execute a tool it planted. The job is the
+  boundary. The publish job also re-validates the artifact's file names, because
+  they were produced by the untrusted build and become public asset names.
 - Asset naming is per-era: tags up to 0.7.0 published version-suffixed jars
   (`connect-spigot-0.6.2.jar`), 0.7.1 onwards publish bare names. The repair
   derives which from the tag's own release workflow, so a repair does not rename.

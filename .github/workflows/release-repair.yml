@@ -21,10 +21,34 @@ name: release-repair
 #      those URLs. This workflow never names a release other than the one being
 #      repaired, and refuses the pointer tags outright.
 #
-# Capability boundary: this workflow holds `contents: write` and NOTHING else.
-# It pushes no artifact to any package registry and requests no registry scope,
-# so publishing connect's jars to a registry is not "guarded against" here - it
-# is unrepresentable. ReleaseRepairCapabilityTest asserts that boundary.
+# WHY TWO JOBS, and why that is the whole security model:
+#
+# A repair necessarily EXECUTES OLD TAGGED SOURCE - a Gradle build, its
+# plugins, and whatever those resolve. That source is not reviewed as part of
+# the repair, and for the tags this exists to fix it is years old. So the
+# question is not "is the build trustworthy" but "what can it reach".
+#
+# Scoping the token to individual steps does NOT answer that. Within one job,
+# a build step can append to $GITHUB_PATH or $GITHUB_ENV and have a LATER,
+# token-bearing step in that same job execute a tool it planted. Step-level
+# `env:` is not a sandbox; the job is the boundary.
+#
+# So the write capability lives in a job that never sees the tag:
+#
+#   build   - permissions: contents: read. Checks the tag out and runs its
+#             Gradle build. Holds NO write capability, so nothing it plants can
+#             be escalated into a release write, a ref update, or a pointer
+#             move. Hands its output on as an artifact.
+#   publish - permissions: contents: write. Checks out NOTHING, runs NO tag
+#             code, and only downloads that artifact and uploads it to the one
+#             release named by the dispatch input.
+#
+# Top-level permissions are `{}` so neither job inherits anything it was not
+# explicitly granted. No registry scope exists anywhere in this file, so
+# publishing connect's jars to a package registry is not "guarded against"
+# here - it is unrepresentable. ReleaseRepairCapabilityTest asserts the split
+# and the boundary; a token on the build job, or a checkout in the publish job,
+# turns that suite red.
 #
 # This workflow publishes GitHub Release assets only.
 
@@ -36,21 +60,24 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write # GitHub Release asset upload. The ONLY permission.
-  # `packages` and every other registry scope are deliberately absent and must
-  # stay absent. Without them, pushing a build anywhere but this release's own
-  # asset list is not forbidden here, it is unrepresentable.
-  # ReleaseRepairCapabilityTest asserts this file grants no registry scope.
+# Nothing is inherited. Each job is granted exactly what it needs, below.
+permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.release_tag }}
   cancel-in-progress: false
 
+env:
+  ASSET_ARTIFACT: release-assets
+
 jobs:
-  repair:
+  # Runs the untrusted tagged source. Read-only by construction: there is no
+  # write capability in this job for a planted tool to reach.
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read # Read the tag and its release. NEVER write here.
     env:
       RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
@@ -113,6 +140,8 @@ jobs:
       # Classified by name/type, not counted: a release carrying only LICENSE
       # has a positive asset count and still offers nothing anyone can run,
       # which is precisely the state 0.6.0/0.7.0-era holes leave behind.
+      #
+      # This is a READ, and it runs before any tag code executes.
       - name: Refuse to repair a complete release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -181,25 +210,13 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      # Recorded BEFORE the build so the after-check below compares against a
-      # pointer state this run cannot have touched yet.
-      - name: Record the live pointer releases
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          for pointer in latest latest-prerelease; do
-            if ! gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$pointer" \
-              | jq -S '{tag_name, name, target_commitish, created_at, published_at,
-                        assets: [.assets[] | {name, size, updated_at}] | sort_by(.name)}' \
-              > "/tmp/pointer-$pointer.before.json"; then
-              echo "::error::Could not read the $pointer release; refusing to run blind."
-              exit 1
-            fi
-            echo "--- $pointer (before) ---"
-            cat "/tmp/pointer-$pointer.before.json"
-          done
+      # ---------------------------------------------------------------------
+      # Everything from here on runs, or runs after, UNTRUSTED TAGGED SOURCE.
+      # No step below holds a write capability, and no step below may be given
+      # one: the tagged build can plant a tool on $GITHUB_PATH that a later
+      # step in this job would execute. That is why the release write lives in
+      # a separate job rather than in a later step of this one.
+      # ---------------------------------------------------------------------
 
       # The same build the tag's own release path ran. A repaired release must
       # not carry weaker provenance than one published on the normal path.
@@ -228,21 +245,142 @@ jobs:
 
           ls -la build/release/
 
+      - name: Hand the assets to the publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET_ARTIFACT }}
+          path: build/release/
+          if-no-files-found: error
+          retention-days: 1
+
+  # Holds the ONLY write capability in this workflow. It checks nothing out and
+  # runs no tag code, so there is no tagged source in this job to escalate it.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # GitHub Release asset upload. The ONLY write in this file.
+      # `packages` and every other registry scope are deliberately absent and
+      # must stay absent. Without them, pushing a build anywhere but this
+      # release's own asset list is not forbidden here, it is unrepresentable.
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ASSET_DIR: release-assets
+    steps:
+      # Repeated here on purpose rather than relied upon from the build job:
+      # this is the job that holds the write token, so the refusal that
+      # protects the pointer releases belongs where the capability is.
+      - name: Refuse to repair a pointer release
+        run: |
+          set -euo pipefail
+
+          case "$RELEASE_TAG" in
+            latest | latest-prerelease)
+              echo "::error::$RELEASE_TAG is a live pointer release, not a version."
+              echo "::error::Repairing it would republish old jars at the stable download URLs"
+              echo "::error::and downgrade every consumer of them. Refusing."
+              exit 1
+              ;;
+          esac
+
+          if ! printf '%s' "$RELEASE_TAG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::$RELEASE_TAG is not a connect-java version tag (expected N.N.N)."
+            exit 1
+          fi
+
+      - name: Collect the built assets
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ASSET_ARTIFACT }}
+          path: ${{ env.ASSET_DIR }}
+
+      # The artifact was produced by a job that ran untrusted tagged source, so
+      # its FILE NAMES are untrusted input to this job: they become the names of
+      # public release assets. Only the jars a connect release is supposed to
+      # carry, plus LICENSE, may pass. Regular files only - a symlink or a
+      # nested path is not something a repair produces.
+      - name: Validate the downloaded assets
+        run: |
+          set -euo pipefail
+
+          if [ ! -d "$ASSET_DIR" ]; then
+            echo "::error::The build job produced no asset directory."
+            exit 1
+          fi
+
+          REJECTED=""
+          ACCEPTED=""
+          JARS=0
+          while IFS= read -r path; do
+            base="$(basename "$path")"
+            if [ -L "$path" ] || [ ! -f "$path" ] || [ ! -s "$path" ]; then
+              REJECTED="$REJECTED $base"
+              continue
+            fi
+            if [ "$path" != "$ASSET_DIR/$base" ]; then
+              REJECTED="$REJECTED $path"
+              continue
+            fi
+            case "$base" in
+              LICENSE) ACCEPTED="$ACCEPTED $base" ;;
+              *)
+                if printf '%s' "$base" \
+                  | grep -Eq '^connect-(spigot|velocity|bungee)[A-Za-z0-9._-]*\.jar$'; then
+                  ACCEPTED="$ACCEPTED $base"
+                  JARS=$((JARS + 1))
+                else
+                  REJECTED="$REJECTED $base"
+                fi
+                ;;
+            esac
+          done < <(find "$ASSET_DIR" -mindepth 1)
+
+          echo "Accepted:$ACCEPTED"
+
+          if [ -n "$REJECTED" ]; then
+            echo "::error::The build job produced asset(s) a repair must not publish:$REJECTED"
+            echo "::error::Only connect-<platform>*.jar and LICENSE may become release assets."
+            exit 1
+          fi
+
+          if [ "$JARS" -eq 0 ]; then
+            echo "::error::The build job produced no plugin jar; there is nothing to repair with."
+            exit 1
+          fi
+
+      # Recorded before this job writes anything, and the build job cannot
+      # write at all, so this baseline predates every write the run performs.
+      - name: Record the live pointer releases
+        run: |
+          set -euo pipefail
+
+          for pointer in latest latest-prerelease; do
+            if ! gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$pointer" \
+              | jq -S '{tag_name, name, target_commitish, created_at, published_at,
+                        assets: [.assets[] | {name, size, updated_at}] | sort_by(.name)}' \
+              > "/tmp/pointer-$pointer.before.json"; then
+              echo "::error::Could not read the $pointer release; refusing to run blind."
+              exit 1
+            fi
+            echo "--- $pointer (before) ---"
+            cat "/tmp/pointer-$pointer.before.json"
+          done
+
       # Repairing an existing release must not go through the `softprops`
       # gh-release action that release.yml uses for fresh publishes: it PATCHes
       # /releases/{id} to sync release metadata BEFORE uploading anything, which
       # rewrites historical release notes. `gh release upload` only POSTs to
       # /releases/{id}/assets, and only for the tag named here.
       - name: Upload the missing assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
           INITIAL_RELEASE_JSON=$(gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")
 
           FILES=()
-          for f in build/release/*; do
+          for f in "$ASSET_DIR"/*; do
             [ -f "$f" ] || continue
             FILES+=("$f")
           done
@@ -252,9 +390,12 @@ jobs:
             exit 1
           fi
 
-          # GUARD 2: never clobber an existing GOOD asset. Only names that are
-          # absent, or present in a non-uploaded / zero-byte (failed upload)
-          # state, are eligible; --clobber then applies solely to those holes.
+          # GUARD 2: never clobber an existing GOOD asset. A name that is
+          # absent is uploaded WITHOUT --clobber, so GitHub itself rejects the
+          # POST if a concurrent writer published that name in the meantime -
+          # that rejection is the atomic conditional the REST API does not
+          # otherwise offer. --clobber is reserved for names that are present
+          # but BROKEN, where replacing already-unusable bytes is the point.
           RELEASE_JSON=$(gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")
           ABSENT_LIST=()
           BROKEN_LIST=()
@@ -317,8 +458,6 @@ jobs:
       # re-read the PUBLISHED release from the API and assert on the landed
       # fact. Never conditional: the guard must not be skippable into silence.
       - name: Verify published release assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -411,8 +550,6 @@ jobs:
       # asset check above refuses to trust its own upload step.
       - name: Verify no pointer release moved
         if: always()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -420,7 +557,7 @@ jobs:
           for pointer in latest latest-prerelease; do
             BEFORE="/tmp/pointer-$pointer.before.json"
             if [ ! -f "$BEFORE" ]; then
-              echo "No recorded state for $pointer (the run stopped before the build); nothing to compare."
+              echo "No recorded state for $pointer (the run stopped before the upload); nothing to compare."
               continue
             fi
             gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$pointer" \
@@ -443,5 +580,6 @@ jobs:
             exit 1
           fi
 
-          echo "NOTE: no package registry was touched. This workflow holds contents:write only"
-          echo "NOTE: and requests no registry scope, so publishing elsewhere is unrepresentable here."
+          echo "NOTE: no package registry was touched, and the job that ran the tagged"
+          echo "NOTE: build held no write capability at all. Publishing elsewhere is"
+          echo "NOTE: unrepresentable in this workflow, not merely disallowed."
