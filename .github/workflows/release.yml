@@ -123,3 +123,143 @@ jobs:
             **Commit:** ${{ github.sha }}
 
             ⚠️ This is a development build and may be unstable.
+
+      # A release that publishes no downloadable asset is indistinguishable
+      # from a healthy one: the run is green, the release page exists, and
+      # the hole only surfaces later when a server owner's download link
+      # 404s. Nothing here ever re-read the release that actually landed,
+      # so an upload that silently shipped nothing looked exactly like a
+      # successful release.
+      #
+      # This re-reads the PUBLISHED release from the API instead of trusting
+      # the upload steps above. Trusting the steps we just ran would rebuild
+      # the same "green run, empty artifact" defect one layer up: the upload
+      # action can skip files, partially fail, or be silently gated off, and
+      # only the landed release tells the truth. Assert on the fact.
+      - name: Verify published release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          # Verify every release this run publishes. The release path writes
+          # both the version tag and the stable "latest" release the download
+          # links point at; the push path writes "latest-prerelease".
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            TARGETS="latest-prerelease"
+          else
+            if [ -z "$RELEASE_TAG" ]; then
+              echo "::error::Release tag is empty; cannot verify the published release."
+              exit 1
+            fi
+            TARGETS="$RELEASE_TAG latest"
+          fi
+
+          # A non-empty asset list is NOT proof of a usable release. A release
+          # carrying only LICENSE, a checksum manifest, a signature bundle or
+          # an SBOM has a positive asset count and still offers nothing anyone
+          # can run. Counting assets is the same defect as trusting a green run
+          # without checking what it produced, so classify by name/type and
+          # require a real downloadable BUILD artifact (here: the plugin jars).
+          BUILD_FILTER='[.assets[]
+            | select(.state == "uploaded")
+            | select(.name | test(
+                "^checksums\\.txt$|^SHA(256|512)SUMS$|^LICENSE|^README|"
+                + "\\.sig$|\\.sigstore\\.json$|\\.attest\\.spdx\\.json$|"
+                + "\\.spdx\\.json$|\\.asc$|\\.pem$|\\.sha256$|"
+                + "\\.h$|\\.hpp$|\\.md$|\\.txt$"
+              ) | not)
+            | select(.size > 0)]'
+
+          verify_release() {
+            local tag="$1"
+            local attempt RELEASE_JSON ASSET_COUNT BUILD_COUNT BUILD_NAMES
+            local PROBE PROBE_URL PROBE_CODE
+
+            RELEASE_JSON=""
+            ASSET_COUNT=0
+            BUILD_COUNT=0
+            BUILD_NAMES=""
+            PROBE=""
+            PROBE_URL=""
+            PROBE_CODE=""
+
+            # Asset visibility is eventually consistent right after upload, so
+            # poll briefly before declaring the release empty.
+            for attempt in $(seq 1 12); do
+              if ! RELEASE_JSON=$(gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$tag"); then
+                echo "Release $tag is not readable yet (attempt $attempt); waiting..."
+                RELEASE_JSON=""
+                sleep 10
+                continue
+              fi
+
+              ASSET_COUNT=$(echo "$RELEASE_JSON" | jq '[.assets[] | select(.state == "uploaded")] | length')
+              BUILD_COUNT=$(echo "$RELEASE_JSON" | jq "$BUILD_FILTER | length")
+              BUILD_NAMES=$(echo "$RELEASE_JSON" | jq -r "$BUILD_FILTER | .[].name")
+
+              PROBE=""
+              PROBE_URL=""
+              PROBE_CODE=""
+              if [ "$BUILD_COUNT" -gt 0 ]; then
+                PROBE=$(echo "$BUILD_NAMES" | head -n1)
+                PROBE_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$tag/$PROBE"
+                if ! PROBE_CODE=$(curl -sSL -o /dev/null -w '%{http_code}' -r 0-0 "$PROBE_URL"); then
+                  PROBE_CODE="000"
+                fi
+              fi
+
+              if [ "$ASSET_COUNT" -gt 0 ] && [ "$BUILD_COUNT" -gt 0 ]; then
+                case "$PROBE_CODE" in
+                  200|206) break ;;
+                esac
+              fi
+
+              echo "Published assets are incomplete on $tag (attempt $attempt); waiting..."
+              sleep 10
+            done
+
+            echo "--- $tag ---"
+            if [ -n "$RELEASE_JSON" ]; then
+              echo "$RELEASE_JSON" | jq -r '.assets[] | "\(.name)\t\(.size)\t\(.state)"'
+            fi
+            echo "Real build artifacts published ($BUILD_COUNT):"
+            echo "${BUILD_NAMES:-  (none)}"
+
+            if [ -z "$RELEASE_JSON" ]; then
+              echo "::error::Release $tag could not be read back from the API; the release did not land."
+              exit 1
+            fi
+
+            if [ "$ASSET_COUNT" -eq 0 ]; then
+              echo "::error::Release $tag published with ZERO downloadable assets."
+              echo "::error::A release with no artifact silently did not happen. Failing loudly."
+              exit 1
+            fi
+
+            # Wrong-artifact-type is its own failure mode, distinct from empty.
+            # It is the more dangerous one because the release looks populated.
+            if [ "$BUILD_COUNT" -eq 0 ]; then
+              echo "::error::Release $tag has $ASSET_COUNT asset(s) but NO real build artifact."
+              echo "::error::Only LICENSE/checksums/signatures/SBOMs were published - no plugin jar."
+              echo "::error::A positive asset count is not a release; a downloadable build is."
+              exit 1
+            fi
+
+            # Finally prove one build is actually served, not merely listed by
+            # the API. Range-request the first byte: a released asset that 404s
+            # or is empty fails here rather than in a server owner's download.
+            if [ "$PROBE_CODE" != "200" ] && [ "$PROBE_CODE" != "206" ]; then
+              echo "::error::Build artifact $PROBE is listed on $tag but not downloadable (HTTP $PROBE_CODE); the build is undownloadable."
+              echo "::error::$PROBE_URL"
+              exit 1
+            fi
+
+            echo "OK: $tag publishes $BUILD_COUNT real build artifact(s) of $ASSET_COUNT assets;"
+            echo "OK: $PROBE downloads (HTTP $PROBE_CODE)."
+          }
+
+          for target in $TARGETS; do
+            verify_release "$target"
+          done
