@@ -65,9 +65,14 @@ class ReleaseAssetVerificationTest {
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> readBuildJobSteps() throws Exception {
         if (!Files.exists(WORKFLOW_PATH)) {
-            assumeTrue(!Files.exists(REPOSITORY_GIT_PATH),
-                    WORKFLOW_PATH + " is unavailable outside a repository checkout");
-            assertTrue(false, WORKFLOW_PATH + " is missing from the repository checkout");
+            if (Files.exists(REPOSITORY_GIT_PATH)) {
+                throw new AssertionError(
+                        WORKFLOW_PATH + " is missing from the repository checkout");
+            } else {
+                assumeTrue(false,
+                        WORKFLOW_PATH + " is unavailable outside a repository checkout");
+                return List.of();
+            }
         }
 
         Map<String, Object> workflow;
