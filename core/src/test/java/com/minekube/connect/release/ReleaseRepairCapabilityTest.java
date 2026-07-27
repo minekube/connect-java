@@ -277,6 +277,12 @@ class ReleaseRepairCapabilityTest {
                 "the upload does not exclude already-good assets from --clobber");
         assertTrue(upload.contains("INITIAL_RELEASE_JSON"),
                 "the upload does not retain the initial release snapshot");
+        assertTrue(upload.contains("initial_asset_count"),
+                "the upload does not distinguish initially absent assets");
+        assertTrue(upload.contains("[ \"$initial_asset_count\" -eq 0 ]"),
+                "the upload misclassifies assets that appeared during the repair");
+        assertTrue(upload.contains("ABSENT_LIST=()") && upload.contains("BROKEN_LIST=()"),
+                "the upload does not separate absent assets from broken assets");
         int rereadAt = upload.indexOf("RELEASE_JSON=$(gh api");
         int decisionAt = upload.indexOf("for f in \"${FILES[@]}\"");
         assertTrue(rereadAt >= 0 && decisionAt > rereadAt,
@@ -284,6 +290,12 @@ class ReleaseRepairCapabilityTest {
                         + "clobber");
         assertTrue(upload.contains("PUBLISHED_DURING_REPAIR"),
                 "the upload does not report a newly published good asset that it skips");
+        int absentUploadAt = upload.indexOf(
+                "gh release upload \"$RELEASE_TAG\" \"${ABSENT_LIST[@]}\" --repo \"$GITHUB_REPOSITORY\"");
+        int brokenUploadAt = upload.indexOf(
+                "gh release upload \"$RELEASE_TAG\" \"${BROKEN_LIST[@]}\" --clobber --repo \"$GITHUB_REPOSITORY\"");
+        assertTrue(absentUploadAt >= 0 && brokenUploadAt > absentUploadAt,
+                "the upload does not use the atomic no-clobber path for absent assets");
     }
 
     /**

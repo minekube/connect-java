@@ -256,22 +256,27 @@ jobs:
           # absent, or present in a non-uploaded / zero-byte (failed upload)
           # state, are eligible; --clobber then applies solely to those holes.
           RELEASE_JSON=$(gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")
-          UPLOAD_LIST=()
+          ABSENT_LIST=()
+          BROKEN_LIST=()
           SKIPPED=""
           PUBLISHED_DURING_REPAIR=""
           for f in "${FILES[@]}"; do
             base="$(basename "$f")"
-            initially_absent=$(printf '%s' "$INITIAL_RELEASE_JSON" | jq -r --arg n "$base" \
+            initial_asset_count=$(printf '%s' "$INITIAL_RELEASE_JSON" | jq -r --arg n "$base" \
+              '[.assets[] | select(.name == $n)] | length')
+            current_asset_count=$(printf '%s' "$RELEASE_JSON" | jq -r --arg n "$base" \
               '[.assets[] | select(.name == $n)] | length')
             good=$(printf '%s' "$RELEASE_JSON" | jq -r --arg n "$base" \
               '[.assets[] | select(.name == $n and .state == "uploaded" and .size > 0)] | length')
             if [ "$good" -gt 0 ]; then
               SKIPPED="$SKIPPED $base"
-              if [ "$initially_absent" -gt 0 ]; then
+              if [ "$initial_asset_count" -eq 0 ]; then
                 PUBLISHED_DURING_REPAIR="$PUBLISHED_DURING_REPAIR $base"
               fi
+            elif [ "$current_asset_count" -eq 0 ]; then
+              ABSENT_LIST+=("$f")
             else
-              UPLOAD_LIST+=("$f")
+              BROKEN_LIST+=("$f")
             fi
           done
 
@@ -283,13 +288,27 @@ jobs:
             echo "Keeping existing good assets (not clobbered):$SKIPPED"
           fi
 
-          if [ "${#UPLOAD_LIST[@]}" -eq 0 ]; then
+          if [ "${#ABSENT_LIST[@]}" -eq 0 ] && [ "${#BROKEN_LIST[@]}" -eq 0 ]; then
             echo "::error::Nothing to upload for $RELEASE_TAG: every built file is already published."
             exit 1
           fi
 
-          echo "Uploading missing assets"
-          gh release upload "$RELEASE_TAG" "${UPLOAD_LIST[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          if [ "${#ABSENT_LIST[@]}" -gt 0 ]; then
+            echo "Uploading newly staged assets without clobber"
+            if ! gh release upload "$RELEASE_TAG" "${ABSENT_LIST[@]}" --repo "$GITHUB_REPOSITORY"; then
+              echo "::error::An asset classified as absent was rejected during upload; a concurrent release writer may have published one of ${ABSENT_LIST[*]}."
+              echo "::error::Refusing to retry with --clobber."
+              exit 1
+            fi
+          fi
+
+          if [ "${#BROKEN_LIST[@]}" -gt 0 ]; then
+            echo "Replacing broken release assets with clobber"
+            # A writer can replace a broken asset with a good one after this read and before
+            # --clobber. The prior bytes were already unusable; landed-asset and pointer checks
+            # below surface the result.
+            gh release upload "$RELEASE_TAG" "${BROKEN_LIST[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          fi
 
       # A release that publishes nothing downloadable is indistinguishable from
       # a healthy one: green run, release page exists, and the hole only
