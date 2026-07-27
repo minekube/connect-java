@@ -46,6 +46,9 @@ tasks.test {
     inputs.file(rootProject.file(".github/workflows/release.yml"))
         .withPropertyName("releaseWorkflow")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file(rootProject.file(".github/workflows/release-repair.yml"))
+        .withPropertyName("releaseRepairWorkflow")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 relocate("org.bstats")

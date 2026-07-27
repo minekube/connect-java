@@ -275,6 +275,15 @@ class ReleaseRepairCapabilityTest {
         assertTrue(upload.contains("--clobber"), "the upload does not use --clobber");
         assertTrue(upload.contains("state == \"uploaded\"") && upload.contains("size > 0"),
                 "the upload does not exclude already-good assets from --clobber");
+        assertTrue(upload.contains("INITIAL_RELEASE_JSON"),
+                "the upload does not retain the initial release snapshot");
+        int rereadAt = upload.indexOf("RELEASE_JSON=$(gh api");
+        int decisionAt = upload.indexOf("for f in \"${FILES[@]}\"");
+        assertTrue(rereadAt >= 0 && decisionAt > rereadAt,
+                "the upload does not re-read the release immediately before deciding what to "
+                        + "clobber");
+        assertTrue(upload.contains("PUBLISHED_DURING_REPAIR"),
+                "the upload does not report a newly published good asset that it skips");
     }
 
     /**
@@ -340,8 +349,10 @@ class ReleaseRepairCapabilityTest {
 
         // Wrong-artifact-type is its own failure mode and the more dangerous one, because the
         // release looks populated. LICENSE alone must not satisfy the guard.
-        assertTrue(verify.contains("^LICENSE"),
-                "the repair verification counts LICENSE as a build artifact");
+        assertTrue(verify.contains("^connect-(spigot|velocity|bungee).*\\\\.jar$"),
+                "the repair verification does not require a plugin jar asset by name");
+        assertTrue(verify.contains("size > 0"),
+                "the repair verification counts zero-byte plugin assets");
         assertTrue(Pattern.compile("BUILD_COUNT\"\\s*-eq\\s*0").matcher(verify).find(),
                 "the repair verification does not fail on a zero build-artifact count");
 
@@ -353,6 +364,49 @@ class ReleaseRepairCapabilityTest {
         int uploadAt = stepIndex(steps, "Upload the missing assets");
         assertTrue(verifyAt > uploadAt,
                 "the repair verification runs before the upload; it would see the old release");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void repairKeepsTheWriteTokenOutOfTaggedBuildLogic() throws Exception {
+        Map<String, Object> job = repairJob();
+        assumeTrue(!job.isEmpty());
+
+        Map<String, Object> jobEnv = (Map<String, Object>) job.get("env");
+        assertTrue(jobEnv == null || !jobEnv.containsKey("GH_TOKEN"),
+                "the write token is exposed to every step in the repair job");
+
+        List<Map<String, Object>> steps = steps();
+        Map<String, Object> build = steps.get(stepIndex(steps, "Build"));
+        Map<String, Object> buildEnv = (Map<String, Object>) build.get("env");
+        assertTrue(buildEnv == null || !buildEnv.containsKey("GH_TOKEN"),
+                "the tagged build can access the write-scoped GitHub token");
+
+        Map<String, Object> checkout = null;
+        for (Map<String, Object> step : steps) {
+            Object uses = step.get("uses");
+            if (uses instanceof String && ((String) uses).startsWith("actions/checkout@")) {
+                checkout = step;
+                break;
+            }
+        }
+        assertTrue(checkout != null, "release-repair.yml never checks out the repository");
+        Map<String, Object> checkoutWith = (Map<String, Object>) checkout.get("with");
+        assertEquals(Boolean.FALSE, checkoutWith.get("persist-credentials"),
+                "the checkout leaves the write token in the tagged build's git config");
+
+        List<String> apiSteps = Arrays.asList(
+                "Refuse to repair a complete release",
+                "Record the live pointer releases",
+                "Upload the missing assets",
+                "Verify published release assets",
+                "Verify no pointer release moved");
+        for (String name : apiSteps) {
+            Map<String, Object> env =
+                    (Map<String, Object>) steps.get(stepIndex(steps, name)).get("env");
+            assertEquals("${{ secrets.GITHUB_TOKEN }}", env.get("GH_TOKEN"),
+                    "the API step " + name + " does not receive the scoped GitHub token");
+        }
     }
 
     /**

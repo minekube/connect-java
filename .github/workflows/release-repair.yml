@@ -53,7 +53,6 @@ jobs:
     timeout-minutes: 60
     env:
       RELEASE_TAG: ${{ inputs.release_tag }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       # GUARD 0, before anything is even checked out: `latest` and
       # `latest-prerelease` are not versions, they are the live pointers whose
@@ -82,6 +81,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.release_tag }}
+          persist-credentials: false
 
       # Provenance: a repair must build the tag, not a branch that merely
       # happens to be named like one. A moving ref would produce assets that do
@@ -114,6 +114,8 @@ jobs:
       # has a positive asset count and still offers nothing anyone can run,
       # which is precisely the state 0.6.0/0.7.0-era holes leave behind.
       - name: Refuse to repair a complete release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -182,6 +184,8 @@ jobs:
       # Recorded BEFORE the build so the after-check below compares against a
       # pointer state this run cannot have touched yet.
       - name: Record the live pointer releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -230,40 +234,62 @@ jobs:
       # rewrites historical release notes. `gh release upload` only POSTs to
       # /releases/{id}/assets, and only for the tag named here.
       - name: Upload the missing assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          RELEASE_JSON=$(gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")
+          INITIAL_RELEASE_JSON=$(gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")
+
+          FILES=()
+          for f in build/release/*; do
+            [ -f "$f" ] || continue
+            FILES+=("$f")
+          done
+
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "::error::Nothing to upload for $RELEASE_TAG: no staged assets exist."
+            exit 1
+          fi
 
           # GUARD 2: never clobber an existing GOOD asset. Only names that are
           # absent, or present in a non-uploaded / zero-byte (failed upload)
           # state, are eligible; --clobber then applies solely to those holes.
-          UPLOAD_LIST=""
+          RELEASE_JSON=$(gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")
+          UPLOAD_LIST=()
           SKIPPED=""
-          for f in build/release/*; do
-            [ -f "$f" ] || continue
+          PUBLISHED_DURING_REPAIR=""
+          for f in "${FILES[@]}"; do
             base="$(basename "$f")"
+            initially_absent=$(printf '%s' "$INITIAL_RELEASE_JSON" | jq -r --arg n "$base" \
+              '[.assets[] | select(.name == $n)] | length')
             good=$(printf '%s' "$RELEASE_JSON" | jq -r --arg n "$base" \
               '[.assets[] | select(.name == $n and .state == "uploaded" and .size > 0)] | length')
             if [ "$good" -gt 0 ]; then
               SKIPPED="$SKIPPED $base"
+              if [ "$initially_absent" -gt 0 ]; then
+                PUBLISHED_DURING_REPAIR="$PUBLISHED_DURING_REPAIR $base"
+              fi
             else
-              UPLOAD_LIST="$UPLOAD_LIST $f"
+              UPLOAD_LIST+=("$f")
             fi
           done
+
+          if [ -n "$PUBLISHED_DURING_REPAIR" ]; then
+            echo "Skipping assets published since the initial release snapshot (not clobbered):$PUBLISHED_DURING_REPAIR"
+          fi
 
           if [ -n "$SKIPPED" ]; then
             echo "Keeping existing good assets (not clobbered):$SKIPPED"
           fi
 
-          if [ -z "$UPLOAD_LIST" ]; then
+          if [ "${#UPLOAD_LIST[@]}" -eq 0 ]; then
             echo "::error::Nothing to upload for $RELEASE_TAG: every built file is already published."
             exit 1
           fi
 
-          echo "Uploading missing assets:$UPLOAD_LIST"
-          # shellcheck disable=SC2086
-          gh release upload "$RELEASE_TAG" $UPLOAD_LIST --clobber --repo "$GITHUB_REPOSITORY"
+          echo "Uploading missing assets"
+          gh release upload "$RELEASE_TAG" "${UPLOAD_LIST[@]}" --clobber --repo "$GITHUB_REPOSITORY"
 
       # A release that publishes nothing downloadable is indistinguishable from
       # a healthy one: green run, release page exists, and the hole only
@@ -272,6 +298,8 @@ jobs:
       # re-read the PUBLISHED release from the API and assert on the landed
       # fact. Never conditional: the guard must not be skippable into silence.
       - name: Verify published release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -280,13 +308,8 @@ jobs:
           # name/type and require a real downloadable plugin jar.
           BUILD_FILTER='[.assets[]
             | select(.state == "uploaded")
-            | select(.name | test(
-                "^checksums\\.txt$|^SHA(256|512)SUMS$|^LICENSE|^README|"
-                + "\\.sig$|\\.sigstore\\.json$|\\.attest\\.spdx\\.json$|"
-                + "\\.spdx\\.json$|\\.asc$|\\.pem$|\\.sha256$|"
-                + "\\.h$|\\.hpp$|\\.md$|\\.txt$"
-              ) | not)
-            | select(.size > 0)]'
+            | select(.size > 0)
+            | select(.name | test("^connect-(spigot|velocity|bungee).*\\.jar$"))]'
 
           RELEASE_JSON=""
           ASSET_COUNT=0
@@ -369,6 +392,8 @@ jobs:
       # asset check above refuses to trust its own upload step.
       - name: Verify no pointer release moved
         if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
