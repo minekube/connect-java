@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.5](https://github.com/minekube/connect-java/compare/0.12.4...0.12.5) (2026-07-27)
+
+
+### Bug Fixes
+
+* fail releases without published build artifacts ([#69](https://github.com/minekube/connect-java/issues/69)) ([8f0a274](https://github.com/minekube/connect-java/commit/8f0a27472f096074e58182493a416f54ef4e89dd))
+
 ## [0.12.4](https://github.com/minekube/connect-java/compare/0.12.3...0.12.4) (2026-07-26)
 
 
