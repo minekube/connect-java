@@ -60,11 +60,15 @@ class ReleaseAssetVerificationTest {
 
     private static final Path WORKFLOW_PATH =
             Paths.get("..", ".github", "workflows", "release.yml");
+    private static final Path REPOSITORY_GIT_PATH = Paths.get("..", ".git");
 
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> readBuildJobSteps() throws Exception {
-        assumeTrue(Files.exists(WORKFLOW_PATH),
-                WORKFLOW_PATH + " is unavailable outside a repository checkout");
+        if (!Files.exists(WORKFLOW_PATH)) {
+            assumeTrue(!Files.exists(REPOSITORY_GIT_PATH),
+                    WORKFLOW_PATH + " is unavailable outside a repository checkout");
+            assertTrue(false, WORKFLOW_PATH + " is missing from the repository checkout");
+        }
 
         Map<String, Object> workflow;
         try (InputStream in = Files.newInputStream(WORKFLOW_PATH)) {
@@ -219,9 +223,14 @@ class ReleaseAssetVerificationTest {
     void releaseVerificationCoversEveryPublishedTarget() throws Exception {
         String script = verifyScript(readBuildJobSteps());
 
-        for (String target : Arrays.asList("RELEASE_TAG", "latest", "latest-prerelease")) {
-            assertTrue(script.contains(target),
-                    "guard does not verify the " + target + " release target");
-        }
+        assertTrue(Pattern.compile("(?m)^\\s*TARGETS=\"\\$RELEASE_TAG latest\"\\s*$")
+                        .matcher(script).find(),
+                "guard does not verify the version-tag and latest release targets");
+        assertTrue(Pattern.compile("(?m)^\\s*TARGETS=\"latest-prerelease\"\\s*$")
+                        .matcher(script).find(),
+                "guard does not verify the latest-prerelease release target");
+        assertTrue(Pattern.compile("(?m)^\\s*for target in \\$TARGETS; do\\s*$")
+                        .matcher(script).find(),
+                "guard does not iterate over its assigned release targets");
     }
 }
