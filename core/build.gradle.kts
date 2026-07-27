@@ -33,7 +33,7 @@ dependencies {
     testImplementation("io.netty", "netty-transport", Versions.nettyVersion)
     testImplementation("io.netty", "netty-codec", Versions.nettyVersion)
     testImplementation("com.squareup.okhttp3:mockwebserver:4.9.3")
-    // Parses .github/workflows/release.yml in ReleaseAssetVerificationTest.
+    // Parses the release workflows in the release verification tests.
     testImplementation("org.yaml:snakeyaml:1.27")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
@@ -41,8 +41,8 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
 
-    // ReleaseAssetVerificationTest asserts on the release workflow, so an edit
-    // to that workflow must re-run the tests instead of being served from cache.
+    // Release verification tests assert on the release workflows, so edits to
+    // those workflows must re-run the tests instead of being served from cache.
     inputs.file(rootProject.file(".github/workflows/release.yml"))
         .withPropertyName("releaseWorkflow")
         .withPathSensitivity(PathSensitivity.RELATIVE)

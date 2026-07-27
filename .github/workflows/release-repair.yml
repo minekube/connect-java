@@ -213,7 +213,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if grep -q 'connect-spigot-\${REF}\.jar' .github/workflows/release.yml; then
+          if grep -q "connect-spigot-\${REF}\.jar" .github/workflows/release.yml; then
             SUFFIX="-${RELEASE_TAG}"
           else
             SUFFIX=""

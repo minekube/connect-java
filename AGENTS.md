@@ -47,7 +47,7 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
 
 - Use `release-repair.yml` (default branch, manual dispatch, `contents: write`
   as its only permission). It checks the tag out, builds at the JDK that tag's
-  own `release.yml` pinned, and uploads only the assets that release is missing.
+  own `release.yml` pinned, and uploads only missing or broken assets.
   Never dispatch `release.yml` at an old tag instead: it rewrites the live
   `latest` release, dragging the stable `releases/download/latest/*.jar` URLs
   backwards. Boundary and guards pinned by
