@@ -36,6 +36,13 @@ gh -R minekube/connect-java release view <version> --json tagName,targetCommitis
 curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<version>/connect-velocity.jar
 ```
 
+- `release.yml`'s "Verify published release assets" step now enforces this in CI:
+  it re-reads each published release from the API (never the upload step's own
+  output) and fails when no real downloadable build jar landed, so metadata-only
+  assets like `LICENSE` cannot pass as a release. Pinned by
+  `core/.../release/ReleaseAssetVerificationTest`; keep that test's step and
+  upload-step names in sync when editing `release.yml`.
+
 ## Injector Scoping (config availability)
 
 - The parent injector binds `ConfigHolder`; `ConnectPlatform.init()` populates it
