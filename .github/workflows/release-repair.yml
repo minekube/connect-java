@@ -18,8 +18,9 @@ name: release-repair
 #      https://github.com/minekube/connect-java/releases/download/latest/*.jar
 #      that download sites and server owners point at. Re-running it at an OLD
 #      tag would drag `latest` backwards and silently downgrade everyone using
-#      those URLs. This workflow never names a release other than the one being
-#      repaired, and refuses the pointer tags outright.
+#      those URLs. This workflow never WRITES a release other than the one being
+#      repaired; it reads the pointers for immutability checks and refuses them
+#      as repair targets outright.
 #
 # WHY TWO JOBS, and why that is the whole security model:
 #
