@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1](https://github.com/minekube/connect-java/compare/0.13.0...0.13.1) (2026-07-28)
+
+
+### Bug Fixes
+
+* **proxy:** re-assert Connect's login decision after other plugins ([#77](https://github.com/minekube/connect-java/issues/77)) ([90296bb](https://github.com/minekube/connect-java/commit/90296bb481ef92bf2ded3eaabdf2ad6ee6f2d0ba))
+
 ## [0.13.0](https://github.com/minekube/connect-java/compare/0.12.7...0.13.0) (2026-07-28)
 
 
