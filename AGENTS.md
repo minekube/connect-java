@@ -43,6 +43,17 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
   allowlist; tightening it is a separate follow-up. Pinned by
   `core/.../release/ReleaseAssetVerificationTest`; keep that test's step and
   upload-step names in sync when editing `release.yml`.
+- `release.yml`'s "Publish to Modrinth" step publishes the same jars to the
+  Modrinth listing (project id `PuSyuNRf`, `minekube-connect`), one version per
+  platform because Modrinth runs every validator whose loaders intersect the
+  declared loaders against every file in a version. It uploads the runner's
+  build output, never the release assets, and confirms each upload by reading
+  the stored version back and comparing sha1 and sha512. Its event condition is
+  the safety property: without it every push to `main` would publish a
+  development build to a public listing without anything going red. Pinned by
+  `core/.../release/ReleaseModrinthPublishTest`; keep that test's step names in
+  sync when editing `release.yml`. Dispatching `release.yml` at an OLD tag
+  publishes that tag to Modrinth - the listing is not a backfill target.
 
 ### Repairing a release that published no assets
 

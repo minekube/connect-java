@@ -263,3 +263,220 @@ jobs:
           for target in $TARGETS; do
             verify_release "$target"
           done
+
+      # Publish the same jars this run just built to the Modrinth listing.
+      #
+      # THE EVENT GATE IS THIS STEP'S SAFETY PROPERTY. It carries the identical
+      # condition as "Upload Release Artifacts" and "Update Latest Release"
+      # above. Without it every push to main would publish a development build
+      # to a public listing, and that would not fail loudly: the run stays
+      # green, the listing quietly fills with pre-release versions, and the
+      # first report comes from a user. ReleaseModrinthPublishTest pins the
+      # condition to be byte-identical to the two upload steps' condition, so
+      # deleting or weakening it fails the build instead of failing silently.
+      #
+      # The jars come from the RUNNER's build output, never from the release.
+      # Reading them back from the release would couple Modrinth publishing to
+      # the release having landed correctly - the exact failure the step above
+      # exists to catch - so the two stay independent.
+      - name: Publish to Modrinth
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        env:
+          # Passed as an environment variable, never interpolated into the
+          # script body: a ${{ secrets.* }} expression inside run: is expanded
+          # into the shell command itself, where a `set -x`, an error trace or
+          # a crash dump can print it.
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          # The immutable project id, not the slug "minekube-connect". A slug
+          # can be released and re-registered by someone else; publishing by
+          # slug would then upload our jars into a stranger's project without
+          # any error. An id that stops resolving 404s loudly instead.
+          MODRINTH_PROJECT_ID: PuSyuNRf
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${MODRINTH_TOKEN:-}" ]; then
+            echo "::error::MODRINTH_TOKEN is empty; refusing to skip publishing silently."
+            exit 1
+          fi
+          if [ -z "${RELEASE_TAG:-}" ]; then
+            echo "::error::Release tag is empty; cannot derive Modrinth version numbers."
+            exit 1
+          fi
+
+          API="https://api.modrinth.com/v2"
+          UA="minekube/connect-java release workflow (+https://github.com/minekube/connect-java)"
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+
+          # The token reaches curl through a config read from stdin, so it
+          # never appears in the process argument list and is never written to
+          # the runner's disk.
+          api() {
+            local out="$1"
+            shift
+            printf 'header = "Authorization: %s"\n' "$MODRINTH_TOKEN" \
+              | curl -sS -K - -A "$UA" -o "$out" -w '%{http_code}' "$@"
+          }
+
+          # Minecraft versions are resolved from Modrinth's own tag list at
+          # publish time and never hard-coded. A baked-in list stops matching
+          # searches the day Mojang ships a release, which is precisely the
+          # staleness this listing exists to avoid - and it fails invisibly,
+          # because the listing keeps working for everyone already on an old
+          # version. The floor is read from the plugin descriptor this build
+          # ships rather than restated here, so it cannot drift from the jar.
+          API_FLOOR="$(awk '/^api-version:/ {print $2; exit}' spigot/src/main/resources/plugin.yml)"
+          if [ -z "$API_FLOOR" ]; then
+            echo "::error::Could not read api-version from spigot/src/main/resources/plugin.yml."
+            exit 1
+          fi
+          curl -sS -A "$UA" "$API/tag/game_version" -o "$TMP/game_versions.json"
+          GAME_VERSIONS="$(jq -c --arg floor "$API_FLOOR" '
+            [.[] | select(.version_type == "release") | .version]
+            | (index($floor)) as $i
+            | if $i == null then
+                error("declared api-version \($floor) is not a Modrinth release version")
+              else .[0:$i + 1] end
+          ' "$TMP/game_versions.json")"
+          echo "Declaring $(echo "$GAME_VERSIONS" | jq 'length') Minecraft releases, floor $API_FLOOR."
+
+          # A tag carrying a pre-release suffix is not a stable release, and
+          # labelling one "release" on the listing tells operators the opposite.
+          case "$RELEASE_TAG" in
+            *-*) CHANNEL="beta" ;;
+            *)   CHANNEL="release" ;;
+          esac
+
+          CHANGELOG="Release notes: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG"
+
+          # Best-effort inventory of what the listing already holds. It needs
+          # read scopes the publishing token may not carry, so a refusal is
+          # reported and tolerated rather than treated as fatal; a duplicate
+          # upload is then rejected by Modrinth itself.
+          HAVE_INVENTORY=0
+          INVENTORY_CODE="$(api "$TMP/existing.json" "$API/project/$MODRINTH_PROJECT_ID/version")"
+          case "$INVENTORY_CODE" in
+            200)
+              HAVE_INVENTORY=1
+              ;;
+            401|403)
+              echo "::warning::Cannot list existing Modrinth versions (HTTP $INVENTORY_CODE);" \
+                   "MODRINTH_TOKEN lacks PROJECT_READ+VERSION_READ. Relying on Modrinth to" \
+                   "reject a duplicate upload."
+              ;;
+            *)
+              echo "::error::Unexpected HTTP $INVENTORY_CODE listing versions of project $MODRINTH_PROJECT_ID."
+              cat "$TMP/existing.json" || true
+              exit 1
+              ;;
+          esac
+
+          # One Modrinth version per platform jar, never one version carrying
+          # all three. Modrinth runs every validator whose loaders intersect
+          # the declared loaders against every file in the version, so a single
+          # version declaring velocity + bungeecord + paper is rejected: the
+          # velocity jar has no plugin.yml and the spigot jar has no
+          # velocity-plugin.json.
+          # (labrinth, apps/labrinth/src/validate/plugin.rs)
+          publish_platform() {
+            local platform="$1" jar="$2" loaders="$3" label="$4"
+            local number="$RELEASE_TAG+$platform"
+            local code version_id want_sha1 want_sha512 got_sha1 got_sha512 filename
+
+            if [ ! -f "$jar" ]; then
+              echo "::error::$jar was not produced by this build; nothing to publish."
+              exit 1
+            fi
+
+            if [ "$HAVE_INVENTORY" = "1" ] \
+              && jq -e --arg n "$number" 'any(.[]; .version_number == $n)' "$TMP/existing.json" >/dev/null; then
+              # Re-dispatching this workflow to repair a release must not
+              # create a second copy of a version the listing already carries.
+              echo "Modrinth already carries $number; leaving it untouched."
+              return 0
+            fi
+
+            filename="$(basename "$jar")"
+            want_sha1="$(sha1sum "$jar" | awk '{print $1}')"
+            want_sha512="$(sha512sum "$jar" | awk '{print $1}')"
+
+            jq -n \
+              --arg project "$MODRINTH_PROJECT_ID" \
+              --arg number "$number" \
+              --arg title "$RELEASE_TAG ($label)" \
+              --arg changelog "$CHANGELOG" \
+              --arg channel "$CHANNEL" \
+              --argjson game_versions "$GAME_VERSIONS" \
+              --argjson loaders "$loaders" \
+              '{
+                 project_id: $project,
+                 file_parts: ["file"],
+                 primary_file: "file",
+                 version_number: $number,
+                 name: $title,
+                 changelog: $changelog,
+                 dependencies: [],
+                 game_versions: $game_versions,
+                 loaders: $loaders,
+                 version_type: $channel,
+                 status: "listed",
+                 featured: false,
+                 environment: "server_only"
+               }' > "$TMP/data.json"
+
+            code="$(api "$TMP/created.json" -X POST "$API/version" \
+              -F "data=@$TMP/data.json;type=application/json" \
+              -F "file=@$jar;type=application/java-archive")"
+
+            if [ "$code" = "401" ] || [ "$code" = "403" ]; then
+              echo "::error::MODRINTH_TOKEN was refused (HTTP $code) creating version $number."
+              echo "::error::Creating a version requires the VERSION_CREATE scope."
+              cat "$TMP/created.json" || true
+              exit 1
+            fi
+            if [ "$code" != "200" ]; then
+              echo "::error::Modrinth rejected version $number (HTTP $code)."
+              cat "$TMP/created.json" || true
+              exit 1
+            fi
+
+            version_id="$(jq -r '.id' "$TMP/created.json")"
+
+            # The create response is the API describing its own request, which
+            # is the same "trust the run, not the artifact" mistake the release
+            # verification above exists to avoid. Read the stored version back
+            # and assert on the digests Modrinth computed from the bytes it
+            # actually holds. Size is not enough: two different jars can share
+            # a size and cannot share a digest.
+            code="$(api "$TMP/stored.json" "$API/version/$version_id")"
+            if [ "$code" = "401" ] || [ "$code" = "403" ]; then
+              echo "::error::MODRINTH_TOKEN was refused (HTTP $code) reading version $number back."
+              echo "::error::Reading a version back requires the VERSION_READ scope."
+              exit 1
+            fi
+            if [ "$code" != "200" ]; then
+              echo "::error::Could not read version $number back from Modrinth (HTTP $code);"
+              echo "::error::the upload cannot be confirmed to have stored our jar."
+              exit 1
+            fi
+
+            got_sha1="$(jq -r --arg f "$filename" \
+              'first(.files[] | select(.filename == $f) | .hashes.sha1) // ""' "$TMP/stored.json")"
+            got_sha512="$(jq -r --arg f "$filename" \
+              'first(.files[] | select(.filename == $f) | .hashes.sha512) // ""' "$TMP/stored.json")"
+
+            if [ "$got_sha1" != "$want_sha1" ] || [ "$got_sha512" != "$want_sha512" ]; then
+              echo "::error::Modrinth is serving different bytes than this build produced for $filename."
+              echo "::error::sha1   built $want_sha1 / stored ${got_sha1:-<absent>}"
+              echo "::error::sha512 built $want_sha512 / stored ${got_sha512:-<absent>}"
+              exit 1
+            fi
+
+            echo "OK: $number published as $version_id; $filename matches on sha1 and sha512."
+          }
+
+          publish_platform velocity velocity/build/libs/connect-velocity.jar '["velocity"]' "Velocity"
+          publish_platform spigot   spigot/build/libs/connect-spigot.jar     '["paper","spigot","bukkit"]' "Spigot"
+          publish_platform bungee   bungee/build/libs/connect-bungee.jar     '["bungeecord"]' "BungeeCord"
