@@ -47,6 +47,18 @@ dependencyResolutionManagement {
             content { includeGroupByRegex("com\\.github\\..*") }
         }
 
+        // Test-only. PaperMC publishes velocity-api to Maven but not the Velocity *proxy*, and
+        // :velocity:eventOrderTest asserts Connect's login re-assert against the real
+        // VelocityEventManager rather than a re-implementation of its ordering rules. The proxy
+        // jar is served from a content-addressed CDN, so the sha256 in the URL pins the exact
+        // artifact. Restricted to that single module; nothing else may resolve from here.
+        ivy("https://fill-data.papermc.io/v1/objects/fb599cbda6a6d01decce5e281f71f51cae7cacffcfafca32a09601f407b0583e/") {
+            name = "papermc-fill-velocity-proxy"
+            patternLayout { artifact("[module]-[revision].jar") }
+            metadataSources { artifact() }
+            content { includeModule("com.velocitypowered.proxy-jar", "velocity") }
+        }
+
     }
 }
 

@@ -41,6 +41,7 @@ import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
 import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
 import com.minekube.connect.inject.CommonPlatformInjector;
 import com.minekube.connect.inject.bungee.BungeeInjector;
+import com.minekube.connect.listener.BungeeLateReassertListener;
 import com.minekube.connect.listener.BungeeListener;
 import com.minekube.connect.listener.BungeeListenerRegistration;
 import com.minekube.connect.module.ProxyCommonModule;
@@ -80,6 +81,7 @@ class BungeePluginStartupTest {
     private static List<Class<?>> bungeeGraphRoots() {
         List<Class<?>> roots = new ArrayList<>(StartupGraphProvisioning.coreRuntimeGraphRoots());
         roots.add(BungeeListener.class);
+        roots.add(BungeeLateReassertListener.class);
         roots.add(BungeeCommandUtil.class);
         roots.add(BungeePlatformUtils.class);
         roots.add(BungeeInjector.class);

@@ -29,6 +29,36 @@ tasks.test {
     useJUnitPlatform()
 }
 
+// Connect's login re-assert has to run after every other plugin's pre-login handler, which is a
+// property of Velocity's dispatcher, not of Connect. So it is asserted against the real
+// VelocityEventManager instead of a re-implementation of its ordering rules.
+//
+// Own source set on purpose: the Velocity *proxy* jar is shaded and carries its own copy of
+// velocity-api, which must not shadow the 3.2.0 API the plugin compiles against, nor the
+// com.velocitypowered.proxy test stubs the other tests use. The proxy jar is pinned by sha256 -
+// see the papermc-fill-velocity-proxy repository in settings.gradle.kts.
+val eventOrderTest: SourceSet by sourceSets.creating
+
+dependencies {
+    "eventOrderTestImplementation"(sourceSets["main"].output)
+    "eventOrderTestImplementation"(projects.core)
+    "eventOrderTestImplementation"("com.velocitypowered.proxy-jar:velocity:3.4.0-566")
+    "eventOrderTestImplementation"("org.junit.jupiter:junit-jupiter:5.10.5")
+    "eventOrderTestRuntimeOnly"("org.junit.platform:junit-platform-launcher")
+}
+
+val eventOrderTestTask = tasks.register<Test>("eventOrderTest") {
+    description = "Asserts Connect's login re-assert ordering against a real Velocity proxy."
+    group = "verification"
+    testClassesDirs = eventOrderTest.output.classesDirs
+    classpath = eventOrderTest.runtimeClasspath
+    useJUnitPlatform()
+}
+
+tasks.check {
+    dependsOn(eventOrderTestTask)
+}
+
 
 // these dependencies are already present on the platform
 provided("com.google.code.gson", "gson", gsonVersion)

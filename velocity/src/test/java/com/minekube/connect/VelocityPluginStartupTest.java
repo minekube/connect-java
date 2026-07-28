@@ -40,6 +40,8 @@ import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
 import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
 import com.minekube.connect.inject.velocity.VelocityInjector;
+import com.minekube.connect.listener.VelocityConnectPlayers;
+import com.minekube.connect.listener.VelocityLateReassertListener;
 import com.minekube.connect.listener.VelocityListener;
 import com.minekube.connect.listener.VelocityListenerRegistration;
 import com.minekube.connect.module.ProxyCommonModule;
@@ -83,6 +85,8 @@ class VelocityPluginStartupTest {
         List<Class<?>> roots = new ArrayList<>(StartupGraphProvisioning.coreRuntimeGraphRoots());
         roots.add(VelocityPlugin.class);
         roots.add(VelocityListener.class);
+        roots.add(VelocityLateReassertListener.class);
+        roots.add(VelocityConnectPlayers.class);
         roots.add(VelocityCommandUtil.class);
         roots.add(VelocityPlatformUtils.class);
         roots.add(VelocityInjector.class);

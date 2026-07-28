@@ -29,6 +29,7 @@ import com.google.inject.AbstractModule;
 import com.google.inject.Singleton;
 import com.google.inject.TypeLiteral;
 import com.google.inject.multibindings.ProvidesIntoSet;
+import com.minekube.connect.listener.BungeeLateReassertListener;
 import com.minekube.connect.listener.BungeeListener;
 import com.minekube.connect.register.ListenerRegister;
 import net.md_5.bungee.api.plugin.Listener;
@@ -43,6 +44,12 @@ public final class BungeeListenerModule extends AbstractModule {
     @ProvidesIntoSet
     public Listener bungeeListener() {
         return new BungeeListener();
+    }
+
+    @Singleton
+    @ProvidesIntoSet
+    public Listener bungeeLateReassertListener() {
+        return new BungeeLateReassertListener();
     }
 
 }

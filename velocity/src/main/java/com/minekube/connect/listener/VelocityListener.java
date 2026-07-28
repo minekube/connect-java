@@ -32,8 +32,6 @@ import static com.minekube.connect.util.ReflectionUtils.getPrefixedClass;
 import static com.minekube.connect.util.ReflectionUtils.getPrefixedClassSilently;
 import static com.minekube.connect.util.ReflectionUtils.getValue;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
 import com.google.inject.Inject;
 import com.minekube.connect.api.ProxyConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
@@ -53,7 +51,6 @@ import com.velocitypowered.api.util.GameProfile;
 import io.netty.channel.Channel;
 import java.lang.reflect.Field;
 import java.util.Objects;
-import java.util.concurrent.TimeUnit;
 import net.kyori.adventure.text.Component;
 
 public final class VelocityListener {
@@ -82,16 +79,11 @@ public final class VelocityListener {
         CHANNEL = getFieldOfType(minecraftConnection, Channel.class);
     }
 
-    private final Cache<InboundConnection, ConnectPlayer> playerCache =
-            CacheBuilder.newBuilder()
-                    .maximumSize(500)
-                    .expireAfterAccess(20, TimeUnit.SECONDS)
-                    .build();
-
     @Inject private ProxyConnectApi api;
     @Inject private LanguageManager languageManager;
     @Inject private ConnectLogger logger;
     @Inject private BedrockIdentityEnforcer bedrockIdentityEnforcer;
+    @Inject private VelocityConnectPlayers connectPlayers;
 
     @Subscribe(order = PostOrder.EARLY)
     public void onPreLogin(PreLoginEvent event) {
@@ -117,7 +109,7 @@ public final class VelocityListener {
                 if (!ctx.getPlayer().getAuth().isPassthrough()) {
                     // Means the TunnelService has already authenticated the player
                     event.setResult(PreLoginEvent.PreLoginComponentResult.forceOfflineMode());
-                    playerCache.put(event.getConnection(), ctx.getPlayer());
+                    connectPlayers.remember(event.getConnection(), ctx.getPlayer());
                 }
             });
         } catch (Exception exception) {
@@ -130,9 +122,10 @@ public final class VelocityListener {
         if (event.isOnlineMode()) {
             return;
         }
-        ConnectPlayer player = playerCache.getIfPresent(event.getConnection());
+        ConnectPlayer player = connectPlayers.get(event.getConnection());
         if (player != null) {
-            playerCache.invalidate(event.getConnection());
+            // Deliberately not removed here: VelocityLateReassertListener runs after every
+            // other plugin's handler and still needs to recognise this connection.
             // Use the game profile received from WatchService for this connection
             event.setGameProfile(VelocityGameProfiles.fromConnectPlayer(event.getGameProfile(), player));
         }

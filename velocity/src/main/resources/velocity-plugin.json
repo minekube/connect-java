@@ -7,5 +7,11 @@
   "authors": [
     "${author}"
   ],
+  "dependencies": [
+    {
+      "id": "librelogin",
+      "optional": true
+    }
+  ],
   "main": "com.minekube.connect.VelocityPlugin"
 }
