@@ -42,9 +42,10 @@ import java.lang.reflect.Method;
  *       {@link #AFTER_LAST} takes that slot, so the handler runs after every {@code LAST}
  *       handler no matter which plugin loaded first. The
  *       {@code register(Object, Class, short, EventHandler)} overload that reaches it only
- *       exists on Velocity builds from 2024-09-16 onwards, which is why it is looked up
- *       reflectively - on a public interface method, so its absence is a plain
- *       {@link NoSuchMethodException} rather than anything that can break class loading.</li>
+ *       exists on Velocity builds from 2024-09-16 onwards, which is why one feature-detection
+ *       lookup is performed per registrar instance - reflectively on a public interface method,
+ *       so its absence is a plain {@link NoSuchMethodException} rather than anything that can
+ *       break class loading.</li>
  *   <li><b>Load order.</b> On older builds the handler falls back to {@code PostOrder.LAST}.
  *       Velocity breaks ties between equal orders by registration order, which is plugin load
  *       order, which is a topological sort of the declared dependency graph - so the
@@ -66,10 +67,12 @@ final class VelocityLateEventRegistrar {
 
     private final EventManager eventManager;
     private final Object plugin;
+    private final Method shortRegisterMethod;
 
     VelocityLateEventRegistrar(EventManager eventManager, Object plugin) {
         this.eventManager = eventManager;
         this.plugin = plugin;
+        this.shortRegisterMethod = shortRegisterMethod();
     }
 
     /**
@@ -92,10 +95,9 @@ final class VelocityLateEventRegistrar {
      *         was registered at {@link PostOrder#LAST} instead and relies on load order
      */
     <E> boolean registerAfterLast(Class<E> eventType, EventHandler<E> handler) {
-        Method shortRegister = shortRegisterMethod();
-        if (shortRegister != null) {
+        if (shortRegisterMethod != null) {
             try {
-                shortRegister.invoke(eventManager, plugin, eventType, AFTER_LAST, handler);
+                shortRegisterMethod.invoke(eventManager, plugin, eventType, AFTER_LAST, handler);
                 return true;
             } catch (ReflectiveOperationException | LinkageError ignored) {
                 // Fall through to the load-order lever below.
