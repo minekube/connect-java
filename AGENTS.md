@@ -69,6 +69,17 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
   this with `includeTransitiveDeps = false`; back-porting that into a tag would
   change what the tag builds, so it is a rewrite, not a repair.
 
+## Public integration contract for login/auth plugins
+
+- The `connect-player` Netty channel attribute is a **permanent** public contract:
+  once external login plugins depend on the name it may never be removed, renamed,
+  or moved later in the connection lifecycle. Additive changes only.
+- Authoritative sources: `api/.../api/ConnectAttributes.java` (key + Javadoc contract),
+  the single set-site in `core/.../network/netty/LocalServerChannelWrapper.java`, and
+  `docs/login-plugin-integration.md` (the integrator-facing doc and the stability
+  commitment). Pinned by
+  `core/.../network/netty/ConnectPlayerAttributeBoundaryTest`.
+
 ## Injector Scoping (config availability)
 
 - The parent injector binds `ConfigHolder`; `ConnectPlatform.init()` populates it
