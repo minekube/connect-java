@@ -32,15 +32,19 @@ import com.minekube.connect.api.ConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
+import com.minekube.connect.util.NmsDiagnostics;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class SpigotPlatform extends ConnectPlatform {
     @Inject private JavaPlugin plugin;
 
+    private final ConnectLogger logger;
+
     public SpigotPlatform(ConnectApi api, PlatformInjector platformInjector,
                           ConnectLogger logger, Injector injector) {
         super(api, platformInjector, logger, injector);
+        this.logger = logger;
     }
 
     @Inject
@@ -48,15 +52,33 @@ public final class SpigotPlatform extends ConnectPlatform {
                           ConnectLogger logger, Injector injector,
                           BedrockAdmissionCoordinator admissionCoordinator) {
         super(api, platformInjector, logger, injector, admissionCoordinator);
+        this.logger = logger;
     }
 
     @Override
     public boolean enable(Module... postInitializeModules) {
         boolean success = super.enable(postInitializeModules);
         if (!success) {
+            reportNmsInitializationFailure();
             Bukkit.getPluginManager().disablePlugin(plugin);
             return false;
         }
         return true;
+    }
+
+    /**
+     * Re-states why Connect's server-internals lookup failed, if that is what went wrong.
+     *
+     * <p>{@code ClassNames} resolves those internals from a static initializer, so only the very
+     * first touch carries the reason directly; every later one surfaces as
+     * {@code NoClassDefFoundError: Could not initialize class ...ClassNames}, which names the
+     * class but not the accessor. Whichever of the two the enable path happened to hit, this puts
+     * the accessor that actually drifted back into the log as a plain top-level line.
+     */
+    private void reportNmsInitializationFailure() {
+        String failure = NmsDiagnostics.initializationFailure();
+        if (failure != null) {
+            logger.error(failure);
+        }
     }
 }

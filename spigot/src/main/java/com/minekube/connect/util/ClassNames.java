@@ -36,7 +36,6 @@ import static com.minekube.connect.util.ReflectionUtils.getValue;
 import static com.minekube.connect.util.ReflectionUtils.invoke;
 import static com.minekube.connect.util.ReflectionUtils.makeAccessible;
 
-import com.google.common.base.Preconditions;
 import com.mojang.authlib.GameProfile;
 import io.netty.channel.ChannelHandlerContext;
 import java.lang.reflect.Constructor;
@@ -64,7 +63,7 @@ public class ClassNames {
 
     public static final Field SOCKET_ADDRESS;
     public static final Field HANDSHAKE_HOST;
-    public static final Field VELOCITY_LOGIN_MESSAGE_ID;
+    @Nullable public static final Field VELOCITY_LOGIN_MESSAGE_ID;
     public static final Field LOGIN_PROFILE;
     public static final Field PACKET_LISTENER;
 
@@ -91,331 +90,322 @@ public class ClassNames {
     public static final boolean IS_POST_LOGIN_HANDLER;
 
     static {
-        // ahhhhhhh, this class should really be reworked at this point
+        // Every failure below is latched into NmsDiagnostics before it propagates. Once a static
+        // initializer throws, the JVM answers each later touch of this class with a
+        // NoClassDefFoundError that names only the class, so without the latch the message that
+        // names the drifted accessor is reachable only from the very first touch.
+        try {
+            // ahhhhhhh, this class should really be reworked at this point
 
-        String[] versionSplit = Bukkit.getServer().getClass().getPackage().getName().split("\\.");
-        // Paper, since 1.20.5, no longer relocates CraftBukkit classes
-        // and NMS classes aren't relocated for a few versions now (both Spigot & Paper)
-        if (versionSplit.length <= 3 && getClassSilently("net.minecraft.server.MinecraftServer") == null) {
-            throw new IllegalStateException(
-                    "Was unable to find net.minecraft.server.MinecraftServer. " +
-                    "We don't support Mojmap yet"
+            String[] versionSplit = Bukkit.getServer().getClass().getPackage().getName().split("\\.");
+            // Paper, since 1.20.5, no longer relocates CraftBukkit classes
+            // and NMS classes aren't relocated for a few versions now (both Spigot & Paper)
+            if (versionSplit.length <= 3 && getClassSilently("net.minecraft.server.MinecraftServer") == null) {
+                throw NmsDiagnostics.missingClass(
+                        "MinecraftServer",
+                        "net.minecraft.server.MinecraftServer");
+            }
+            // Makes it that we don't have to lookup both the new and the old
+            // 'org.bukkit.craftbukkit. + version + CraftPlayer' will be .CraftPlayer on new
+            // versions and .v1_8R3.CraftPlayer on older versions
+            String version = versionSplit.length > 3 ? versionSplit[3] + '.' : "";
+            String nmsPackage = "net.minecraft.server." + version;
+
+            // SpigotSkinApplier
+            Class<?> craftPlayerClass = getRequiredClass(
+                    "CraftPlayer",
+                    "org.bukkit.craftbukkit." + version + "entity.CraftPlayer");
+            GET_PROFILE_METHOD = getMethod(craftPlayerClass, "getProfile");
+            checkNotNull(GET_PROFILE_METHOD, "CraftPlayer#getProfile()");
+
+            // SpigotInjector
+            MINECRAFT_SERVER = getClassOrFallback(
+                    "net.minecraft.server.MinecraftServer",
+                    nmsPackage + "MinecraftServer"
             );
-        }
-        // Makes it that we don't have to lookup both the new and the old
-        // 'org.bukkit.craftbukkit. + version + CraftPlayer' will be .CraftPlayer on new
-        // versions and .v1_8R3.CraftPlayer on older versions
-        String version = versionSplit.length > 3 ? versionSplit[3] + '.' : "";
-        String nmsPackage = "net.minecraft.server." + version;
 
-        // SpigotSkinApplier
-        Class<?> craftPlayerClass = ReflectionUtils.getClass(
-                "org.bukkit.craftbukkit." + version + "entity.CraftPlayer");
-        GET_PROFILE_METHOD = getMethod(craftPlayerClass, "getProfile");
-        checkNotNull(GET_PROFILE_METHOD, "Get profile method");
+            // Paper 1.20.5+ uses Mojang mappings: ServerConnection -> ServerConnectionListener
+            SERVER_CONNECTION = getRequiredClass(
+                    "ServerConnection/ServerConnectionListener",
+                    "net.minecraft.server.network.ServerConnectionListener",
+                    "net.minecraft.server.network.ServerConnection",
+                    nmsPackage + "ServerConnection");
 
-        // SpigotInjector
-        MINECRAFT_SERVER = getClassOrFallback(
-                "net.minecraft.server.MinecraftServer",
-                nmsPackage + "MinecraftServer"
-        );
+            // WhitelistUtils
+            Class<?> craftServerClass = getRequiredClass(
+                    "CraftServer",
+                    "org.bukkit.craftbukkit." + version + "CraftServer");
+            Class<OfflinePlayer> craftOfflinePlayerClass = getRequiredClass(
+                    "CraftOfflinePlayer",
+                    "org.bukkit.craftbukkit." + version + "CraftOfflinePlayer");
 
-        // Paper 1.20.5+ uses Mojang mappings: ServerConnection -> ServerConnectionListener
-        Class<?> serverConnectionClass = getClassSilently(
-                "net.minecraft.server.network.ServerConnectionListener");
-        if (serverConnectionClass == null) {
-            serverConnectionClass = getClassSilently(
-                    "net.minecraft.server.network.ServerConnection");
-        }
-        if (serverConnectionClass == null) {
-            serverConnectionClass = getClassSilently(nmsPackage + "ServerConnection");
-        }
-        if (serverConnectionClass == null) {
-            throw new IllegalStateException(
-                    "Could not find ServerConnection/ServerConnectionListener class.");
-        }
-        SERVER_CONNECTION = serverConnectionClass;
+            CRAFT_OFFLINE_PLAYER_CONSTRUCTOR = getConstructor(
+                    craftOfflinePlayerClass, true, craftServerClass, GameProfile.class);
 
-        // WhitelistUtils
-        Class<?> craftServerClass = ReflectionUtils.getClass(
-                "org.bukkit.craftbukkit." + version + "CraftServer");
-        Class<OfflinePlayer> craftOfflinePlayerClass = ReflectionUtils.getCastedClass(
-                "org.bukkit.craftbukkit." + version + "CraftOfflinePlayer");
+            // SpigotDataHandler
+            // Paper 1.20.5+ uses Mojang mappings: NetworkManager -> Connection
+            Class<?> networkManager = getRequiredClass(
+                    "NetworkManager/Connection",
+                    "net.minecraft.network.Connection",
+                    "net.minecraft.network.NetworkManager",
+                    nmsPackage + "NetworkManager");
 
-        CRAFT_OFFLINE_PLAYER_CONSTRUCTOR = getConstructor(
-                craftOfflinePlayerClass, true, craftServerClass, GameProfile.class);
+            SOCKET_ADDRESS = getFieldOfType(networkManager, SocketAddress.class, false);
 
-        // SpigotDataHandler
-        // Paper 1.20.5+ uses Mojang mappings: NetworkManager -> Connection
-        Class<?> networkManager = getClassSilently("net.minecraft.network.Connection");
-        if (networkManager == null) {
-            networkManager = getClassSilently("net.minecraft.network.NetworkManager");
-        }
-        if (networkManager == null) {
-            networkManager = getClassSilently(nmsPackage + "NetworkManager");
-        }
-        if (networkManager == null) {
-            throw new IllegalStateException("Could not find NetworkManager/Connection class.");
-        }
+            // Paper 1.20.5+ uses Mojang mappings: PacketHandshakingInSetProtocol -> ClientIntentionPacket
+            Class<?> handshakePacket = getRequiredClass(
+                    "HandshakePacket",
+                    "net.minecraft.network.protocol.handshake.ClientIntentionPacket",
+                    "net.minecraft.network.protocol.handshake.PacketHandshakingInSetProtocol",
+                    nmsPackage + "PacketHandshakingInSetProtocol");
+            HANDSHAKE_PACKET = handshakePacket;
 
-        SOCKET_ADDRESS = getFieldOfType(networkManager, SocketAddress.class, false);
+            HANDSHAKE_HOST = getFieldOfType(HANDSHAKE_PACKET, String.class);
+            checkNotNull(HANDSHAKE_HOST, "HandshakePacket#<String field>");
 
-        // Paper 1.20.5+ uses Mojang mappings: PacketHandshakingInSetProtocol -> ClientIntentionPacket
-        Class<?> handshakePacket = getClassSilently(
-                "net.minecraft.network.protocol.handshake.ClientIntentionPacket");
-        if (handshakePacket == null) {
-            handshakePacket = getClassSilently(
-                    "net.minecraft.network.protocol.handshake.PacketHandshakingInSetProtocol");
-        }
-        if (handshakePacket == null) {
-            handshakePacket = getClassSilently(nmsPackage + "PacketHandshakingInSetProtocol");
-        }
-        if (handshakePacket == null) {
-            throw new IllegalStateException("Could not find HandshakePacket class.");
-        }
-        HANDSHAKE_PACKET = handshakePacket;
+            // Paper 1.20.5+ uses Mojang mappings: PacketLoginInStart -> ServerboundHelloPacket
+            Class<?> loginStartPacket = getRequiredClass(
+                    "LoginStartPacket",
+                    "net.minecraft.network.protocol.login.ServerboundHelloPacket",
+                    "net.minecraft.network.protocol.login.PacketLoginInStart",
+                    nmsPackage + "PacketLoginInStart");
+            LOGIN_START_PACKET = loginStartPacket;
 
-        HANDSHAKE_HOST = getFieldOfType(HANDSHAKE_PACKET, String.class);
-        checkNotNull(HANDSHAKE_HOST, "Handshake host");
+            // Paper 1.20.5+ uses Mojang mappings: LoginListener -> ServerLoginPacketListenerImpl
+            Class<?> loginListener = getRequiredClass(
+                    "LoginListener/ServerLoginPacketListenerImpl",
+                    "net.minecraft.server.network.ServerLoginPacketListenerImpl",
+                    "net.minecraft.server.network.LoginListener",
+                    nmsPackage + "LoginListener");
+            LOGIN_LISTENER = loginListener;
 
-        // Paper 1.20.5+ uses Mojang mappings: PacketLoginInStart -> ServerboundHelloPacket
-        Class<?> loginStartPacket = getClassSilently(
-                "net.minecraft.network.protocol.login.ServerboundHelloPacket");
-        if (loginStartPacket == null) {
-            loginStartPacket = getClassSilently(
-                    "net.minecraft.network.protocol.login.PacketLoginInStart");
-        }
-        if (loginStartPacket == null) {
-            loginStartPacket = getClassSilently(nmsPackage + "PacketLoginInStart");
-        }
-        if (loginStartPacket == null) {
-            throw new IllegalStateException("Could not find LoginStartPacket class.");
-        }
-        LOGIN_START_PACKET = loginStartPacket;
+            LOGIN_PROFILE = getFieldOfType(LOGIN_LISTENER, GameProfile.class);
+            checkNotNull(LOGIN_PROFILE, "LoginListener#<GameProfile field>");
 
-        // Paper 1.20.5+ uses Mojang mappings: LoginListener -> ServerLoginPacketListenerImpl
-        Class<?> loginListener = getClassSilently(
-                "net.minecraft.server.network.ServerLoginPacketListenerImpl");
-        if (loginListener == null) {
-            loginListener = getClassSilently("net.minecraft.server.network.LoginListener");
-        }
-        if (loginListener == null) {
-            loginListener = getClassSilently(nmsPackage + "LoginListener");
-        }
-        if (loginListener == null) {
-            throw new IllegalStateException("Could not find LoginListener class.");
-        }
-        LOGIN_LISTENER = loginListener;
+            LOGIN_DISCONNECT = getMethod(LOGIN_LISTENER, "disconnect", String.class);
+            checkNotNull(LOGIN_DISCONNECT, "LoginListener#disconnect(String)");
 
-        LOGIN_PROFILE = getFieldOfType(LOGIN_LISTENER, GameProfile.class);
-        checkNotNull(LOGIN_PROFILE, "Profile from LoginListener");
+            NETWORK_EXCEPTION_CAUGHT = getMethod(
+                    networkManager,
+                    "exceptionCaught",
+                    ChannelHandlerContext.class, Throwable.class
+            );
 
-        LOGIN_DISCONNECT = getMethod(LOGIN_LISTENER, "disconnect", String.class);
-        checkNotNull(LOGIN_DISCONNECT, "LoginListener's disconnect method");
+            VELOCITY_LOGIN_MESSAGE_ID = getField(LOGIN_LISTENER, "velocityLoginMessageId");
 
-        NETWORK_EXCEPTION_CAUGHT = getMethod(
-                networkManager,
-                "exceptionCaught",
-                ChannelHandlerContext.class, Throwable.class
-        );
+            // there are multiple no-arg void methods
+            // Pre 1.20.2 uses initUUID so if it's null, we're on 1.20.2 or later
+            INIT_UUID = getMethod(LOGIN_LISTENER, "initUUID");
+            IS_PRE_1_20_2 = INIT_UUID != null;
 
-        VELOCITY_LOGIN_MESSAGE_ID = getField(LOGIN_LISTENER, "velocityLoginMessageId");
-
-        // there are multiple no-arg void methods
-        // Pre 1.20.2 uses initUUID so if it's null, we're on 1.20.2 or later
-        INIT_UUID = getMethod(LOGIN_LISTENER, "initUUID");
-        IS_PRE_1_20_2 = INIT_UUID != null;
-
-        // somewhere during 1.20.4 md_5 moved PreLogin logic to CraftBukkit
-        CALL_PLAYER_PRE_LOGIN_EVENTS = getMethod(
-                LOGIN_LISTENER,
-                "callPlayerPreLoginEvents",
-                GameProfile.class
-        );
-        IS_POST_LOGIN_HANDLER = CALL_PLAYER_PRE_LOGIN_EVENTS != null;
+            // somewhere during 1.20.4 md_5 moved PreLogin logic to CraftBukkit
+            CALL_PLAYER_PRE_LOGIN_EVENTS = getMethod(
+                    LOGIN_LISTENER,
+                    "callPlayerPreLoginEvents",
+                    GameProfile.class
+            );
+            IS_POST_LOGIN_HANDLER = CALL_PLAYER_PRE_LOGIN_EVENTS != null;
 
 
-        if (IS_PRE_1_20_2) {
-            Class<?> packetListenerClass = getClassSilently(
-                    "net.minecraft.network.PacketListener");
-            if (packetListenerClass == null) {
-                packetListenerClass = ReflectionUtils.getClassOrThrow(
+            if (IS_PRE_1_20_2) {
+                Class<?> packetListenerClass = getRequiredClass(
+                        "PacketListener",
+                        "net.minecraft.network.PacketListener",
                         nmsPackage + "PacketListener");
+
+                PACKET_LISTENER = getFieldOfType(networkManager, packetListenerClass);
+                checkNotNull(PACKET_LISTENER, "NetworkManager#<PacketListener field>");
+            } else {
+                // We get the field by name on 1.20.2+ as there are now multiple fields of this type in network manager
+
+                // PacketListener packetListener of NetworkManager
+                // Try Mojang mappings first (Paper 1.20.5+), then fall back to obfuscated name
+                Field packetListenerField = getField(networkManager, "packetListener");
+                if (packetListenerField == null) {
+                    packetListenerField = getField(networkManager, "q");
+                }
+                PACKET_LISTENER = packetListenerField;
+                checkNotNull(PACKET_LISTENER,
+                        "NetworkManager#packetListener", "NetworkManager#q");
+                makeAccessible(PACKET_LISTENER);
             }
 
-            PACKET_LISTENER = getFieldOfType(networkManager, packetListenerClass);
-        } else {
-            // We get the field by name on 1.20.2+ as there are now multiple fields of this type in network manager
+             if (IS_POST_LOGIN_HANDLER) {
+                makeAccessible(CALL_PLAYER_PRE_LOGIN_EVENTS);
 
-            // PacketListener packetListener of NetworkManager
-            // Try Mojang mappings first (Paper 1.20.5+), then fall back to obfuscated name
-            Field packetListenerField = getField(networkManager, "packetListener");
-            if (packetListenerField == null) {
-                packetListenerField = getField(networkManager, "q");
-            }
-            PACKET_LISTENER = packetListenerField;
-            makeAccessible(PACKET_LISTENER);
-        }
-        checkNotNull(PACKET_LISTENER, "Packet listener");
+                // Try Mojang mappings first (Paper 1.20.5+), then fall back to obfuscated name
+                Method startClientVerificationMethod = getMethod(LOGIN_LISTENER, "startClientVerification", GameProfile.class);
+                if (startClientVerificationMethod == null) {
+                    startClientVerificationMethod = getMethod(LOGIN_LISTENER, "b", GameProfile.class);
+                }
+                START_CLIENT_VERIFICATION = startClientVerificationMethod;
+                checkNotNull(START_CLIENT_VERIFICATION,
+                        "ServerLoginPacketListenerImpl#startClientVerification(GameProfile)",
+                        "LoginListener#b(GameProfile)");
+                makeAccessible(START_CLIENT_VERIFICATION);
 
-         if (IS_POST_LOGIN_HANDLER) {
-            makeAccessible(CALL_PLAYER_PRE_LOGIN_EVENTS);
-
-            // Try Mojang mappings first (Paper 1.20.5+), then fall back to obfuscated name
-            Method startClientVerificationMethod = getMethod(LOGIN_LISTENER, "startClientVerification", GameProfile.class);
-            if (startClientVerificationMethod == null) {
-                startClientVerificationMethod = getMethod(LOGIN_LISTENER, "b", GameProfile.class);
-            }
-            START_CLIENT_VERIFICATION = startClientVerificationMethod;
-            checkNotNull(START_CLIENT_VERIFICATION, "startClientVerification");
-            makeAccessible(START_CLIENT_VERIFICATION);
-
-            LOGIN_HANDLER_CONSTRUCTOR = null;
-            FIRE_LOGIN_EVENTS = null;
-            FIRE_LOGIN_EVENTS_GAME_PROFILE = null;
-        } else {
-            // Paper 1.20.5+ uses Mojang mappings: LoginListener$LoginHandler -> ServerLoginPacketListenerImpl$LoginHandler
-            Class<?> loginHandler = getClassSilently(
-                    "net.minecraft.server.network.ServerLoginPacketListenerImpl$LoginHandler");
-            if (loginHandler == null) {
-                loginHandler = getClassSilently(
-                        "net.minecraft.server.network.LoginListener$LoginHandler");
-            }
-            if (loginHandler == null) {
-                loginHandler = ReflectionUtils.getClassOrThrow(
+                LOGIN_HANDLER_CONSTRUCTOR = null;
+                FIRE_LOGIN_EVENTS = null;
+                FIRE_LOGIN_EVENTS_GAME_PROFILE = null;
+            } else {
+                // Paper 1.20.5+ uses Mojang mappings: LoginListener$LoginHandler -> ServerLoginPacketListenerImpl$LoginHandler
+                Class<?> loginHandler = getRequiredClass(
+                        "LoginHandler",
+                        "net.minecraft.server.network.ServerLoginPacketListenerImpl$LoginHandler",
+                        "net.minecraft.server.network.LoginListener$LoginHandler",
                         nmsPackage + "LoginListener$LoginHandler");
+                LOGIN_HANDLER_CONSTRUCTOR =
+                        getConstructor(loginHandler, true, LOGIN_LISTENER);
+                checkNotNull(LOGIN_HANDLER_CONSTRUCTOR,
+                        "LoginHandler#<init>(LoginListener)");
+
+                FIRE_LOGIN_EVENTS = getMethod(loginHandler, "fireEvents");
+
+                // LoginHandler().fireEvents(GameProfile)
+                FIRE_LOGIN_EVENTS_GAME_PROFILE = getMethod(loginHandler, "fireEvents",
+                        GameProfile.class);
+                checkNotNull(FIRE_LOGIN_EVENTS, FIRE_LOGIN_EVENTS_GAME_PROFILE,
+                        "LoginHandler#fireEvents()", "LoginHandler#fireEvents(GameProfile)");
+
+                START_CLIENT_VERIFICATION = null;
             }
-            LOGIN_HANDLER_CONSTRUCTOR =
-                    getConstructor(loginHandler, true, LOGIN_LISTENER);
-            checkNotNull(LOGIN_HANDLER_CONSTRUCTOR, "LoginHandler constructor");
 
-            FIRE_LOGIN_EVENTS = getMethod(loginHandler, "fireEvents");
+            PAPER_DISABLE_USERNAME_VALIDATION = getField(LOGIN_LISTENER,
+                    "iKnowThisMayNotBeTheBestIdeaButPleaseDisableUsernameValidation");
 
-            // LoginHandler().fireEvents(GameProfile)
-            FIRE_LOGIN_EVENTS_GAME_PROFILE = getMethod(loginHandler, "fireEvents",
-                    GameProfile.class);
-            checkNotNull(FIRE_LOGIN_EVENTS, FIRE_LOGIN_EVENTS_GAME_PROFILE,
-                    "fireEvents from LoginHandler", "fireEvents(GameProfile) from LoginHandler");
+            if (Constants.DEBUG_MODE) {
+                System.out.println("Paper disable username validation field exists? " +
+                        (PAPER_DISABLE_USERNAME_VALIDATION != null));
+            }
 
-            START_CLIENT_VERIFICATION = null;
-        }
+            // ProxyUtils
+            Class<?> spigotConfig = getRequiredClass("SpigotConfig", "org.spigotmc.SpigotConfig");
 
-        PAPER_DISABLE_USERNAME_VALIDATION = getField(LOGIN_LISTENER,
-                "iKnowThisMayNotBeTheBestIdeaButPleaseDisableUsernameValidation");
+            BUNGEE = getField(spigotConfig, "bungee");
+            checkNotNull(BUNGEE, "SpigotConfig#bungee");
 
-        if (Constants.DEBUG_MODE) {
-            System.out.println("Paper disable username validation field exists? " +
-                    (PAPER_DISABLE_USERNAME_VALIDATION != null));
-        }
-
-        // ProxyUtils
-        Class<?> spigotConfig = ReflectionUtils.getClass("org.spigotmc.SpigotConfig");
-        checkNotNull(spigotConfig, "Spigot config");
-
-        BUNGEE = getField(spigotConfig, "bungee");
-        checkNotNull(BUNGEE, "Bungee field");
-
-        Class<?> paperConfigNew = getClassSilently(
-                "io.papermc.paper.configuration.GlobalConfiguration");
-        if (paperConfigNew != null) {
-            // 1.19 and later
-            Method paperConfigGet = checkNotNull(getMethod(paperConfigNew, "get"),
-                    "GlobalConfiguration get");
-            Field paperConfigProxies = checkNotNull(getField(paperConfigNew, "proxies"),
-                    "Proxies field");
-            Field paperConfigVelocity = checkNotNull(
-                    getField(paperConfigProxies.getType(), "velocity"),
-                    "velocity field");
-            Field paperVelocityEnabled = checkNotNull(
-                    getField(paperConfigVelocity.getType(), "enabled"),
-                    "Velocity enabled field");
-            PAPER_VELOCITY_SUPPORT = () -> {
-                Object paperConfigInstance = invoke(null, paperConfigGet);
-                Object proxiesInstance = getValue(paperConfigInstance, paperConfigProxies);
-                Object velocityInstance = getValue(proxiesInstance, paperConfigVelocity);
-                return getBooleanValue(velocityInstance, paperVelocityEnabled);
-            };
-        } else {
-            // Pre-1.19
-            Class<?> paperConfig = getClassSilently(
-                    "com.destroystokyo.paper.PaperConfig");
-
-            if (paperConfig != null) {
-                Field velocitySupport = getField(paperConfig, "velocitySupport");
-                // velocitySupport field is null pre-1.13
-                PAPER_VELOCITY_SUPPORT = velocitySupport != null ?
-                        () -> castedStaticBooleanValue(velocitySupport) : null;
+            Class<?> paperConfigNew = getClassSilently(
+                    "io.papermc.paper.configuration.GlobalConfiguration");
+            if (paperConfigNew != null) {
+                // 1.19 and later
+                Method paperConfigGet = checkNotNull(getMethod(paperConfigNew, "get"),
+                        "GlobalConfiguration#get()");
+                Field paperConfigProxies = checkNotNull(getField(paperConfigNew, "proxies"),
+                        "GlobalConfiguration#proxies");
+                Field paperConfigVelocity = checkNotNull(
+                        getField(paperConfigProxies.getType(), "velocity"),
+                        "Proxies#velocity");
+                Field paperVelocityEnabled = checkNotNull(
+                        getField(paperConfigVelocity.getType(), "enabled"),
+                        "Velocity#enabled");
+                PAPER_VELOCITY_SUPPORT = () -> {
+                    Object paperConfigInstance = invoke(null, paperConfigGet);
+                    Object proxiesInstance = getValue(paperConfigInstance, paperConfigProxies);
+                    Object velocityInstance = getValue(proxiesInstance, paperConfigVelocity);
+                    return getBooleanValue(velocityInstance, paperVelocityEnabled);
+                };
             } else {
-                PAPER_VELOCITY_SUPPORT = null;
-            }
-        }
+                // Pre-1.19
+                Class<?> paperConfig = getClassSilently(
+                        "com.destroystokyo.paper.PaperConfig");
 
-        IS_FOLIA = ReflectionUtils.getClassSilently(
-                "io.papermc.paper.threadedregions.RegionizedServer"
-        ) != null;
-
-
-        if (!IS_PRE_1_20_2) {
-            // PacketHandshakingInSetProtocol is now a record
-            // This means its fields are now private and final
-            // We therefore must use reflection to obtain the constructor
-            CLIENT_INTENT = getClassOrFallback(
-                    "net.minecraft.network.protocol.handshake.ClientIntent",
-                    nmsPackage + "ClientIntent"
-            );
-            checkNotNull(CLIENT_INTENT, "Client intent enum");
-
-            HANDSHAKE_PACKET_CONSTRUCTOR = getConstructor(HANDSHAKE_PACKET, false, int.class,
-                    String.class, int.class, CLIENT_INTENT);
-            checkNotNull(HANDSHAKE_PACKET_CONSTRUCTOR, "Handshake packet constructor");
-
-            // Paper 1.20.5+ Mojang mappings expose real field names; older Spigot uses obfuscated a/b/c/d.
-            // Try Mojang name first, then obfuscated.
-            Field protocolField = getField(HANDSHAKE_PACKET, "protocolVersion");
-            if (protocolField == null) {
-                protocolField = getField(HANDSHAKE_PACKET, "a");
-            }
-            checkNotNull(protocolField, "Handshake \"a\" field (protocol version, or stream codec)");
-
-            if (protocolField.getType().isPrimitive()) {
-                // Mojang on 1.20.5+ OR obfuscated 1.20.2-1.20.4: int field is the protocol version
-                HANDSHAKE_PROTOCOL = protocolField;
-                Field portField = getField(HANDSHAKE_PACKET, "port");
-                if (portField == null) {
-                    portField = getField(HANDSHAKE_PACKET, "c");
+                if (paperConfig != null) {
+                    Field velocitySupport = getField(paperConfig, "velocitySupport");
+                    // velocitySupport field is null pre-1.13
+                    PAPER_VELOCITY_SUPPORT = velocitySupport != null ?
+                            () -> castedStaticBooleanValue(velocitySupport) : null;
+                } else {
+                    PAPER_VELOCITY_SUPPORT = null;
                 }
-                HANDSHAKE_PORT = portField;
+            }
+
+            IS_FOLIA = ReflectionUtils.getClassSilently(
+                    "io.papermc.paper.threadedregions.RegionizedServer"
+            ) != null;
+
+
+            if (!IS_PRE_1_20_2) {
+                // PacketHandshakingInSetProtocol is now a record
+                // This means its fields are now private and final
+                // We therefore must use reflection to obtain the constructor
+                CLIENT_INTENT = getClassOrFallback(
+                        "net.minecraft.network.protocol.handshake.ClientIntent",
+                        nmsPackage + "ClientIntent"
+                );
+                checkNotNull(CLIENT_INTENT, "ClientIntent");
+
+                HANDSHAKE_PACKET_CONSTRUCTOR = getConstructor(HANDSHAKE_PACKET, false, int.class,
+                        String.class, int.class, CLIENT_INTENT);
+                checkNotNull(HANDSHAKE_PACKET_CONSTRUCTOR,
+                        "HandshakePacket#<init>(int, String, int, ClientIntent)");
+
+                // Paper 1.20.5+ Mojang mappings expose real field names; older Spigot uses obfuscated a/b/c/d.
+                // Try Mojang name first, then obfuscated.
+                Field protocolField = getField(HANDSHAKE_PACKET, "protocolVersion");
+                if (protocolField == null) {
+                    protocolField = getField(HANDSHAKE_PACKET, "a");
+                }
+                checkNotNull(protocolField, "HandshakePacket#protocolVersion", "HandshakePacket#a");
+
+                if (protocolField.getType().isPrimitive()) {
+                    // Mojang on 1.20.5+ OR obfuscated 1.20.2-1.20.4: int field is the protocol version
+                    HANDSHAKE_PROTOCOL = protocolField;
+                    Field portField = getField(HANDSHAKE_PACKET, "port");
+                    if (portField == null) {
+                        portField = getField(HANDSHAKE_PACKET, "c");
+                    }
+                    HANDSHAKE_PORT = portField;
+                    checkNotNull(HANDSHAKE_PORT, "HandshakePacket#port", "HandshakePacket#c");
+                } else {
+                    // Obfuscated 1.20.5: a is the stream_codec, everything is shifted
+                    HANDSHAKE_PROTOCOL = getField(HANDSHAKE_PACKET, "b");
+                    checkNotNull(HANDSHAKE_PROTOCOL, "HandshakePacket#b");
+                    Field portField = getField(HANDSHAKE_PACKET, "port");
+                    if (portField == null) {
+                        portField = getField(HANDSHAKE_PACKET, "d");
+                    }
+                    HANDSHAKE_PORT = portField;
+                    checkNotNull(HANDSHAKE_PORT, "HandshakePacket#port", "HandshakePacket#d");
+                }
+
+                makeAccessible(HANDSHAKE_PROTOCOL);
+
+                makeAccessible(HANDSHAKE_PORT);
+
+                // Try Mojang field name first, then fall back to type-based lookup (obfuscated)
+                Field intentionField = getField(HANDSHAKE_PACKET, "intention");
+                if (intentionField == null) {
+                    intentionField = getFieldOfType(HANDSHAKE_PACKET, CLIENT_INTENT);
+                }
+                HANDSHAKE_INTENTION = intentionField;
+                checkNotNull(HANDSHAKE_INTENTION, "HandshakePacket#intention",
+                        "HandshakePacket#<ClientIntent field>");
+                makeAccessible(HANDSHAKE_INTENTION);
             } else {
-                // Obfuscated 1.20.5: a is the stream_codec, everything is shifted
-                HANDSHAKE_PROTOCOL = getField(HANDSHAKE_PACKET, "b");
-                Field portField = getField(HANDSHAKE_PACKET, "port");
-                if (portField == null) {
-                    portField = getField(HANDSHAKE_PACKET, "d");
-                }
-                HANDSHAKE_PORT = portField;
+                CLIENT_INTENT = null;
+                HANDSHAKE_PACKET_CONSTRUCTOR = null;
+                HANDSHAKE_PORT = null;
+                HANDSHAKE_PROTOCOL = null;
+                HANDSHAKE_INTENTION = null;
             }
-
-            checkNotNull(HANDSHAKE_PROTOCOL, "Handshake protocol");
-            makeAccessible(HANDSHAKE_PROTOCOL);
-
-            checkNotNull(HANDSHAKE_PORT, "Handshake port");
-            makeAccessible(HANDSHAKE_PORT);
-
-            // Try Mojang field name first, then fall back to type-based lookup (obfuscated)
-            Field intentionField = getField(HANDSHAKE_PACKET, "intention");
-            if (intentionField == null) {
-                intentionField = getFieldOfType(HANDSHAKE_PACKET, CLIENT_INTENT);
-            }
-            HANDSHAKE_INTENTION = intentionField;
-            checkNotNull(HANDSHAKE_INTENTION, "Handshake intention");
-            makeAccessible(HANDSHAKE_INTENTION);
-        } else {
-            CLIENT_INTENT = null;
-            HANDSHAKE_PACKET_CONSTRUCTOR = null;
-            HANDSHAKE_PORT = null;
-            HANDSHAKE_PROTOCOL = null;
-            HANDSHAKE_INTENTION = null;
+        } catch (RuntimeException | Error failure) {
+            NmsDiagnostics.recordInitializationFailure(failure);
+            throw failure;
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> Class<T> getRequiredClass(String accessor, String... candidates) {
+        for (String candidate : candidates) {
+            Class<?> clazz = getClassSilently(candidate);
+            if (clazz != null) {
+                if (Constants.DEBUG_MODE) {
+                    System.out.println("Found class: " + clazz.getName());
+                }
+                return (Class<T>) clazz;
+            }
+        }
+        throw NmsDiagnostics.missingClass(accessor, candidates);
     }
 
     private static Class<?> getClassOrFallback(String className, String fallbackName) {
@@ -428,8 +418,10 @@ public class ClassNames {
             return clazz;
         }
 
-        // do throw an exception when both classes couldn't be found
-        clazz = ReflectionUtils.getClassOrThrow(fallbackName);
+        clazz = getClassSilently(fallbackName);
+        if (clazz == null) {
+            throw NmsDiagnostics.missingClass(className, className, fallbackName);
+        }
         if (Constants.DEBUG_MODE) {
             System.out.println("Found class (fallback): " + clazz.getName());
         }
@@ -437,8 +429,17 @@ public class ClassNames {
         return clazz;
     }
 
-    private static <T> T checkNotNull(@CheckForNull T toCheck, @CheckForNull String objectName) {
-        return Preconditions.checkNotNull(toCheck, objectName + " cannot be null");
+    private static <T> T checkNotNull(
+            @CheckForNull T toCheck,
+            @CheckForNull String objectName,
+            String... candidates) {
+        if (toCheck == null) {
+            String tried = candidates.length == 0
+                    ? objectName
+                    : objectName + ", " + String.join(", ", candidates);
+            throw NmsDiagnostics.missingAccessor(objectName, "Tried: " + tried + ".");
+        }
+        return toCheck;
     }
 
     // Ensure one of two is not null
@@ -446,9 +447,15 @@ public class ClassNames {
             @CheckForNull T toCheck,
             @CheckForNull T toCheck2,
             @CheckForNull String objectName,
-            @CheckForNull String objectName2
+            String... candidates
     ) {
-        return Preconditions.checkNotNull(toCheck != null ? toCheck : toCheck2,
-                objectName2 + " cannot be null if " + objectName + " is null");
+        T resolved = toCheck != null ? toCheck : toCheck2;
+        if (resolved == null) {
+            String tried = candidates.length == 0
+                    ? objectName
+                    : objectName + ", " + String.join(", ", candidates);
+            throw NmsDiagnostics.missingAccessor(objectName, "Tried: " + tried + ".");
+        }
+        return resolved;
     }
 }

@@ -129,6 +129,21 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
 - Compile-only platform deps live in `build-logic/.../Versions.kt` and are excluded
   from the shaded jar by `provided(...)`; the `viaversion-bukkit` artifact declares
   no transitive deps, so `viaversion-common` must be requested explicitly.
+- Spigot NMS drift is expected when a Minecraft release renames an internal accessor:
+  `spigot/.../util/ClassNames.java` resolves server internals in one static initializer,
+  and failures are latched in the separate `NmsDiagnostics` class so they remain
+  available after `ClassNames` becomes erroneous. `SpigotPlatform.enable()` logs the
+  accessor and environment from that latch. Route new lookups through the
+  `NmsDiagnostics` helpers so they stay reportable; `spigot/.../util/NmsDiagnosticsTest`
+  guards this contract.
+
+## Java runtime compatibility
+
+- Java 26 is not a libp2p classloader incompatibility; the isolation has been verified on
+  Java 26. Treat a Java 26 report as an NMS compatibility signal until the
+  `NmsDiagnostics` line identifies the server and Minecraft version.
+- CI currently stops at JDK 21 because the repository uses Gradle 8.5; the authoritative
+  matrix is `.github/workflows/pullrequest.yml`.
 
 ## Velocity Join Bugs
 
