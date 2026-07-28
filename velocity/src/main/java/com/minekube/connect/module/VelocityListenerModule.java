@@ -29,6 +29,7 @@ import com.google.inject.AbstractModule;
 import com.google.inject.Singleton;
 import com.google.inject.TypeLiteral;
 import com.google.inject.multibindings.ProvidesIntoSet;
+import com.minekube.connect.listener.VelocityLateReassertListener;
 import com.minekube.connect.listener.VelocityListener;
 import com.minekube.connect.register.ListenerRegister;
 
@@ -42,6 +43,12 @@ public final class VelocityListenerModule extends AbstractModule {
     @ProvidesIntoSet
     public Object velocityListener() {
         return new VelocityListener();
+    }
+
+    @Singleton
+    @ProvidesIntoSet
+    public Object velocityLateReassertListener() {
+        return new VelocityLateReassertListener();
     }
 
 }

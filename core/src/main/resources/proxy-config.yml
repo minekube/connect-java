@@ -17,6 +17,37 @@ allow-offline-mode-players: false
 #  - pvp-endpoint
 #  - someones-hub
 
+# Connect authenticates tunneled players at its edge and tells the proxy to skip its own
+# online-mode handshake for them. Login/auth plugins (LibreLogin, AuthMe, nLogin, ...) that
+# force online mode for every connection later in the same login event revert that decision,
+# and the player then hangs forever on "Logging in..." because there is no second Mojang
+# session to answer the proxy's encryption request.
+#
+# With this enabled, Connect re-asserts its own decision after every other plugin has run.
+# It only ever acts on connections Connect itself authenticated, it never overrides another
+# plugin's kick, and it does nothing when nobody changed the decision.
+login-reassert:
+  # Turn this off if you deliberately want another plugin to be able to change Connect's own
+  # login decision. Off restores the previous behaviour: last writer wins, no floor.
+  enabled: true
+
+  # Also restore Connect's full game profile - the player's Mojang UUID and username - and
+  # not just the skin properties.
+  #
+  # PREREQUISITE, read before enabling: only turn this on if every login plugin on this proxy
+  # keys its own database on the player's Mojang UUID. For LibreLogin that means setting
+  # `new-uuid-creator: MOJANG` in LibreLogin's config first. With its default `CRACKED` it
+  # stores players under an offline UUID derived from the name, so restoring the Mojang UUID
+  # makes its own lookups miss and its join handlers throw on every login.
+  #
+  # Leave this off unless you need ConnectApi.isConnectPlayer(uuid) / getPlayer(uuid) to
+  # resolve for players who go through such a login plugin. The default (skin properties
+  # only) fixes the login hang and the missing skin while keeping those plugins consistent.
+  #
+  # On BungeeCord there is no profile-properties API at pre-login, so `enabled` re-asserts
+  # offline mode only and this option is what additionally re-asserts the UUID and username.
+  restore-full-profile: false
+
 # Moxy can attach a signed Bedrock/Xbox identity envelope to Bedrock sessions.
 # Keep enforcement disabled unless Minekube provided trusted key configuration.
 bedrock-identity:

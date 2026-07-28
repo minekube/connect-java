@@ -37,6 +37,12 @@ public final class VelocityListenerRegistration implements ListenerRegistration<
 
     @Override
     public void register(Object listener) {
+        if (listener instanceof VelocityLateReassertListener) {
+            // Cannot be an annotated listener: @Subscribe has no way to express "after
+            // PostOrder.LAST" on the Velocity API this plugin compiles against.
+            ((VelocityLateReassertListener) listener).register(eventManager, plugin);
+            return;
+        }
         eventManager.register(plugin, listener);
     }
 }

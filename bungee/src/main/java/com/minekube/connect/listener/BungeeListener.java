@@ -25,8 +25,6 @@
 
 package com.minekube.connect.listener;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import com.google.inject.Inject;
 import com.minekube.connect.api.ProxyConnectApi;
 import com.minekube.connect.api.logger.ConnectLogger;
@@ -35,34 +33,17 @@ import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
 import com.minekube.connect.bedrock.BedrockIdentityEnforcer.Decision;
 import com.minekube.connect.network.netty.LocalSession;
 import com.minekube.connect.util.LanguageManager;
-import com.minekube.connect.util.ReflectionUtils;
-import io.netty.channel.Channel;
-import java.lang.reflect.Field;
 import java.util.UUID;
 import net.md_5.bungee.api.connection.PendingConnection;
 import net.md_5.bungee.api.event.LoginEvent;
 import net.md_5.bungee.api.event.PlayerDisconnectEvent;
 import net.md_5.bungee.api.event.PreLoginEvent;
 import net.md_5.bungee.api.plugin.Listener;
-import net.md_5.bungee.connection.InitialHandler;
 import net.md_5.bungee.event.EventHandler;
 import net.md_5.bungee.event.EventPriority;
-import net.md_5.bungee.netty.ChannelWrapper;
 
 @SuppressWarnings("ConstantConditions")
 public final class BungeeListener implements Listener {
-    private static final Field CHANNEL_WRAPPER;
-    private static final Field PLAYER_NAME;
-
-    static {
-        CHANNEL_WRAPPER =
-                ReflectionUtils.getFieldOfType(InitialHandler.class, ChannelWrapper.class);
-        checkNotNull(CHANNEL_WRAPPER, "ChannelWrapper field cannot be null");
-
-        PLAYER_NAME = ReflectionUtils.getField(InitialHandler.class, "name");
-        checkNotNull(PLAYER_NAME, "Initial name field cannot be null");
-    }
-
     @Inject private ProxyConnectApi api;
     @Inject private LanguageManager languageManager;
     @Inject private ConnectLogger logger;
@@ -77,10 +58,7 @@ public final class BungeeListener implements Listener {
 
         PendingConnection connection = event.getConnection();
 
-        ChannelWrapper wrapper = ReflectionUtils.getCastedValue(connection, CHANNEL_WRAPPER);
-        Channel channel = wrapper.getHandle();
-
-        LocalSession.context(channel, ctx -> {
+        LocalSession.context(BungeeConnections.channel(connection), ctx -> {
             Decision decision = bedrockIdentityEnforcer.verify(ctx);
             if (!decision.allowed()) {
                 bedrockIdentityEnforcer.reject(ctx, decision);
@@ -90,7 +68,7 @@ public final class BungeeListener implements Listener {
             }
             connection.setOnlineMode(false);
             connection.setUniqueId(ctx.getPlayer().getUniqueId());
-            ReflectionUtils.setValue(connection, PLAYER_NAME, ctx.getPlayer().getUsername());
+            BungeeConnections.setName(connection, ctx.getPlayer().getUsername());
             // TODO robin: what about profile properties? (but why is skin already showing)
         });
     }
