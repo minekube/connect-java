@@ -63,7 +63,7 @@ public class ClassNames {
 
     public static final Field SOCKET_ADDRESS;
     public static final Field HANDSHAKE_HOST;
-    public static final Field VELOCITY_LOGIN_MESSAGE_ID;
+    @Nullable public static final Field VELOCITY_LOGIN_MESSAGE_ID;
     public static final Field LOGIN_PROFILE;
     public static final Field PACKET_LISTENER;
 

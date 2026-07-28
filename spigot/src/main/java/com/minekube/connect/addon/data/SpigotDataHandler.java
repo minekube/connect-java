@@ -37,12 +37,15 @@ import com.minekube.connect.bedrock.BedrockIdentityEnforcer.Decision;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.network.netty.LocalSession.Context;
 import com.minekube.connect.util.ClassNames;
+import com.minekube.connect.util.NmsDiagnostics;
 import com.minekube.connect.util.ProxyUtils;
 import com.minekube.connect.util.SpigotGameProfiles;
 import com.mojang.authlib.GameProfile;
+import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.function.UnaryOperator;
+import javax.annotation.Nullable;
 
 public final class SpigotDataHandler extends CommonDataHandler {
     private final Context sessionCtx;
@@ -185,13 +188,15 @@ public final class SpigotDataHandler extends CommonDataHandler {
                 return false;
             }
 
-            if (ProxyUtils.isVelocitySupport()) {
-                // We securely skip the velocity plugin message login method entirely.
-                // Setting this field to a value other than -1 skips the velocity check in paper and
-                // prevents the player getting kicked due to "This server requires you to connect with Velocity."
-                // when invoking LoginHandler#fireEvents() below.
-                setValue(packetListener, ClassNames.VELOCITY_LOGIN_MESSAGE_ID, 0);
-            }
+            // We securely skip the velocity plugin message login method entirely.
+            // Setting this field to a value other than -1 skips the velocity check in paper and
+            // prevents the player getting kicked due to "This server requires you to connect with Velocity."
+            // when invoking LoginHandler#fireEvents() below.
+            setVelocityLoginMessageIdIfSupported(
+                    packetListener,
+                    ProxyUtils.isVelocitySupport(),
+                    ClassNames.VELOCITY_LOGIN_MESSAGE_ID,
+                    ClassNames.LOGIN_LISTENER);
 
             // Set the player's correct GameProfile, including signed texture properties for skins.
             GameProfile gameProfile = SpigotGameProfiles.fromConnectProfile(sessionCtx.getPlayer().getGameProfile());
@@ -250,6 +255,21 @@ public final class SpigotDataHandler extends CommonDataHandler {
         ctx.close();
         removeSelf();
         return false;
+    }
+
+    static void setVelocityLoginMessageIdIfSupported(
+            Object packetListener,
+            boolean velocitySupport,
+            @Nullable Field velocityLoginMessageId,
+            Class<?> loginListener) {
+        if (!velocitySupport) {
+            return;
+        }
+        if (velocityLoginMessageId == null) {
+            String accessor = loginListener.getName() + "#velocityLoginMessageId";
+            throw NmsDiagnostics.missingAccessor(accessor, "Tried: " + accessor + ".");
+        }
+        setValue(packetListener, velocityLoginMessageId, 0);
     }
 
     private static final Gson GSON = new Gson();
