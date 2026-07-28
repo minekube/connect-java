@@ -159,7 +159,7 @@ class NmsDiagnosticsTest {
      * way a drifted mapping fails on a live server.
      */
     @Test
-    void classNamesInitFailureStaysReadableAfterTheCauselessNoClassDefFoundError()
+    void classNamesInitFailureStaysReadableAfterTheUninformativeNoClassDefFoundError()
             throws Exception {
         try (ChildFirstLoader loader = new ChildFirstLoader()) {
             // First touch: the JVM still carries the reason.
