@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.7](https://github.com/minekube/connect-java/compare/0.12.6...0.12.7) (2026-07-28)
+
+
+### Bug Fixes
+
+* **spigot:** improve diagnostics for NMS mapping drift ([#73](https://github.com/minekube/connect-java/issues/73)) ([a98e723](https://github.com/minekube/connect-java/commit/a98e723f579570b2b640333811032b03fd2fd214))
+
 ## [0.12.6](https://github.com/minekube/connect-java/compare/0.12.5...0.12.6) (2026-07-27)
 
 
