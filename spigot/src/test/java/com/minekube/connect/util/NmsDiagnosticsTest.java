@@ -151,7 +151,8 @@ class NmsDiagnosticsTest {
 
     /**
      * The end-to-end shape of the bug: a real {@code ClassNames} static-init failure must stay
-     * readable after the JVM has started answering with causeless {@code NoClassDefFoundError}s.
+     * readable after the JVM has started answering with uninformative top-level
+     * {@code NoClassDefFoundError}s.
      *
      * <p>{@code ClassNames} is loaded in a throwaway child-first loader so its initializer runs
      * for real. No {@code net.minecraft.*} exists on the test classpath, so it fails exactly the

@@ -129,31 +129,21 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
 - Compile-only platform deps live in `build-logic/.../Versions.kt` and are excluded
   from the shaded jar by `provided(...)`; the `viaversion-bukkit` artifact declares
   no transitive deps, so `viaversion-common` must be requested explicitly.
-- Spigot NMS drift is the expected failure mode on a brand-new Minecraft:
-  `spigot/.../util/ClassNames.java` resolves every server internal in one static
-  initializer, so one renamed accessor takes the whole plugin down. Its failures are
-  latched into `NmsDiagnostics` (a separate class, so it still initializes after
-  `ClassNames` is erroneous) and named accessor + server software + MC + Java version;
-  `SpigotPlatform.enable()` replays the latch. Route new lookups through
-  `checkNotNull`/`NmsDiagnostics.missingClass` so they stay reportable. Guarded by
-  `spigot/.../util/NmsDiagnosticsTest`.
+- Spigot NMS drift is expected when a Minecraft release renames an internal accessor:
+  `spigot/.../util/ClassNames.java` resolves server internals in one static initializer,
+  and failures are latched in the separate `NmsDiagnostics` class so they remain
+  available after `ClassNames` becomes erroneous. `SpigotPlatform.enable()` logs the
+  accessor and environment from that latch. Route new lookups through the
+  `NmsDiagnostics` helpers so they stay reportable; `spigot/.../util/NmsDiagnosticsTest`
+  guards this contract.
 
-## Java runtime compatibility (do not re-chase)
+## Java runtime compatibility
 
-- Java 26 is verified good as of 0.12.6: the reflective libp2p classloader isolation
-  behaves identically on Temurin 26.0.1 and 21, checked end-to-end from the shipped
-  `connect-spigot.jar` through a simulated server plugin classloader, with every
-  module's suite green on 26. `Libp2pRuntimeLoader` touches only
-  `Class.getClassLoader`/`getProtectionDomain`/`URLClassLoader.getURLs`, none of which
-  changed in 26; the only JDK-internal use in the shipped jar is `sun.misc.Unsafe` from
-  shaded Guava/Guice/protobuf, which still resolves on 26 (terminal-deprecation warnings
-  only, no failure).
-- So a "Connect breaks on Java 26" report is almost always Minecraft-version NMS drift,
-  not the JDK — a server new enough to need a new JDK is new enough to have moved its
-  mappings. Get the `NmsDiagnostics` log line before theorising about the runtime.
-- Gradle 8.5 caps the build at JDK 21, so CI cannot run on 26; re-verify by hand with
-  `jdeps --multi-release 26 -jdkinternals <shaded jar>` plus the JUnit platform launcher
-  on a 26 JDK against the module's test runtime classpath.
+- Java 26 is not a libp2p classloader incompatibility; the isolation has been verified on
+  Java 26. Treat a Java 26 report as an NMS compatibility signal until the
+  `NmsDiagnostics` line identifies the server and Minecraft version.
+- CI currently stops at JDK 21 because the repository uses Gradle 8.5; the authoritative
+  matrix is `.github/workflows/pullrequest.yml`.
 
 ## Velocity Join Bugs
 

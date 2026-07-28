@@ -95,7 +95,9 @@ public final class NmsDiagnostics {
 
     /**
      * Records why {@code ClassNames} failed to initialize, so the reason survives the
-     * causeless {@code NoClassDefFoundError}s the JVM raises on every subsequent touch.
+     * uninformative top-level {@code NoClassDefFoundError} the JVM raises on every subsequent
+     * touch. The original failure may remain in the cause chain, but callers should not need to
+     * inspect it.
      */
     public static void recordInitializationFailure(@Nullable Throwable failure) {
         if (failure == null) {
@@ -113,8 +115,8 @@ public final class NmsDiagnostics {
 
     /**
      * The recorded {@code ClassNames} initialization failure, or {@code null} if it initialized
-     * fine. Callers use this to report something actionable instead of a causeless
-     * {@code NoClassDefFoundError}.
+     * fine. Callers use this to report something actionable instead of relying on the
+     * uninformative top-level {@code NoClassDefFoundError}.
      */
     @Nullable
     public static String initializationFailure() {
