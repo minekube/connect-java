@@ -1,5 +1,6 @@
 package com.minekube.connect.listener;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -12,6 +13,9 @@ import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.config.ProxyConnectConfig;
 import com.minekube.connect.config.ProxyConnectConfig.LoginReassertConfig;
 import com.minekube.connect.player.ConnectPlayerImpl;
+import com.velocitypowered.api.event.EventHandler;
+import com.velocitypowered.api.event.EventManager;
+import com.velocitypowered.api.event.PostOrder;
 import com.velocitypowered.api.event.connection.PreLoginEvent;
 import com.velocitypowered.api.event.connection.PreLoginEvent.PreLoginComponentResult;
 import com.velocitypowered.api.event.player.GameProfileRequestEvent;
@@ -19,9 +23,11 @@ import com.velocitypowered.api.proxy.InboundConnection;
 import com.velocitypowered.api.util.GameProfile;
 import com.velocitypowered.api.util.GameProfile.Property;
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import net.kyori.adventure.text.Component;
 import org.junit.jupiter.api.Test;
@@ -171,6 +177,21 @@ class VelocityLateReassertListenerTest {
         assertSame(before, event.getGameProfile());
     }
 
+    @Test
+    void partialRegistrationRollsBackOnlyTheHandlerThatWasRegistered() {
+        PartialFailureEventManager eventManager = new PartialFailureEventManager();
+        ConnectLogger logger = mock(ConnectLogger.class);
+        VelocityListenerRegistration registration =
+                new VelocityListenerRegistration(eventManager, null, logger);
+
+        assertDoesNotThrow(() -> registration.register(new VelocityLateReassertListener()));
+
+        assertEquals(1, eventManager.registeredHandlers.size());
+        assertEquals(1, eventManager.unregisteredHandlers.size());
+        assertSame(eventManager.registeredHandlers.get(0), eventManager.unregisteredHandlers.get(0));
+        assertFalse(eventManager.unregisterListenersCalled);
+    }
+
     private static List<String> propertyNames(GameProfile profile) {
         return profile.getProperties().stream()
                 .map(Property::getName)
@@ -243,5 +264,44 @@ class VelocityLateReassertListenerTest {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         field.setBoolean(target, value);
+    }
+
+    private static final class PartialFailureEventManager implements EventManager {
+        final List<EventHandler<?>> registeredHandlers = new ArrayList<>();
+        final List<EventHandler<?>> unregisteredHandlers = new ArrayList<>();
+        boolean unregisterListenersCalled;
+
+        @Override
+        public void register(Object plugin, Object listener) {
+            throw new AssertionError("late handlers must use explicit registration");
+        }
+
+        @Override
+        public <E> void register(Object plugin, Class<E> eventClass, PostOrder postOrder,
+                EventHandler<E> handler) {
+            if (!registeredHandlers.isEmpty()) {
+                throw new AssertionError("second late-handler registration failed");
+            }
+            registeredHandlers.add(handler);
+        }
+
+        @Override
+        public <E> CompletableFuture<E> fire(E event) {
+            return CompletableFuture.completedFuture(event);
+        }
+
+        @Override
+        public void unregisterListeners(Object plugin) {
+            unregisterListenersCalled = true;
+        }
+
+        @Override
+        public void unregisterListener(Object plugin, Object listener) {
+        }
+
+        @Override
+        public <E> void unregister(Object plugin, EventHandler<E> handler) {
+            unregisteredHandlers.add(handler);
+        }
     }
 }

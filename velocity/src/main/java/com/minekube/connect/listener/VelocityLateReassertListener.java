@@ -29,6 +29,7 @@ import com.google.inject.Inject;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.config.ProxyConnectConfig;
+import com.velocitypowered.api.event.EventHandler;
 import com.velocitypowered.api.event.EventManager;
 import com.velocitypowered.api.event.connection.PreLoginEvent;
 import com.velocitypowered.api.event.connection.PreLoginEvent.PreLoginComponentResult;
@@ -92,11 +93,55 @@ public final class VelocityLateReassertListener {
      */
     public void register(EventManager eventManager, Object plugin) {
         VelocityLateEventRegistrar registrar = new VelocityLateEventRegistrar(eventManager, plugin);
-        boolean afterLast = registrar.registerAfterLast(PreLoginEvent.class, this::onPreLoginLate);
-        registrar.registerAfterLast(GameProfileRequestEvent.class, this::onGameProfileRequestLate);
-        logger.debug(
-                "Registered the login re-assert handlers (numeric priority: {})",
-                afterLast ? "yes" : "no, this Velocity only supports PostOrder.LAST");
+        EventHandler<PreLoginEvent> preLoginHandler = this::onPreLoginLate;
+        EventHandler<GameProfileRequestEvent> gameProfileHandler = this::onGameProfileRequestLate;
+        boolean preLoginRegistered = false;
+        boolean gameProfileRegistered = false;
+        try {
+            boolean afterLast = registrar.registerAfterLast(PreLoginEvent.class, preLoginHandler);
+            preLoginRegistered = true;
+            registrar.registerAfterLast(GameProfileRequestEvent.class, gameProfileHandler);
+            gameProfileRegistered = true;
+            logger.debug(
+                    "Registered the login re-assert handlers (numeric priority: {})",
+                    afterLast ? "yes" : "no, this Velocity only supports PostOrder.LAST");
+        } catch (Throwable registrationFailure) {
+            if (gameProfileRegistered) {
+                unregisterSafely(eventManager, plugin, gameProfileHandler);
+            }
+            if (preLoginRegistered) {
+                unregisterSafely(eventManager, plugin, preLoginHandler);
+            }
+            rethrow(registrationFailure);
+        }
+    }
+
+    private void unregisterSafely(
+            EventManager eventManager, Object plugin, EventHandler<?> handler) {
+        try {
+            unregister(eventManager, plugin, handler);
+        } catch (Throwable rollbackFailure) {
+            try {
+                logger.error("Could not roll back a partially registered login re-assert handler",
+                        rollbackFailure);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private static <E> void unregister(
+            EventManager eventManager, Object plugin, EventHandler<E> handler) {
+        eventManager.unregister(plugin, handler);
+    }
+
+    private static void rethrow(Throwable throwable) {
+        if (throwable instanceof RuntimeException) {
+            throw (RuntimeException) throwable;
+        }
+        if (throwable instanceof Error) {
+            throw (Error) throwable;
+        }
+        throw new RuntimeException(throwable);
     }
 
     void onPreLoginLate(PreLoginEvent event) {
