@@ -32,8 +32,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.io.File;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -43,6 +45,7 @@ import java.util.List;
 import java.util.logging.Logger;
 import org.bukkit.Bukkit;
 import org.bukkit.Server;
+import org.bukkit.craftbukkit.v1_21_R1.VersionedServer;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -191,6 +194,39 @@ class NmsDiagnosticsTest {
                     "must name the server software: " + message);
             assertTrue(message.contains(MINECRAFT_VERSION),
                     "must name the Minecraft version: " + message);
+        }
+    }
+
+    @Test
+    void fallbackClassFailureNamesEveryCandidateAndTheEnvironment() throws Exception {
+        Server previousServer = Bukkit.getServer();
+        VersionedServer versionedServer = mock(VersionedServer.class);
+        when(versionedServer.getName()).thenReturn(SERVER_NAME);
+        when(versionedServer.getVersion()).thenReturn(SERVER_VERSION);
+        when(versionedServer.getBukkitVersion()).thenReturn(BUKKIT_VERSION);
+        when(versionedServer.getLogger()).thenReturn(Logger.getLogger(SERVER_NAME));
+        Field serverField = Bukkit.class.getDeclaredField("server");
+        serverField.setAccessible(true);
+        serverField.set(null, versionedServer);
+        try (ChildFirstLoader loader = new ChildFirstLoader()) {
+            assertThrows(
+                    ExceptionInInitializerError.class,
+                    () -> Class.forName(ClassNames.class.getName(), true, loader));
+
+            Class<?> diagnostics = Class.forName(
+                    NmsDiagnostics.class.getName(), true, loader);
+            Method initializationFailure = diagnostics.getDeclaredMethod("initializationFailure");
+            String message = (String) initializationFailure.invoke(null);
+
+            assertNotNull(message);
+            assertTrue(message.contains("net.minecraft.server.MinecraftServer"), message);
+            assertTrue(message.contains("net.minecraft.server.v1_21_R1.MinecraftServer"), message);
+            assertTrue(message.contains(SERVER_NAME), message);
+            assertTrue(message.contains(BUKKIT_VERSION), message);
+            assertTrue(message.contains(MINECRAFT_VERSION), message);
+            assertTrue(message.contains("java="), message);
+        } finally {
+            serverField.set(null, previousServer);
         }
     }
 

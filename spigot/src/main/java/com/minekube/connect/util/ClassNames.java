@@ -112,10 +112,11 @@ public class ClassNames {
             String nmsPackage = "net.minecraft.server." + version;
 
             // SpigotSkinApplier
-            Class<?> craftPlayerClass = ReflectionUtils.getClass(
+            Class<?> craftPlayerClass = getRequiredClass(
+                    "CraftPlayer",
                     "org.bukkit.craftbukkit." + version + "entity.CraftPlayer");
             GET_PROFILE_METHOD = getMethod(craftPlayerClass, "getProfile");
-            checkNotNull(GET_PROFILE_METHOD, "Get profile method");
+            checkNotNull(GET_PROFILE_METHOD, "CraftPlayer#getProfile()");
 
             // SpigotInjector
             MINECRAFT_SERVER = getClassOrFallback(
@@ -124,28 +125,18 @@ public class ClassNames {
             );
 
             // Paper 1.20.5+ uses Mojang mappings: ServerConnection -> ServerConnectionListener
-            Class<?> serverConnectionClass = getClassSilently(
-                    "net.minecraft.server.network.ServerConnectionListener");
-            if (serverConnectionClass == null) {
-                serverConnectionClass = getClassSilently(
-                        "net.minecraft.server.network.ServerConnection");
-            }
-            if (serverConnectionClass == null) {
-                serverConnectionClass = getClassSilently(nmsPackage + "ServerConnection");
-            }
-            if (serverConnectionClass == null) {
-                throw NmsDiagnostics.missingClass(
-                        "ServerConnection/ServerConnectionListener",
-                        "net.minecraft.server.network.ServerConnectionListener",
-                        "net.minecraft.server.network.ServerConnection",
-                        nmsPackage + "ServerConnection");
-            }
-            SERVER_CONNECTION = serverConnectionClass;
+            SERVER_CONNECTION = getRequiredClass(
+                    "ServerConnection/ServerConnectionListener",
+                    "net.minecraft.server.network.ServerConnectionListener",
+                    "net.minecraft.server.network.ServerConnection",
+                    nmsPackage + "ServerConnection");
 
             // WhitelistUtils
-            Class<?> craftServerClass = ReflectionUtils.getClass(
+            Class<?> craftServerClass = getRequiredClass(
+                    "CraftServer",
                     "org.bukkit.craftbukkit." + version + "CraftServer");
-            Class<OfflinePlayer> craftOfflinePlayerClass = ReflectionUtils.getCastedClass(
+            Class<OfflinePlayer> craftOfflinePlayerClass = getRequiredClass(
+                    "CraftOfflinePlayer",
                     "org.bukkit.craftbukkit." + version + "CraftOfflinePlayer");
 
             CRAFT_OFFLINE_PLAYER_CONSTRUCTOR = getConstructor(
@@ -153,87 +144,46 @@ public class ClassNames {
 
             // SpigotDataHandler
             // Paper 1.20.5+ uses Mojang mappings: NetworkManager -> Connection
-            Class<?> networkManager = getClassSilently("net.minecraft.network.Connection");
-            if (networkManager == null) {
-                networkManager = getClassSilently("net.minecraft.network.NetworkManager");
-            }
-            if (networkManager == null) {
-                networkManager = getClassSilently(nmsPackage + "NetworkManager");
-            }
-            if (networkManager == null) {
-                throw NmsDiagnostics.missingClass(
-                        "NetworkManager/Connection",
-                        "net.minecraft.network.Connection",
-                        "net.minecraft.network.NetworkManager",
-                        nmsPackage + "NetworkManager");
-            }
+            Class<?> networkManager = getRequiredClass(
+                    "NetworkManager/Connection",
+                    "net.minecraft.network.Connection",
+                    "net.minecraft.network.NetworkManager",
+                    nmsPackage + "NetworkManager");
 
             SOCKET_ADDRESS = getFieldOfType(networkManager, SocketAddress.class, false);
 
             // Paper 1.20.5+ uses Mojang mappings: PacketHandshakingInSetProtocol -> ClientIntentionPacket
-            Class<?> handshakePacket = getClassSilently(
-                    "net.minecraft.network.protocol.handshake.ClientIntentionPacket");
-            if (handshakePacket == null) {
-                handshakePacket = getClassSilently(
-                        "net.minecraft.network.protocol.handshake.PacketHandshakingInSetProtocol");
-            }
-            if (handshakePacket == null) {
-                handshakePacket = getClassSilently(nmsPackage + "PacketHandshakingInSetProtocol");
-            }
-            if (handshakePacket == null) {
-                throw NmsDiagnostics.missingClass(
-                        "HandshakePacket",
-                        "net.minecraft.network.protocol.handshake.ClientIntentionPacket",
-                        "net.minecraft.network.protocol.handshake.PacketHandshakingInSetProtocol",
-                        nmsPackage + "PacketHandshakingInSetProtocol");
-            }
+            Class<?> handshakePacket = getRequiredClass(
+                    "HandshakePacket",
+                    "net.minecraft.network.protocol.handshake.ClientIntentionPacket",
+                    "net.minecraft.network.protocol.handshake.PacketHandshakingInSetProtocol",
+                    nmsPackage + "PacketHandshakingInSetProtocol");
             HANDSHAKE_PACKET = handshakePacket;
 
             HANDSHAKE_HOST = getFieldOfType(HANDSHAKE_PACKET, String.class);
-            checkNotNull(HANDSHAKE_HOST, "Handshake host");
+            checkNotNull(HANDSHAKE_HOST, "HandshakePacket#<String field>");
 
             // Paper 1.20.5+ uses Mojang mappings: PacketLoginInStart -> ServerboundHelloPacket
-            Class<?> loginStartPacket = getClassSilently(
-                    "net.minecraft.network.protocol.login.ServerboundHelloPacket");
-            if (loginStartPacket == null) {
-                loginStartPacket = getClassSilently(
-                        "net.minecraft.network.protocol.login.PacketLoginInStart");
-            }
-            if (loginStartPacket == null) {
-                loginStartPacket = getClassSilently(nmsPackage + "PacketLoginInStart");
-            }
-            if (loginStartPacket == null) {
-                throw NmsDiagnostics.missingClass(
-                        "LoginStartPacket",
-                        "net.minecraft.network.protocol.login.ServerboundHelloPacket",
-                        "net.minecraft.network.protocol.login.PacketLoginInStart",
-                        nmsPackage + "PacketLoginInStart");
-            }
+            Class<?> loginStartPacket = getRequiredClass(
+                    "LoginStartPacket",
+                    "net.minecraft.network.protocol.login.ServerboundHelloPacket",
+                    "net.minecraft.network.protocol.login.PacketLoginInStart",
+                    nmsPackage + "PacketLoginInStart");
             LOGIN_START_PACKET = loginStartPacket;
 
             // Paper 1.20.5+ uses Mojang mappings: LoginListener -> ServerLoginPacketListenerImpl
-            Class<?> loginListener = getClassSilently(
-                    "net.minecraft.server.network.ServerLoginPacketListenerImpl");
-            if (loginListener == null) {
-                loginListener = getClassSilently("net.minecraft.server.network.LoginListener");
-            }
-            if (loginListener == null) {
-                loginListener = getClassSilently(nmsPackage + "LoginListener");
-            }
-            if (loginListener == null) {
-                throw NmsDiagnostics.missingClass(
-                        "LoginListener/ServerLoginPacketListenerImpl",
-                        "net.minecraft.server.network.ServerLoginPacketListenerImpl",
-                        "net.minecraft.server.network.LoginListener",
-                        nmsPackage + "LoginListener");
-            }
+            Class<?> loginListener = getRequiredClass(
+                    "LoginListener/ServerLoginPacketListenerImpl",
+                    "net.minecraft.server.network.ServerLoginPacketListenerImpl",
+                    "net.minecraft.server.network.LoginListener",
+                    nmsPackage + "LoginListener");
             LOGIN_LISTENER = loginListener;
 
             LOGIN_PROFILE = getFieldOfType(LOGIN_LISTENER, GameProfile.class);
-            checkNotNull(LOGIN_PROFILE, "Profile from LoginListener");
+            checkNotNull(LOGIN_PROFILE, "LoginListener#<GameProfile field>");
 
             LOGIN_DISCONNECT = getMethod(LOGIN_LISTENER, "disconnect", String.class);
-            checkNotNull(LOGIN_DISCONNECT, "LoginListener's disconnect method");
+            checkNotNull(LOGIN_DISCONNECT, "LoginListener#disconnect(String)");
 
             NETWORK_EXCEPTION_CAUGHT = getMethod(
                     networkManager,
@@ -258,14 +208,13 @@ public class ClassNames {
 
 
             if (IS_PRE_1_20_2) {
-                Class<?> packetListenerClass = getClassSilently(
-                        "net.minecraft.network.PacketListener");
-                if (packetListenerClass == null) {
-                    packetListenerClass = ReflectionUtils.getClassOrThrow(
-                            nmsPackage + "PacketListener");
-                }
+                Class<?> packetListenerClass = getRequiredClass(
+                        "PacketListener",
+                        "net.minecraft.network.PacketListener",
+                        nmsPackage + "PacketListener");
 
                 PACKET_LISTENER = getFieldOfType(networkManager, packetListenerClass);
+                checkNotNull(PACKET_LISTENER, "NetworkManager#<PacketListener field>");
             } else {
                 // We get the field by name on 1.20.2+ as there are now multiple fields of this type in network manager
 
@@ -276,9 +225,10 @@ public class ClassNames {
                     packetListenerField = getField(networkManager, "q");
                 }
                 PACKET_LISTENER = packetListenerField;
+                checkNotNull(PACKET_LISTENER,
+                        "NetworkManager#packetListener", "NetworkManager#q");
                 makeAccessible(PACKET_LISTENER);
             }
-            checkNotNull(PACKET_LISTENER, "Packet listener");
 
              if (IS_POST_LOGIN_HANDLER) {
                 makeAccessible(CALL_PLAYER_PRE_LOGIN_EVENTS);
@@ -289,7 +239,9 @@ public class ClassNames {
                     startClientVerificationMethod = getMethod(LOGIN_LISTENER, "b", GameProfile.class);
                 }
                 START_CLIENT_VERIFICATION = startClientVerificationMethod;
-                checkNotNull(START_CLIENT_VERIFICATION, "startClientVerification");
+                checkNotNull(START_CLIENT_VERIFICATION,
+                        "ServerLoginPacketListenerImpl#startClientVerification(GameProfile)",
+                        "LoginListener#b(GameProfile)");
                 makeAccessible(START_CLIENT_VERIFICATION);
 
                 LOGIN_HANDLER_CONSTRUCTOR = null;
@@ -297,19 +249,15 @@ public class ClassNames {
                 FIRE_LOGIN_EVENTS_GAME_PROFILE = null;
             } else {
                 // Paper 1.20.5+ uses Mojang mappings: LoginListener$LoginHandler -> ServerLoginPacketListenerImpl$LoginHandler
-                Class<?> loginHandler = getClassSilently(
-                        "net.minecraft.server.network.ServerLoginPacketListenerImpl$LoginHandler");
-                if (loginHandler == null) {
-                    loginHandler = getClassSilently(
-                            "net.minecraft.server.network.LoginListener$LoginHandler");
-                }
-                if (loginHandler == null) {
-                    loginHandler = ReflectionUtils.getClassOrThrow(
-                            nmsPackage + "LoginListener$LoginHandler");
-                }
+                Class<?> loginHandler = getRequiredClass(
+                        "LoginHandler",
+                        "net.minecraft.server.network.ServerLoginPacketListenerImpl$LoginHandler",
+                        "net.minecraft.server.network.LoginListener$LoginHandler",
+                        nmsPackage + "LoginListener$LoginHandler");
                 LOGIN_HANDLER_CONSTRUCTOR =
                         getConstructor(loginHandler, true, LOGIN_LISTENER);
-                checkNotNull(LOGIN_HANDLER_CONSTRUCTOR, "LoginHandler constructor");
+                checkNotNull(LOGIN_HANDLER_CONSTRUCTOR,
+                        "LoginHandler#<init>(LoginListener)");
 
                 FIRE_LOGIN_EVENTS = getMethod(loginHandler, "fireEvents");
 
@@ -317,7 +265,7 @@ public class ClassNames {
                 FIRE_LOGIN_EVENTS_GAME_PROFILE = getMethod(loginHandler, "fireEvents",
                         GameProfile.class);
                 checkNotNull(FIRE_LOGIN_EVENTS, FIRE_LOGIN_EVENTS_GAME_PROFILE,
-                        "fireEvents from LoginHandler", "fireEvents(GameProfile) from LoginHandler");
+                        "LoginHandler#fireEvents()", "LoginHandler#fireEvents(GameProfile)");
 
                 START_CLIENT_VERIFICATION = null;
             }
@@ -331,26 +279,25 @@ public class ClassNames {
             }
 
             // ProxyUtils
-            Class<?> spigotConfig = ReflectionUtils.getClass("org.spigotmc.SpigotConfig");
-            checkNotNull(spigotConfig, "Spigot config");
+            Class<?> spigotConfig = getRequiredClass("SpigotConfig", "org.spigotmc.SpigotConfig");
 
             BUNGEE = getField(spigotConfig, "bungee");
-            checkNotNull(BUNGEE, "Bungee field");
+            checkNotNull(BUNGEE, "SpigotConfig#bungee");
 
             Class<?> paperConfigNew = getClassSilently(
                     "io.papermc.paper.configuration.GlobalConfiguration");
             if (paperConfigNew != null) {
                 // 1.19 and later
                 Method paperConfigGet = checkNotNull(getMethod(paperConfigNew, "get"),
-                        "GlobalConfiguration get");
+                        "GlobalConfiguration#get()");
                 Field paperConfigProxies = checkNotNull(getField(paperConfigNew, "proxies"),
-                        "Proxies field");
+                        "GlobalConfiguration#proxies");
                 Field paperConfigVelocity = checkNotNull(
                         getField(paperConfigProxies.getType(), "velocity"),
-                        "velocity field");
+                        "Proxies#velocity");
                 Field paperVelocityEnabled = checkNotNull(
                         getField(paperConfigVelocity.getType(), "enabled"),
-                        "Velocity enabled field");
+                        "Velocity#enabled");
                 PAPER_VELOCITY_SUPPORT = () -> {
                     Object paperConfigInstance = invoke(null, paperConfigGet);
                     Object proxiesInstance = getValue(paperConfigInstance, paperConfigProxies);
@@ -385,11 +332,12 @@ public class ClassNames {
                         "net.minecraft.network.protocol.handshake.ClientIntent",
                         nmsPackage + "ClientIntent"
                 );
-                checkNotNull(CLIENT_INTENT, "Client intent enum");
+                checkNotNull(CLIENT_INTENT, "ClientIntent");
 
                 HANDSHAKE_PACKET_CONSTRUCTOR = getConstructor(HANDSHAKE_PACKET, false, int.class,
                         String.class, int.class, CLIENT_INTENT);
-                checkNotNull(HANDSHAKE_PACKET_CONSTRUCTOR, "Handshake packet constructor");
+                checkNotNull(HANDSHAKE_PACKET_CONSTRUCTOR,
+                        "HandshakePacket#<init>(int, String, int, ClientIntent)");
 
                 // Paper 1.20.5+ Mojang mappings expose real field names; older Spigot uses obfuscated a/b/c/d.
                 // Try Mojang name first, then obfuscated.
@@ -397,7 +345,7 @@ public class ClassNames {
                 if (protocolField == null) {
                     protocolField = getField(HANDSHAKE_PACKET, "a");
                 }
-                checkNotNull(protocolField, "Handshake \"a\" field (protocol version, or stream codec)");
+                checkNotNull(protocolField, "HandshakePacket#protocolVersion", "HandshakePacket#a");
 
                 if (protocolField.getType().isPrimitive()) {
                     // Mojang on 1.20.5+ OR obfuscated 1.20.2-1.20.4: int field is the protocol version
@@ -407,20 +355,21 @@ public class ClassNames {
                         portField = getField(HANDSHAKE_PACKET, "c");
                     }
                     HANDSHAKE_PORT = portField;
+                    checkNotNull(HANDSHAKE_PORT, "HandshakePacket#port", "HandshakePacket#c");
                 } else {
                     // Obfuscated 1.20.5: a is the stream_codec, everything is shifted
                     HANDSHAKE_PROTOCOL = getField(HANDSHAKE_PACKET, "b");
+                    checkNotNull(HANDSHAKE_PROTOCOL, "HandshakePacket#b");
                     Field portField = getField(HANDSHAKE_PACKET, "port");
                     if (portField == null) {
                         portField = getField(HANDSHAKE_PACKET, "d");
                     }
                     HANDSHAKE_PORT = portField;
+                    checkNotNull(HANDSHAKE_PORT, "HandshakePacket#port", "HandshakePacket#d");
                 }
 
-                checkNotNull(HANDSHAKE_PROTOCOL, "Handshake protocol");
                 makeAccessible(HANDSHAKE_PROTOCOL);
 
-                checkNotNull(HANDSHAKE_PORT, "Handshake port");
                 makeAccessible(HANDSHAKE_PORT);
 
                 // Try Mojang field name first, then fall back to type-based lookup (obfuscated)
@@ -429,7 +378,8 @@ public class ClassNames {
                     intentionField = getFieldOfType(HANDSHAKE_PACKET, CLIENT_INTENT);
                 }
                 HANDSHAKE_INTENTION = intentionField;
-                checkNotNull(HANDSHAKE_INTENTION, "Handshake intention");
+                checkNotNull(HANDSHAKE_INTENTION, "HandshakePacket#intention",
+                        "HandshakePacket#<ClientIntent field>");
                 makeAccessible(HANDSHAKE_INTENTION);
             } else {
                 CLIENT_INTENT = null;
@@ -444,6 +394,20 @@ public class ClassNames {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    private static <T> Class<T> getRequiredClass(String accessor, String... candidates) {
+        for (String candidate : candidates) {
+            Class<?> clazz = getClassSilently(candidate);
+            if (clazz != null) {
+                if (Constants.DEBUG_MODE) {
+                    System.out.println("Found class: " + clazz.getName());
+                }
+                return (Class<T>) clazz;
+            }
+        }
+        throw NmsDiagnostics.missingClass(accessor, candidates);
+    }
+
     private static Class<?> getClassOrFallback(String className, String fallbackName) {
         Class<?> clazz = getClassSilently(className);
 
@@ -454,8 +418,10 @@ public class ClassNames {
             return clazz;
         }
 
-        // do throw an exception when both classes couldn't be found
-        clazz = ReflectionUtils.getClassOrThrow(fallbackName);
+        clazz = getClassSilently(fallbackName);
+        if (clazz == null) {
+            throw NmsDiagnostics.missingClass(className, className, fallbackName);
+        }
         if (Constants.DEBUG_MODE) {
             System.out.println("Found class (fallback): " + clazz.getName());
         }
@@ -463,11 +429,15 @@ public class ClassNames {
         return clazz;
     }
 
-    private static <T> T checkNotNull(@CheckForNull T toCheck, @CheckForNull String objectName) {
+    private static <T> T checkNotNull(
+            @CheckForNull T toCheck,
+            @CheckForNull String objectName,
+            String... candidates) {
         if (toCheck == null) {
-            // Names the accessor and the server it was looked up on, so a mapping drift is
-            // actionable from the log line alone instead of a bare "... cannot be null" NPE.
-            throw NmsDiagnostics.missingAccessor(objectName, null);
+            String tried = candidates.length == 0
+                    ? objectName
+                    : objectName + ", " + String.join(", ", candidates);
+            throw NmsDiagnostics.missingAccessor(objectName, "Tried: " + tried + ".");
         }
         return toCheck;
     }
@@ -477,12 +447,14 @@ public class ClassNames {
             @CheckForNull T toCheck,
             @CheckForNull T toCheck2,
             @CheckForNull String objectName,
-            @CheckForNull String objectName2
+            String... candidates
     ) {
         T resolved = toCheck != null ? toCheck : toCheck2;
         if (resolved == null) {
-            throw NmsDiagnostics.missingAccessor(objectName2,
-                    "Required because '" + objectName + "' is also missing.");
+            String tried = candidates.length == 0
+                    ? objectName
+                    : objectName + ", " + String.join(", ", candidates);
+            throw NmsDiagnostics.missingAccessor(objectName, "Tried: " + tried + ".");
         }
         return resolved;
     }
