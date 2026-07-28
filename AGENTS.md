@@ -83,8 +83,12 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
 ## Defensive login re-assert (proxy)
 
 - Connect registers a **second, late** pre-login handler that restores its own decision after
-  every other plugin has run, fixing the whole "a login plugin forces online mode after Connect"
-  class (LibreLogin, AuthMe, nLogin) with no dependency on any of them. Preserve the property
+  every other plugin has run where the platform supports strict-after ordering, fixing the whole
+  "a login plugin forces online mode after Connect" class (LibreLogin, AuthMe, nLogin) with no
+  runtime dependency on any of them. On older Velocity builds, the fallback is `PostOrder.LAST`
+  plus the optional LibreLogin load-order edge, so other plugins retain the old last-writer
+  behavior.
+  Preserve the property
   that makes it safe: it reacts **only** to Connect's own result on the event object, never
   reads/links against/version-checks a third-party plugin, never overrides a deny, and no-ops
   when nothing changed the decision. The existing `EARLY`/`LOWEST` handlers stay as they are -

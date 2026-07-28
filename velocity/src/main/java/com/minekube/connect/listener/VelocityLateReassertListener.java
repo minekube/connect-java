@@ -39,7 +39,10 @@ import com.velocitypowered.api.util.GameProfile.Property;
 import java.util.List;
 
 /**
- * Re-asserts Connect's own login decision after every other plugin has had its say.
+ * Re-asserts Connect's own login decision after every other plugin has had its say where the
+ * running Velocity supports strict-after event ordering. Older Velocity builds fall back to
+ * {@code PostOrder.LAST} and the optional plugin load-order edge described by
+ * {@link VelocityLateEventRegistrar}.
  *
  * <p>Connect authenticates a tunneled player at the Minekube edge and hands the proxy an
  * already-verified, offline-mode connection ({@link VelocityListener}'s
@@ -59,15 +62,15 @@ import java.util.List;
  * </ul>
  *
  * <p>Because the trigger is Connect's own observed state, this covers every plugin that forces
- * online mode after Connect - LibreLogin, AuthMe, nLogin, anything - without Connect reading,
- * linking against, or version-checking any of them.
+ * online mode after Connect - LibreLogin, AuthMe, nLogin, anything - without Connect's runtime
+ * code reading, linking against, or version-checking any of them.
  *
  * <p>By default only the profile <i>properties</i> (the skin) are restored, not the UUID:
  * login plugins commonly key their own database on the UUID the proxy ends up with, and
  * changing it out from under them breaks their lookups. Restoring the full profile is
  * available as an opt-in, with its prerequisite documented in {@code proxy-config.yml}.
  *
- * @see VelocityLateEventRegistrar for how "after every other plugin" is achieved
+ * @see VelocityLateEventRegistrar for how late ordering is selected
  */
 public final class VelocityLateReassertListener {
     @Inject private VelocityConnectPlayers connectPlayers;
@@ -87,9 +90,9 @@ public final class VelocityLateReassertListener {
     }
 
     /**
-     * Registers both handlers after every other plugin's. Called instead of the usual annotated
-     * listener registration, because {@code @Subscribe} cannot express "after {@code LAST}" on
-     * the Velocity API Connect compiles against.
+     * Registers both handlers as late as the running Velocity supports. Called instead of the
+     * usual annotated listener registration, because {@code @Subscribe} cannot express "after
+     * {@code LAST}" on the Velocity API Connect compiles against.
      */
     public void register(EventManager eventManager, Object plugin) {
         VelocityLateEventRegistrar registrar = new VelocityLateEventRegistrar(eventManager, plugin);

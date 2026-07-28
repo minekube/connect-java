@@ -113,8 +113,9 @@ identity is there when you want it.
 ## Connect defends its own decision (operators)
 
 Not every login plugin exempts Connect, so Connect no longer relies on one. On proxies it
-registers a second pre-login handler that runs **after every other plugin's** and restores its
-own decision if something changed it. That is what makes a LibreLogin/AuthMe/nLogin-style
+registers a second pre-login handler that restores its own decision if something changed it.
+Where the platform supports a strict-after ordering, that handler runs **after every other
+plugin's** handler. That is what makes a LibreLogin/AuthMe/nLogin-style
 "force online mode for everyone" stop hanging Connect players at *Logging in…*, with no
 upstream change and no need to disable premium autologin.
 
@@ -126,9 +127,9 @@ It is a **floor, not a veto**:
   never turns a kick into a join.
 - It does **nothing** when the decision is still what Connect set, which is the normal case
   when no conflicting plugin is installed.
-- It keys only off *Connect's own* result. Connect does not read, link against, or
-  version-check any login plugin, so this covers every plugin with this behaviour, present
-  and future.
+- It keys only off *Connect's own* result. Connect's runtime code does not read, link against, or
+  version-check any login plugin, so this covers every plugin with this behaviour, present and
+  future. The legacy Velocity load-order edge is descriptor metadata, not a runtime integration.
 
 ### Config
 
@@ -168,13 +169,14 @@ mode only, and `restore-full-profile` is what additionally re-asserts the UUID a
   maps `PostOrder.LAST` to `Short.MIN_VALUE + 1`, so this is one slot below it and wins
   regardless of plugin load order. That overload only exists on Velocity builds from
   2024-09-16 onwards; it is feature-detected with a single reflective lookup on the public
-  interface, and older builds fall back to `PostOrder.LAST` plus the `optional` `librelogin`
-  dependency in `velocity-plugin.json` — Velocity breaks ties between equal orders by plugin
-  load order, which is a topological sort of the declared dependency graph, and an optional
-  dependency on an absent plugin is a silent no-op. Velocity's API version is deliberately
-  **not** bumped: reading a `PostOrder` constant an older runtime lacks throws
-  `EnumConstantNotPresentException` while Velocity collects the listener's methods, which
-  would kill *all* of Connect's handlers on older proxies and cannot be guarded against.
+  interface. On older builds it falls back to `PostOrder.LAST` plus the `optional` `librelogin`
+  dependency in `velocity-plugin.json`: equal orders then follow plugin load order, so this
+  preserves the intended tie-break for LibreLogin, while a different or absent plugin keeps
+  the old last-writer behavior. An optional dependency on an absent plugin is a silent no-op.
+  Velocity's API version is deliberately **not** bumped: reading a `PostOrder` constant an older
+  runtime lacks throws `EnumConstantNotPresentException` while Velocity collects the listener's
+  methods, which would kill *all* of Connect's handlers on older proxies and cannot be guarded
+  against.
 - **BungeeCord:** `@EventHandler(priority = Byte.MAX_VALUE)`. `EventPriority` is a set of
   `byte` constants (`HIGHEST = 64`), not an enum, and the bus dispatches the whole byte range.
   Handlers of equal priority sit in an identity-keyed `HashMap`, so registration order — and

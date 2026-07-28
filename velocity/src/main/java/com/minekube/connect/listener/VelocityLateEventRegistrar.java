@@ -31,7 +31,9 @@ import com.velocitypowered.api.event.PostOrder;
 import java.lang.reflect.Method;
 
 /**
- * Registers event handlers that must run strictly <i>after</i> every other plugin's handler.
+ * Registers event handlers that should run strictly <i>after</i> every other plugin's handler
+ * when the running Velocity supports numeric priorities, with a load-order fallback for older
+ * Velocity builds.
  *
  * <p>Two layered levers, because neither covers the whole range of Velocity versions Connect
  * supports on its own:
@@ -89,7 +91,8 @@ final class VelocityLateEventRegistrar {
     }
 
     /**
-     * Registers {@code handler} so that it runs after every other handler of {@code eventType}.
+     * Registers {@code handler} after every other handler of {@code eventType} when the numeric
+     * priority overload is available; otherwise it uses the load-order fallback.
      *
      * @return whether the numeric-priority lever was available; {@code false} means the handler
      *         was registered at {@link PostOrder#LAST} instead and relies on load order
