@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/minekube/connect-java/compare/0.12.7...0.13.0) (2026-07-28)
+
+
+### Features
+
+* **api:** publish stable connect-player channel attribute ([#75](https://github.com/minekube/connect-java/issues/75)) ([974fa05](https://github.com/minekube/connect-java/commit/974fa057248140197afd771a660bbe9504e8dacf))
+
 ## [0.12.7](https://github.com/minekube/connect-java/compare/0.12.6...0.12.7) (2026-07-28)
 
 
