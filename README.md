@@ -13,6 +13,16 @@ low latency edge proxies network nearest to you.
 
 Please refer to https://connect.minekube.com for more documentation.
 
+## Integrating with login / auth plugins
+
+Connect authenticates players at the edge, so login plugins that force online mode on a
+Connect-tunneled connection hang the player's login. Connect publishes a stable
+`connect-player` channel attribute (mirroring Floodgate's `floodgate-player`) so any login
+plugin can detect a Connect player and skip its own flow.
+
+See [docs/login-plugin-integration.md](docs/login-plugin-integration.md) for the supported
+integration contract and its permanent-stability commitment.
+
 ## Connect libp2p endpoint mode
 
 The Connect libp2p endpoint path is enabled by configuring the Connect edge peer

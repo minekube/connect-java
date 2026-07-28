@@ -25,6 +25,9 @@
 
 package com.minekube.connect.network.netty;
 
+import com.minekube.connect.api.ConnectAttributes;
+import com.minekube.connect.api.player.ConnectPlayer;
+import com.minekube.connect.network.netty.LocalSession.Context;
 import io.netty.channel.local.LocalChannel;
 import io.netty.channel.local.LocalServerChannel;
 
@@ -40,9 +43,31 @@ public class LocalServerChannelWrapper extends LocalServerChannel {
         // and access related session data from the channel
         if (peer instanceof LocalChannelWithSessionContext) {
             LocalChannelWrapper channel = new LocalChannelWrapper(this, peer);
-            channel.wrapper().setContext(((LocalChannelWithSessionContext) peer).getContext());
+            Context context = ((LocalChannelWithSessionContext) peer).getContext();
+            channel.wrapper().setContext(context);
+            markExternallyAuthenticated(channel, context);
             return channel;
         }
         return super.newLocalChannel(peer);
+    }
+
+    /**
+     * Publishes the {@link ConnectAttributes#CONNECT_PLAYER} marker on the proxy-facing channel.
+     *
+     * <p>This is the earliest point at which both the channel and the Connect player identity
+     * exist, so the marker is readable by every platform's login handling (Velocity, BungeeCord,
+     * Spigot) before any of their events fire. Passthrough sessions are not authenticated by
+     * Connect and are deliberately left unmarked so they still go through the server's own login
+     * flow. See {@link ConnectAttributes#CONNECT_PLAYER} for the public contract.
+     */
+    private static void markExternallyAuthenticated(LocalChannelWrapper channel, Context context) {
+        if (context == null) {
+            return;
+        }
+        ConnectPlayer player = context.getPlayer();
+        if (player == null || player.getAuth() == null || player.getAuth().isPassthrough()) {
+            return;
+        }
+        channel.attr(ConnectAttributes.CONNECT_PLAYER).set(player);
     }
 }
