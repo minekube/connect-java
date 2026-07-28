@@ -88,7 +88,9 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
   that makes it safe: it reacts **only** to Connect's own result on the event object, never
   reads/links against/version-checks a third-party plugin, never overrides a deny, and no-ops
   when nothing changed the decision. The existing `EARLY`/`LOWEST` handlers stay as they are -
-  this only adds a floor. Authoritative:
+  this only adds a floor. If late-handler registration throws, `VelocityListenerRegistration`
+  catches `Throwable` locally, logs the failure, and continues with the pre-existing behavior;
+  ordinary listener registration remains unchanged. Authoritative:
   `velocity/.../listener/VelocityLateEventRegistrar.java` (the two layered ordering levers and
   why each exists), `VelocityLateReassertListener`, `BungeeLateReassertListener`,
   `core/src/main/resources/proxy-config.yml` (`login-reassert`), `docs/login-plugin-integration.md`.

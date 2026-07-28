@@ -26,6 +26,7 @@
 package com.minekube.connect.listener;
 
 import com.minekube.connect.VelocityPlugin;
+import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.platform.listener.ListenerRegistration;
 import com.velocitypowered.api.event.EventManager;
 import lombok.RequiredArgsConstructor;
@@ -34,13 +35,21 @@ import lombok.RequiredArgsConstructor;
 public final class VelocityListenerRegistration implements ListenerRegistration<Object> {
     private final EventManager eventManager;
     private final VelocityPlugin plugin;
+    private final ConnectLogger logger;
 
     @Override
     public void register(Object listener) {
         if (listener instanceof VelocityLateReassertListener) {
             // Cannot be an annotated listener: @Subscribe has no way to express "after
             // PostOrder.LAST" on the Velocity API this plugin compiles against.
-            ((VelocityLateReassertListener) listener).register(eventManager, plugin);
+            try {
+                ((VelocityLateReassertListener) listener).register(eventManager, plugin);
+            } catch (Throwable throwable) {
+                logger.error(
+                        "Could not register Connect's login re-assert handlers; "
+                                + "Connect will behave as it did before the late floor existed",
+                        throwable);
+            }
             return;
         }
         eventManager.register(plugin, listener);

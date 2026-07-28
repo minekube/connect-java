@@ -148,6 +148,9 @@ able to change Connect's login decision. Off restores exactly the previous behav
 restores the player's **Mojang UUID and username**, which is what makes
 `ConnectApi.isConnectPlayer(uuid)` and `getPlayer(uuid)` resolve for these players.
 
+If late-handler registration fails, Connect logs the failure, skips the re-assert floor, and
+continues with its pre-existing handlers. Ordinary listener registration is unaffected.
+
 > **Prerequisite for `restore-full-profile: true`:** every login plugin on the proxy must key
 > its own database on the Mojang UUID. For **LibreLogin** that means setting
 > **`new-uuid-creator: MOJANG`** in LibreLogin's config *first*. Its default (`CRACKED`)

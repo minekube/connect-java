@@ -98,8 +98,9 @@ public final class VelocityPlatformModule extends AbstractModule {
     @Singleton
     public ListenerRegistration<Object> listenerRegistration(
             EventManager eventManager,
-            VelocityPlugin plugin) {
-        return new VelocityListenerRegistration(eventManager, plugin);
+            VelocityPlugin plugin,
+            ConnectLogger logger) {
+        return new VelocityListenerRegistration(eventManager, plugin, logger);
     }
 
     @Provides
