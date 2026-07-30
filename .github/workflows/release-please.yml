@@ -9,8 +9,7 @@ permissions:
   contents: write
   pull-requests: write
   actions: write
-  checks: write
-  statuses: write
+  checks: read
 
 jobs:
   release-please:
@@ -87,28 +86,46 @@ jobs:
             exit 1
           fi
 
-          CHECK_CONCLUSION="$CONCLUSION"
-          if [ "$CHECK_CONCLUSION" = "cancelled" ]; then
-            CHECK_CONCLUSION="neutral"
+          CHECKS_JSON=$(gh api \
+            "repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs?per_page=100")
+          RUN_CHECKS=$(jq --arg run_url "$RUN_URL" '
+            [
+              .check_runs[]
+              | select((.details_url // "") | startswith($run_url + "/job/"))
+            ]
+          ' <<< "$CHECKS_JSON")
+          CHECK_COUNT=$(jq 'length' <<< "$RUN_CHECKS")
+          if [ "$CHECK_COUNT" -eq 0 ]; then
+            echo "::error::No native checks from run $RUN_ID found on commit $HEAD_SHA"
+            exit 1
           fi
 
-          gh api "repos/${{ github.repository }}/check-runs" \
-            -f name='build' \
-            -f head_sha="$HEAD_SHA" \
-            -f status='completed' \
-            -f conclusion="$CHECK_CONCLUSION" \
-            -f details_url="$RUN_URL" \
-            -f output[title]="Release PR build $CONCLUSION" \
-            -f output[summary]="Mirrors workflow_dispatch build run $RUN_ID for release PR #$PR_NUMBER: $RUN_URL"
-
-          gh api "repos/${{ github.repository }}/statuses/$HEAD_SHA" \
-            -f state="$([ "$CONCLUSION" = "success" ] && echo success || echo failure)" \
-            -f context='build' \
-            -f target_url="$RUN_URL" \
-            -f description="Release PR build $CONCLUSION via workflow_dispatch"
+          echo "Native checks for run $RUN_ID on commit $HEAD_SHA:"
+          jq -r '.[] | "\(.name): \(.status) / \(.conclusion // "none")"' \
+            <<< "$RUN_CHECKS"
+          BAD_CHECKS=$(jq '
+            [
+              .[]
+              | select(.status != "completed" or .conclusion != "success")
+            ]
+          ' <<< "$RUN_CHECKS")
+          if [ "$(jq 'length' <<< "$BAD_CHECKS")" -ne 0 ]; then
+            echo "::error::Dispatched run has incomplete or unsuccessful native checks"
+            jq -c '.[] | {name, status, conclusion, details_url}' <<< "$BAD_CHECKS"
+            exit 1
+          fi
 
           if [ "$CONCLUSION" != "success" ]; then
             echo "::error::Release PR build concluded $CONCLUSION"
+            exit 1
+          fi
+
+          CURRENT_HEAD_SHA=$(gh pr view "$PR_NUMBER" \
+            --repo "${{ github.repository }}" \
+            --json headRefOid \
+            --jq '.headRefOid')
+          if [ "$CURRENT_HEAD_SHA" != "$HEAD_SHA" ]; then
+            echo "::error::Release PR moved from $HEAD_SHA to $CURRENT_HEAD_SHA during validation"
             exit 1
           fi
 
@@ -116,24 +133,31 @@ jobs:
           for _ in $(seq 1 30); do
             if gh pr merge "$PR_NUMBER" \
               --repo "${{ github.repository }}" \
+              --match-head-commit "$HEAD_SHA" \
               --merge; then
               break
             fi
-            STATE=$(gh pr view "$PR_NUMBER" \
+            PR_STATE_JSON=$(gh pr view "$PR_NUMBER" \
               --repo "${{ github.repository }}" \
-              --json state \
-              --jq '.state')
+              --json state,headRefOid)
+            STATE=$(jq -r '.state' <<< "$PR_STATE_JSON")
             if [ "$STATE" = "MERGED" ]; then
+              CURRENT_HEAD_SHA=$(jq -r '.headRefOid' <<< "$PR_STATE_JSON")
+              if [ "$CURRENT_HEAD_SHA" != "$HEAD_SHA" ]; then
+                echo "::error::Release PR #$PR_NUMBER merged at unvalidated head $CURRENT_HEAD_SHA"
+                exit 1
+              fi
               break
             fi
             sleep 10
           done
 
-          STATE=$(gh pr view "$PR_NUMBER" \
+          PR_STATE_JSON=$(gh pr view "$PR_NUMBER" \
             --repo "${{ github.repository }}" \
-            --json state \
-            --jq '.state')
-          if [ "$STATE" != "MERGED" ]; then
+            --json state,headRefOid)
+          STATE=$(jq -r '.state' <<< "$PR_STATE_JSON")
+          CURRENT_HEAD_SHA=$(jq -r '.headRefOid' <<< "$PR_STATE_JSON")
+          if [ "$STATE" != "MERGED" ] || [ "$CURRENT_HEAD_SHA" != "$HEAD_SHA" ]; then
             echo "::error::Release PR #$PR_NUMBER did not merge"
             exit 1
           fi

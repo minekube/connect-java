@@ -25,10 +25,13 @@
 
 package com.minekube.connect.release;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -109,6 +112,40 @@ class ReleaseAssetVerificationTest {
         return (String) run;
     }
 
+    private static String buildFilter(String script) {
+        java.util.regex.Matcher matcher = Pattern.compile("(?s)BUILD_FILTER='(\\[.*?\\])'")
+                .matcher(script);
+        assertTrue(matcher.find(), "verification script is missing BUILD_FILTER");
+        return matcher.group(1);
+    }
+
+    /**
+     * Executes the build-artifact decision from the workflow against a captured release payload.
+     */
+    private static int runBuildArtifactGuard(String filter, String releaseJson) throws Exception {
+        String guard = String.join("\n",
+                "set -euo pipefail",
+                "RELEASE_JSON=$(cat)",
+                "BUILD_COUNT=$(printf '%s' \"$RELEASE_JSON\" | jq '"
+                        + filter + " | length')",
+                "if [ \"$BUILD_COUNT\" -eq 0 ]; then",
+                "  exit 1",
+                "fi");
+
+        Process process = new ProcessBuilder("bash", "-c", guard)
+                .redirectErrorStream(true)
+                .start();
+        try (OutputStream stdin = process.getOutputStream()) {
+            stdin.write(releaseJson.getBytes(StandardCharsets.UTF_8));
+        }
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        int exitCode = process.waitFor();
+        assertTrue(exitCode == 0 || exitCode == 1,
+                "build-artifact guard harness failed unexpectedly (exit " + exitCode + "): "
+                        + output);
+        return exitCode;
+    }
+
     /**
      * The core regression guard: the release job must fail when the published release carries no
      * downloadable artifact.
@@ -157,45 +194,40 @@ class ReleaseAssetVerificationTest {
     }
 
     /**
-     * Pins the second failure condition. A non-empty asset list is not proof of a usable release: a
-     * release carrying only LICENSE, a checksum manifest, a signature bundle or an SBOM has a
-     * positive asset count and still offers nothing anyone can run. So the guard must classify by
-     * name/type rather than count.
+     * Pins the second failure condition. A non-empty asset list is not proof of a usable release:
+     * only an uploaded, non-empty asset matching the positive plugin-JAR allowlist may satisfy the
+     * guard; every other asset, including {@code source.tar.gz}, is rejected.
      */
     @Test
     void releaseVerificationRequiresRealBuildArtifact() throws Exception {
         String script = verifyScript(readBuildJobSteps());
 
-        // The metadata types that must NOT satisfy the guard on their own.
-        List<String> excluded = Arrays.asList(
-                "^checksums\\\\.txt$",        // checksum manifests
-                "^SHA(256|512)SUMS$",         // checksum manifests
-                "^LICENSE",                   // license metadata - connect-java uploads this
-                "^README",                    // readme metadata
-                "\\\\.sig$",                  // detached signatures
-                "\\\\.sigstore\\\\.json$",    // signature bundles
-                "\\\\.attest\\\\.spdx\\\\.json$", // SBOM attestations
-                "\\\\.spdx\\\\.json$",        // SBOM metadata
-                "\\\\.asc$",                  // armored signatures
-                "\\\\.pem$",                  // certificate metadata
-                "\\\\.sha256$",               // checksum sidecars
-                "\\\\.h$",                    // C headers
-                "\\\\.hpp$",                  // C++ headers
-                "\\\\.md$",                   // markdown metadata
-                "\\\\.txt$");                 // text metadata
-
-        List<String> notExcluded = new ArrayList<>();
-        for (String pattern : excluded) {
-            if (!script.contains(pattern)) {
-                notExcluded.add(pattern);
-            }
-        }
-        assertTrue(notExcluded.isEmpty(), "build-artifact classifier does not exclude "
-                + notExcluded + "; a release of pure metadata would pass the guard");
+        assertTrue(script.contains("^connect-(spigot|velocity|bungee).*\\\\.jar$"),
+                "build-artifact classifier does not require a real plugin jar by name; an asset "
+                        + "such as source.tar.gz could satisfy it while no build landed");
 
         // And it must actually gate on the classified count, not just compute it.
         assertTrue(Pattern.compile("BUILD_COUNT\"\\s*-eq\\s*0").matcher(script).find(),
                 "guard does not fail on the classified zero build-artifact count");
+    }
+
+    /**
+     * Executes the source-archive false-positive regression. Before the positive allowlist,
+     * source.tar.gz produced a non-zero build count and this assertion failed; after the fix it
+     * fails the guard, while a real platform plugin JAR passes it.
+     */
+    @Test
+    void sourceArchiveFailsTheExecutablePublishedBuildGuard() throws Exception {
+        String filter = buildFilter(verifyScript(readBuildJobSteps()));
+        String sourceOnlyRelease = "{\"assets\":[{\"name\":\"source.tar.gz\","
+                + "\"state\":\"uploaded\",\"size\":1234}]}";
+        String realPluginRelease = "{\"assets\":[{\"name\":\"connect-velocity.jar\","
+                + "\"state\":\"uploaded\",\"size\":1234}]}";
+
+        assertEquals(1, runBuildArtifactGuard(filter, sourceOnlyRelease),
+                "source.tar.gz must fail the published build-artifact guard");
+        assertEquals(0, runBuildArtifactGuard(filter, realPluginRelease),
+                "a non-empty Connect platform plugin JAR must pass the guard");
     }
 
     /**
