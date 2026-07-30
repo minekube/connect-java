@@ -1,5 +1,6 @@
 package com.minekube.connect.bedrock;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -7,9 +8,8 @@ import com.minekube.connect.bedrock.BedrockIdentityReadiness.Transport;
 import com.minekube.connect.config.ConnectConfig;
 import java.lang.reflect.Field;
 import java.util.Base64;
+import java.util.concurrent.atomic.AtomicInteger;
 import okhttp3.OkHttpClient;
-import okhttp3.mockwebserver.MockResponse;
-import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.Test;
 
 class BedrockIdentityReadinessTest {
@@ -79,16 +79,22 @@ class BedrockIdentityReadinessTest {
     }
 
     @Test
-    void metadataRequiresInitialSuccessfulValidationBeforeAdvertising() throws Exception {
-        try (MockWebServer server = new MockWebServer()) {
-            server.enqueue(new MockResponse().setResponseCode(503));
-            ConnectConfig config = config("require");
-            setField(config.getBedrockIdentity(), "metadataUrl", server.url("/keys").toString());
-            setField(config.getBedrockIdentity(), "publicKey", encodedKey((byte) 3));
+    void metadataDoesNotNeedInitialFetchBeforeAdvertising() throws Exception {
+        ConnectConfig config = config("require");
+        setField(config.getBedrockIdentity(), "metadataUrl", "https://metadata.example/keys");
+        AtomicInteger metadataRequests = new AtomicInteger();
+        OkHttpClient httpClient = new OkHttpClient.Builder()
+                .addInterceptor(chain -> {
+                    metadataRequests.incrementAndGet();
+                    throw new AssertionError("readiness fetched metadata");
+                })
+                .build();
 
-            assertFalse(new BedrockIdentityReadiness(config,
-                    new BedrockIdentityKeyProvider(config, new OkHttpClient())).isReady());
-        }
+        BedrockIdentityReadiness readiness = new BedrockIdentityReadiness(
+                config, new BedrockIdentityKeyProvider(config, httpClient));
+
+        assertTrue(readiness.isReady());
+        assertEquals(0, metadataRequests.get());
     }
 
     private static ConnectConfig config(String enforcement) {

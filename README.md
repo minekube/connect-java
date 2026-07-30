@@ -51,6 +51,13 @@ plugin can detect a Connect player and skip its own flow.
 See [docs/login-plugin-integration.md](docs/login-plugin-integration.md) for the supported
 integration contract and its permanent-stability commitment.
 
+## Bedrock identity verification
+
+New installations trust Connect Edge's signed Bedrock identities in non-rejecting `warn` mode
+without requiring operators to paste key configuration. See
+[docs/bedrock-identity.md](docs/bedrock-identity.md) for the trust boundary, Java-only behavior,
+and static-key pinning.
+
 ## Connect libp2p endpoint mode
 
 The Connect libp2p endpoint path is enabled by configuring the Connect edge peer
