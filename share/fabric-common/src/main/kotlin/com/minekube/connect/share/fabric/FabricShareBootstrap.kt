@@ -26,9 +26,11 @@ object FabricShareBootstrap {
         minecraftVersion: String,
         worldAvailable: Boolean,
         playerCount: () -> Int,
+        worldDisplayName: () -> String = { "Minecraft world" },
         bridgeFactory:
             (AdmissionController, CoroutineScope) -> VersionedMinecraftBridge,
         screens: ConnectShareScreenFactory,
+        guestScreens: ConnectShareGuestScreenFactory,
         environment: Map<String, String> = System.getenv(),
         logger: ConnectLogger = FabricConnectLogger(),
         httpClient: OkHttpClient = OkHttpClient(),
@@ -67,11 +69,15 @@ object FabricShareBootstrap {
             admission = admission,
             scope = scope,
         )
+        val directIngress = FabricDirectShareIngress(
+            displayName = worldDisplayName,
+        )
         val coordinator = ShareCoordinator(
             bridge = bridge,
             ingress = ingress,
             identityProvider = identityStore::currentOrCreate,
             admission = admission,
+            directIngress = directIngress,
             failureReporter = logger::warn,
         )
         val viewModel = ShareViewModel(
@@ -99,6 +105,7 @@ object FabricShareBootstrap {
             viewModel = viewModel,
             runtime = runtime,
             screens = screens,
+            guestScreens = guestScreens,
         )
     }
 

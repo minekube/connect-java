@@ -8,22 +8,22 @@ import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class CapturedServerTransportTest {
     @Test
-    fun `captures the exact vanilla initializer and group only for the armed thread`() {
+    fun `captures the tagged vanilla initializer and group only for the armed thread`() {
         val initializer = NoopInitializer
         val group = DefaultEventLoopGroup(1)
         try {
             val lease = CapturedServerTransport.arm()
 
             assertTrue(CapturedServerTransport.isShareStartArmed())
-            assertSame(
-                initializer,
-                CapturedServerTransport.captureChildInitializer(initializer),
-            )
+            val taggedInitializer =
+                CapturedServerTransport.captureChildInitializer(initializer)
+            assertNotSame(initializer, taggedInitializer)
             assertSame(group, CapturedServerTransport.captureEventLoopGroup(group))
 
             var otherThreadArmed = true
@@ -33,7 +33,7 @@ class CapturedServerTransportTest {
 
             val captured = lease.complete().getOrNull()
             requireNotNull(captured)
-            assertSame(initializer, captured.childInitializer)
+            assertSame(taggedInitializer, captured.childInitializer)
             assertSame(group, captured.eventLoopGroup)
             assertFalse(otherThreadArmed)
             assertFalse(CapturedServerTransport.isShareStartArmed())

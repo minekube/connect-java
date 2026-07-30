@@ -112,6 +112,7 @@ class DirectP2pNodeTest {
 
             echo.get(3, TimeUnit.SECONDS);
             assertEquals(DirectP2pAuthMode.OFFLINE, session.get().authMode());
+            assertEquals(DirectP2pRoute.LAN, session.get().route());
             assertFalse(session.get().peerId().isBlank());
             assertFalse(session.get().connectionId().isBlank());
         }
@@ -197,6 +198,7 @@ class DirectP2pNodeTest {
                 DirectP2pDiscoveredShare.class,
                 DirectP2pDiscoveryListener.class,
                 DirectP2pProxy.class,
+                DirectP2pRoute.class,
                 DirectP2pAuthMode.class);
 
         for (Class<?> type : boundary) {

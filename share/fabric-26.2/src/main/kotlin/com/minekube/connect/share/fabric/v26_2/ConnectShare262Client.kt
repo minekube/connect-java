@@ -30,6 +30,10 @@ class ConnectShare262Client : ClientModInitializer {
             playerCount = {
                 client.singleplayerServer?.playerList?.playerCount ?: 0
             },
+            worldDisplayName = {
+                client.singleplayerServer?.worldData?.levelName
+                    ?: "Minecraft world"
+            },
             bridgeFactory = { admission, admissionScope ->
                 Minecraft262Bridge {
                     FabricLocalLoginAdmissionGate(
@@ -50,6 +54,12 @@ class ConnectShare262Client : ClientModInitializer {
                     )
                 }
             },
+            guestScreens = { parent ->
+                val parentScreen = parent as Screen
+                client.execute {
+                    client.gui.setScreen(ShareJoinScreen(parentScreen))
+                }
+            },
         )
         ConnectShareClient.install(installation)
 
@@ -57,6 +67,9 @@ class ConnectShare262Client : ClientModInitializer {
             ConnectShareClient.integratedWorldChanged(
                 minecraft.hasSingleplayerServer(),
                 minecraft.singleplayerServer,
+            )
+            ConnectShareClient.guestConnectionChanged(
+                minecraft.connection != null,
             )
         }
         ClientLifecycleEvents.CLIENT_STOPPING.register {

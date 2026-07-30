@@ -22,38 +22,7 @@
 
 package com.minekube.connect.tunnel.p2p;
 
-import java.util.Objects;
-
-public final class DirectP2pSession {
-    private final String peerId;
-    private final DirectP2pAuthMode authMode;
-    private final DirectP2pRoute route;
-    private final String connectionId;
-
-    public DirectP2pSession(
-            String peerId,
-            DirectP2pAuthMode authMode,
-            DirectP2pRoute route,
-            String connectionId) {
-        this.peerId = Objects.requireNonNull(peerId, "peerId");
-        this.authMode = Objects.requireNonNull(authMode, "authMode");
-        this.route = Objects.requireNonNull(route, "route");
-        this.connectionId = Objects.requireNonNull(connectionId, "connectionId");
-    }
-
-    public String peerId() {
-        return peerId;
-    }
-
-    public DirectP2pAuthMode authMode() {
-        return authMode;
-    }
-
-    public DirectP2pRoute route() {
-        return route;
-    }
-
-    public String connectionId() {
-        return connectionId;
-    }
+public enum DirectP2pRoute {
+    LAN,
+    INTERNET
 }

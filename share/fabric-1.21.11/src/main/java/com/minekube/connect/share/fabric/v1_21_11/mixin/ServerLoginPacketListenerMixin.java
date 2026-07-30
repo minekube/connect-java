@@ -59,7 +59,8 @@ public abstract class ServerLoginPacketListenerMixin {
     private void connectShare$awaitPassthroughAdmission(
             GameProfile profile,
             CallbackInfo callback) {
-        if (!Minecraft12111LoginBridge.isPassthroughConnect(connection)) {
+        boolean direct = Minecraft12111LoginBridge.hasDirectSession(connection);
+        if (!direct && !Minecraft12111LoginBridge.isPassthroughConnect(connection)) {
             return;
         }
         if (connectShare$admissionAllowed) {
@@ -71,11 +72,20 @@ public abstract class ServerLoginPacketListenerMixin {
             return;
         }
         connectShare$admissionStarted = true;
-        Minecraft12111LoginBridge.requestPassthroughAdmission(
-                connection,
-                server,
-                profile,
-                () -> connectShare$admissionAllowed = true,
-                this::disconnect);
+        if (direct) {
+            Minecraft12111LoginBridge.requestDirectAdmission(
+                    connection,
+                    server,
+                    profile,
+                    () -> connectShare$admissionAllowed = true,
+                    this::disconnect);
+        } else {
+            Minecraft12111LoginBridge.requestPassthroughAdmission(
+                    connection,
+                    server,
+                    profile,
+                    () -> connectShare$admissionAllowed = true,
+                    this::disconnect);
+        }
     }
 }

@@ -132,6 +132,7 @@ class FabricLocalLoginAdmission(
         uuid: UUID,
         connectionId: String,
         minecraftAuthenticated: Boolean,
+        ingress: Ingress = Ingress.CONNECT,
     ): AdmissionAnswer {
         val identity = if (minecraftAuthenticated) {
             AdmissionIdentity.Authenticated(
@@ -144,7 +145,7 @@ class FabricLocalLoginAdmission(
                 name = name,
                 uuid = uuid,
                 connectionId = connectionId,
-                ingress = Ingress.CONNECT,
+                ingress = ingress,
             )
         }
         return admission.request(identity)
@@ -163,6 +164,7 @@ class FabricLocalLoginAdmissionGate(
         uuid: UUID,
         connectionId: String,
         minecraftAuthenticated: Boolean,
+        ingress: Ingress = Ingress.CONNECT,
     ): CompletionStage<AdmissionAnswer> {
         val future = CompletableFuture<AdmissionAnswer>()
         if (stopped.get()) {
@@ -179,6 +181,7 @@ class FabricLocalLoginAdmissionGate(
                         uuid = uuid,
                         connectionId = connectionId,
                         minecraftAuthenticated = minecraftAuthenticated,
+                        ingress = ingress,
                     ),
                 )
             } catch (cancellation: CancellationException) {

@@ -4,6 +4,7 @@ data class ShareOptions(
     val gameMode: ShareGameMode,
     val allowCheats: Boolean,
     val maxGuests: Int = 8,
+    val allowInternetDirect: Boolean = false,
 ) {
     init {
         require(maxGuests in MIN_GUESTS..MAX_GUESTS) {
