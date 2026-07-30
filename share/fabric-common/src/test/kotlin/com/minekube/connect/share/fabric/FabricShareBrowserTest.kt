@@ -68,6 +68,91 @@ class FabricShareBrowserTest {
     }
 
     @Test
+    fun `pasted invitation uses its matching discovered LAN address`() = runTest {
+        val node = FakeGuestNode()
+        val browser = browser(node)
+        browser.start()
+        val invitation = invitation()
+        node.discover(
+            DirectP2pDiscoveredShare(
+                "Robin's World",
+                PEER_ID,
+                LAN_ADDRESS,
+                invitation,
+            ),
+        )
+
+        val result = browser.join(
+            invitationUri = invitation,
+            lanAddress = null,
+            internetOptIn = false,
+            authMode = DirectP2pAuthMode.OFFLINE,
+        )
+
+        val target = assertIs<Either.Right<GuestJoinTarget.Direct>>(result).value
+        assertEquals(ShareRoute.DIRECT_LAN, target.route)
+        assertEquals(listOf(LAN_ADDRESS), node.openedAddresses)
+        target.close()
+        browser.close()
+    }
+
+    @Test
+    fun `pasted invitation ignores discovery with a different peer`() = runTest {
+        val node = FakeGuestNode()
+        val browser = browser(node)
+        browser.start()
+        val otherPeer = "12D3KooWOther"
+        node.discover(
+            DirectP2pDiscoveredShare(
+                "Other World",
+                otherPeer,
+                lanAddress(otherPeer),
+                invitation(peerId = otherPeer),
+            ),
+        )
+
+        val result = browser.join(
+            invitationUri = invitation(),
+            lanAddress = null,
+            internetOptIn = false,
+            authMode = DirectP2pAuthMode.OFFLINE,
+        )
+
+        assertIs<Either.Right<GuestJoinTarget.Connect>>(result)
+        assertTrue(node.openedAddresses.isEmpty())
+        browser.close()
+    }
+
+    @Test
+    fun `pasted invitation ignores discovery with a different share`() = runTest {
+        val node = FakeGuestNode()
+        val browser = browser(node)
+        browser.start()
+        val otherShare = UUID.fromString(
+            "72a5d404-0ef9-48bc-882b-a2ec896afbe5",
+        )
+        node.discover(
+            DirectP2pDiscoveredShare(
+                "Other World",
+                PEER_ID,
+                LAN_ADDRESS,
+                invitation(shareId = otherShare),
+            ),
+        )
+
+        val result = browser.join(
+            invitationUri = invitation(),
+            lanAddress = null,
+            internetOptIn = false,
+            authMode = DirectP2pAuthMode.OFFLINE,
+        )
+
+        assertIs<Either.Right<GuestJoinTarget.Connect>>(result)
+        assertTrue(node.openedAddresses.isEmpty())
+        browser.close()
+    }
+
+    @Test
     fun `failed direct reachability falls back to Connect exactly once`() =
         runTest {
             val node = FakeGuestNode(failDirect = true)
@@ -114,16 +199,19 @@ class FabricShareBrowserTest {
             ioDispatcher = StandardTestDispatcher(testScheduler),
         )
 
-    private fun invitation(): String {
+    private fun invitation(
+        shareId: UUID = SHARE_ID,
+        peerId: String = PEER_ID,
+    ): String {
         val pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
         val payload = ShareInvitePayload(
             wireVersion = ShareInviteCodec.WIRE_VERSION,
-            shareId = SHARE_ID,
+            shareId = shareId,
             expiresAtEpochMillis = NOW + 60_000,
             connectAddress = "amber-fox.play.minekube.net",
-            peerId = PEER_ID,
+            peerId = peerId,
             internetDirectEnabled = true,
-            directCandidates = listOf(INTERNET_ADDRESS),
+            directCandidates = listOf(internetAddress(peerId)),
             capability = CAPABILITY,
         )
         val unsigned = ShareInviteCodec.unsignedBytes(payload, pair.public.encoded)
@@ -136,6 +224,12 @@ class FabricShareBrowserTest {
             SignedShareInvite(payload, pair.public.encoded, signature),
         )
     }
+
+    private fun lanAddress(peerId: String) =
+        "/ip4/192.168.1.20/tcp/4001/p2p/$peerId"
+
+    private fun internetAddress(peerId: String) =
+        "/ip6/2001:db8::20/tcp/4001/p2p/$peerId"
 
     private class FakeGuestNode(
         private val failDirect: Boolean = false,
