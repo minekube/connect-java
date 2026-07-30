@@ -25,6 +25,8 @@ import kotlinx.coroutines.launch
 class FabricSessionAdmissionGate(
     private val admission: AdmissionController,
     private val scope: CoroutineScope,
+    private val approvedJoins: ApprovedJoinTracker =
+        ApprovedJoinTracker(),
 ) : SessionAdmissionGate {
     private val stopped = AtomicBoolean()
     private val active = ConcurrentHashMap<CompletableFuture<SessionAdmissionDecision>, Job>()
@@ -49,7 +51,9 @@ class FabricSessionAdmissionGate(
         lateinit var job: Job
         job = scope.launch(start = CoroutineStart.LAZY) {
             try {
-                future.complete(admission.request(identity).toCoreDecision())
+                val answer = admission.request(identity)
+                approvedJoins.record(identity, answer)
+                future.complete(answer.toCoreDecision())
             } catch (cancellation: CancellationException) {
                 future.cancel(false)
                 throw cancellation
@@ -126,6 +130,8 @@ class FabricSessionAdmissionGate(
 
 class FabricLocalLoginAdmission(
     private val admission: AdmissionController,
+    private val approvedJoins: ApprovedJoinTracker =
+        ApprovedJoinTracker(),
 ) {
     suspend fun request(
         name: String,
@@ -133,6 +139,7 @@ class FabricLocalLoginAdmission(
         connectionId: String,
         minecraftAuthenticated: Boolean,
         ingress: Ingress = Ingress.CONNECT,
+        directPeerId: String? = null,
     ): AdmissionAnswer {
         val identity = if (minecraftAuthenticated) {
             AdmissionIdentity.Authenticated(
@@ -140,6 +147,7 @@ class FabricLocalLoginAdmission(
                 uuid = uuid,
                 source = AuthSource.MOJANG,
                 ingress = ingress,
+                directPeerId = directPeerId,
             )
         } else {
             AdmissionIdentity.UnverifiedOffline(
@@ -147,9 +155,12 @@ class FabricLocalLoginAdmission(
                 uuid = uuid,
                 connectionId = connectionId,
                 ingress = ingress,
+                directPeerId = directPeerId,
             )
         }
-        return admission.request(identity)
+        return admission.request(identity).also { answer ->
+            approvedJoins.record(identity, answer)
+        }
     }
 }
 
@@ -166,6 +177,7 @@ class FabricLocalLoginAdmissionGate(
         connectionId: String,
         minecraftAuthenticated: Boolean,
         ingress: Ingress = Ingress.CONNECT,
+        directPeerId: String? = null,
     ): CompletionStage<AdmissionAnswer> {
         val future = CompletableFuture<AdmissionAnswer>()
         if (stopped.get()) {
@@ -183,6 +195,7 @@ class FabricLocalLoginAdmissionGate(
                         connectionId = connectionId,
                         minecraftAuthenticated = minecraftAuthenticated,
                         ingress = ingress,
+                        directPeerId = directPeerId,
                     ),
                 )
             } catch (cancellation: CancellationException) {

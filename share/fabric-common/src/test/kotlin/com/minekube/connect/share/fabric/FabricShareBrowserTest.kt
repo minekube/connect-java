@@ -5,16 +5,19 @@ import com.minekube.connect.share.direct.ShareInviteCodec
 import com.minekube.connect.share.direct.ShareInvitePayload
 import com.minekube.connect.share.direct.ShareRoute
 import com.minekube.connect.share.direct.SignedShareInvite
+import com.minekube.connect.share.friend.SavedFriend
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import com.minekube.connect.tunnel.p2p.DirectP2pDiscoveredShare
 import com.minekube.connect.tunnel.p2p.DirectP2pDiscoveryListener
 import com.minekube.connect.tunnel.p2p.DirectP2pProxy
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.nio.file.Path
 import java.security.KeyPairGenerator
 import java.security.Signature
 import java.time.Duration
 import java.time.Instant
+import java.util.Base64
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -22,8 +25,25 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.io.TempDir
 
 class FabricShareBrowserTest {
+    @TempDir
+    lateinit var tempDir: Path
+
+    @Test
+    fun `guest peer identity survives browser restarts`() {
+        val first = FabricShareBrowser(tempDir)
+        val firstPeerId = first.peerId
+        first.close()
+
+        val second = FabricShareBrowser(tempDir)
+
+        assertEquals(firstPeerId, second.peerId)
+        assertTrue(firstPeerId.isNotBlank())
+        second.close()
+    }
+
     @Test
     fun `valid mDNS metadata becomes a LAN share without exposing secrets`() =
         runTest {
@@ -93,6 +113,59 @@ class FabricShareBrowserTest {
         assertEquals(ShareRoute.DIRECT_LAN, target.route)
         assertEquals(listOf(LAN_ADDRESS), node.openedAddresses)
         target.close()
+        browser.close()
+    }
+
+    @Test
+    fun `saved friend resolves a fresh LAN address without another link`() = runTest {
+        val node = FakeGuestNode()
+        val browser = browser(node)
+        browser.start()
+        val invitation = invitation()
+        val friend = savedFriend(invitation)
+        node.discover(
+            DirectP2pDiscoveredShare(
+                "Robin's New World",
+                PEER_ID,
+                LAN_ADDRESS,
+                invitation,
+            ),
+        )
+
+        val result = browser.join(
+            friend = friend,
+            authMode = DirectP2pAuthMode.OFFLINE,
+        )
+
+        val target = assertIs<Either.Right<GuestJoinTarget.Direct>>(result).value
+        assertEquals(ShareRoute.DIRECT_LAN, target.route)
+        assertEquals(listOf(LAN_ADDRESS), node.openedAddresses)
+        target.close()
+        browser.close()
+    }
+
+    @Test
+    fun `saved friend ignores LAN metadata signed by a different identity`() = runTest {
+        val node = FakeGuestNode()
+        val browser = browser(node)
+        browser.start()
+        val friend = savedFriend(invitation())
+        node.discover(
+            DirectP2pDiscoveredShare(
+                "Impostor World",
+                PEER_ID,
+                LAN_ADDRESS,
+                invitation(),
+            ),
+        )
+
+        val result = browser.join(
+            friend = friend,
+            authMode = DirectP2pAuthMode.OFFLINE,
+        )
+
+        assertIs<Either.Right<GuestJoinTarget.Connect>>(result)
+        assertTrue(node.openedAddresses.isEmpty())
         browser.close()
     }
 
@@ -225,6 +298,22 @@ class FabricShareBrowserTest {
         )
     }
 
+    private fun savedFriend(invitationUri: String): SavedFriend {
+        val invitation = ShareInviteCodec.decode(
+            invitationUri,
+            Instant.ofEpochMilli(NOW),
+        ).getOrNull()!!
+        return SavedFriend(
+            peerId = invitation.payload.peerId,
+            publicKeyBase64 = Base64.getEncoder()
+                .encodeToString(invitation.publicKey),
+            shareId = invitation.payload.shareId,
+            capability = invitation.payload.capability,
+            connectAddress = invitation.payload.connectAddress,
+            displayName = "Robin",
+        )
+    }
+
     private fun lanAddress(peerId: String) =
         "/ip4/192.168.1.20/tcp/4001/p2p/$peerId"
 
@@ -236,6 +325,8 @@ class FabricShareBrowserTest {
     ) : FabricGuestDirectNode {
         private var listener: DirectP2pDiscoveryListener? = null
         val openedAddresses = mutableListOf<String>()
+
+        override fun peerId(): String = "12D3KooWGuest"
 
         override fun startDiscovery(listener: DirectP2pDiscoveryListener) {
             this.listener = listener

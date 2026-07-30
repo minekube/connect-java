@@ -26,7 +26,12 @@ class FabricSessionAdmissionGateTest {
     @Test
     fun `Connect authenticated profile waits for host approval`() = runTest {
         val admission = admission()
-        val gate = FabricSessionAdmissionGate(admission, backgroundScope)
+        val approvedJoins = ApprovedJoinTracker()
+        val gate = FabricSessionAdmissionGate(
+            admission,
+            backgroundScope,
+            approvedJoins,
+        )
 
         val result = gate.request(proposal(passthrough = false)).toCompletableFuture()
         runCurrent()
@@ -39,6 +44,11 @@ class FabricSessionAdmissionGateTest {
         admission.answer(pending.requestId, allow = true)
         runCurrent()
         assertTrue(result.getNow(null).isAllowed)
+        assertEquals(
+            PLAYER_UUID,
+            approvedJoins.consume("Alex", PLAYER_UUID)
+                ?.authenticatedMinecraftUuid,
+        )
     }
 
     @Test
@@ -112,13 +122,18 @@ class FabricSessionAdmissionGateTest {
     @Test
     fun `local login maps authenticated and offline identities separately`() = runTest {
         val admission = admission()
-        val local = FabricLocalLoginAdmission(admission)
+        val approvedJoins = ApprovedJoinTracker()
+        val local = FabricLocalLoginAdmission(
+            admission,
+            approvedJoins,
+        )
         val authenticated = async {
             local.request(
                 name = "Alex",
                 uuid = PLAYER_UUID,
                 connectionId = "connection-authenticated",
                 minecraftAuthenticated = true,
+                directPeerId = "12D3KooWAuthenticated",
             )
         }
         runCurrent()
@@ -126,8 +141,17 @@ class FabricSessionAdmissionGateTest {
             admission.pending.value.single().identity,
         )
         assertEquals(AuthSource.MOJANG, authenticatedIdentity.source)
+        assertEquals(
+            "12D3KooWAuthenticated",
+            authenticatedIdentity.directPeerId,
+        )
         admission.answer(admission.pending.value.single().requestId, allow = true)
         assertEquals(AdmissionAnswer.ALLOW, authenticated.await())
+        assertEquals(
+            PLAYER_UUID,
+            approvedJoins.consume("Alex", PLAYER_UUID)
+                ?.authenticatedMinecraftUuid,
+        )
 
         val offline = async {
             local.request(
@@ -135,6 +159,7 @@ class FabricSessionAdmissionGateTest {
                 uuid = PLAYER_UUID,
                 connectionId = "connection-offline",
                 minecraftAuthenticated = false,
+                directPeerId = "12D3KooWOffline",
             )
         }
         runCurrent()
@@ -143,6 +168,7 @@ class FabricSessionAdmissionGateTest {
         )
         assertEquals("connection-offline", offlineIdentity.connectionId)
         assertEquals(Ingress.CONNECT, offlineIdentity.ingress)
+        assertEquals("12D3KooWOffline", offlineIdentity.directPeerId)
         admission.answer(admission.pending.value.single().requestId, allow = false)
         assertEquals(AdmissionAnswer.DENY, offline.await())
     }

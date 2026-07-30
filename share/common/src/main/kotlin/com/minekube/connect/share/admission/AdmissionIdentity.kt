@@ -5,12 +5,14 @@ import java.util.UUID
 sealed interface AdmissionIdentity {
     val name: String
     val uuid: UUID
+    val directPeerId: String?
 
     data class Authenticated(
         override val name: String,
         override val uuid: UUID,
         val source: AuthSource,
         val ingress: Ingress = Ingress.CONNECT,
+        override val directPeerId: String? = null,
     ) : AdmissionIdentity
 
     data class UnverifiedOffline(
@@ -18,6 +20,7 @@ sealed interface AdmissionIdentity {
         override val uuid: UUID,
         val connectionId: String,
         val ingress: Ingress,
+        override val directPeerId: String? = null,
     ) : AdmissionIdentity
 }
 

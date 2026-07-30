@@ -118,6 +118,16 @@ final class DirectP2pNodeRuntime {
                 .privateKey();
     }
 
+    synchronized String peerId() {
+        ensureOpen();
+        return PeerId.fromPubKey(privateKey.publicKey()).toBase58();
+    }
+
+    synchronized byte[] publicKey() {
+        ensureOpen();
+        return x509PublicKey(privateKey.publicKey().raw());
+    }
+
     synchronized DirectP2pHostInfo startHost(
             DirectP2pHostConfig config,
             DirectP2pHostHandler handler) {
@@ -152,9 +162,6 @@ final class DirectP2pNodeRuntime {
 
     synchronized byte[] sign(byte[] payload) {
         ensureOpen();
-        if (hostConfig == null) {
-            throw new IllegalStateException("Connect Share direct host is not started");
-        }
         return privateKey.sign(Arrays.copyOf(payload, payload.length));
     }
 

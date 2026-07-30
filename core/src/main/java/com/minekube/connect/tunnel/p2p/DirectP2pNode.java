@@ -33,6 +33,8 @@ import java.util.Objects;
  */
 public final class DirectP2pNode implements AutoCloseable {
     private Object runtime;
+    private Method peerId;
+    private Method publicKey;
     private Method startHost;
     private Method sign;
     private Method publish;
@@ -62,6 +64,8 @@ public final class DirectP2pNode implements AutoCloseable {
             runtime = identityFile == null
                     ? constructor.newInstance()
                     : constructor.newInstance(identityFile);
+            peerId = accessible(runtimeClass.getDeclaredMethod("peerId"));
+            publicKey = accessible(runtimeClass.getDeclaredMethod("publicKey"));
             startHost = accessible(runtimeClass.getDeclaredMethod(
                     "startHost",
                     DirectP2pHostConfig.class,
@@ -90,6 +94,14 @@ public final class DirectP2pNode implements AutoCloseable {
                     "Could not initialize the isolated Connect Share direct runtime",
                     e);
         }
+    }
+
+    public synchronized String peerId() {
+        return invoke(peerId, String.class);
+    }
+
+    public synchronized byte[] publicKey() {
+        return invoke(publicKey, byte[].class);
     }
 
     public synchronized DirectP2pHostInfo startHost(

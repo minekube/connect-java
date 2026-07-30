@@ -18,6 +18,26 @@ import kotlin.test.assertTrue
 
 class Fabric12111ArtifactTest {
     @Test
+    fun `artifact uses a friends first sharing vocabulary`() {
+        JarFile(artifact().toFile()).use { jar ->
+            val language = jar.getInputStream(
+                jar.getJarEntry(
+                    "assets/connect-share/lang/en_us.json",
+                ),
+            ).bufferedReader().use { it.readText() }
+
+            assertTrue(
+                "\"connect_share.setup.title\": \"Share this world\"" in
+                    language,
+            )
+            assertTrue(
+                "\"connect_share.status.copy_invitation\": " +
+                    "\"Copy friend link\"" in language,
+            )
+        }
+    }
+
+    @Test
     fun `remapped artifact is self contained and isolates networking runtime`() {
         JarFile(artifact().toFile()).use { jar ->
             val entries = jar.entries().asSequence().map { it.name }.toSet()
@@ -25,6 +45,10 @@ class Fabric12111ArtifactTest {
             assertTrue("fabric.mod.json" in entries)
             assertTrue("LICENSE" in entries)
             assertTrue("connect-share-fabric-1.21.11.mixins.json" in entries)
+            assertTrue(
+                "com/minekube/connect/share/fabric/v1_21_11/" +
+                    "FriendCardNetworking.class" in entries,
+            )
             assertTrue(
                 entries.any {
                     it.startsWith("com/minekube/connect/share/") &&

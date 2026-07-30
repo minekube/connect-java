@@ -43,44 +43,57 @@ class ShareStatusScreen(
                 Component.translatable("connect_share.status.copy_invitation"),
             ) {
                 sharing?.invitation?.let(
-                    minecraft!!.keyboardHandler::setClipboard,
+                    minecraft.keyboardHandler::setClipboard,
                 )
-            }.bounds(width / 2 - 155, 48, 150, 20).build(),
+            }.bounds(width / 2 - 155, 50, 150, 20).build(),
         )
         copyInvitation.active = sharing?.invitation != null
         val copyAddress = addRenderableWidget(
             Button.builder(
                 Component.translatable("connect_share.status.copy_address"),
             ) {
-                sharing?.address?.let(minecraft!!.keyboardHandler::setClipboard)
-            }.bounds(width / 2 + 5, 48, 150, 20).build(),
+                sharing?.address?.let(minecraft.keyboardHandler::setClipboard)
+            }.bounds(width / 2 + 5, 50, 150, 20).build(),
         )
         copyAddress.active = sharing?.address != null
 
-        sharing?.let {
+        if (sharing != null) {
             addRenderableWidget(
                 centered(
                     Component.translatable(
-                        "connect_share.status.routes",
-                        availability(it.connectAvailable),
-                        availability(it.lanDirectAvailable),
-                        availability(it.internetDirectAvailable),
+                        "connect_share.status.link_help",
                     ),
-                    76,
-                ).setMaxWidth(310),
+                    78,
+                ).setMaxWidth(CONTENT_WIDTH),
+            )
+            addRenderableWidget(
+                centered(
+                    Component.translatable(
+                        "connect_share.status.connection_help",
+                    ),
+                    94,
+                ).setMaxWidth(CONTENT_WIDTH),
             )
         }
 
         addRenderableWidget(
             Button.builder(Component.translatable("connect_share.identity.manage")) {
-                minecraft?.setScreen(EndpointIdentityScreen(this))
-            }.bounds(width / 2 - 100, 92, 200, 20).build(),
+                minecraft.setScreen(EndpointIdentityScreen(this))
+            }.bounds(width / 2 - 75, height - 52, 150, 20).build(),
         )
 
         val pending = state.pendingAdmissions
-        val visibleRows = ((height - 166) / 38).coerceIn(1, 3)
+        addRenderableWidget(
+            centered(
+                Component.translatable(
+                    "connect_share.status.requests",
+                ),
+                110,
+            ),
+        )
+        val visibleRows = ((height - 174) / 26).coerceIn(1, 2)
         pending.take(visibleRows).forEachIndexed { index, request ->
-            val y = 120 + index * 38
+            val y = 124 + index * 26
             val identity = request.identity
             val badge = when (identity) {
                 is AdmissionIdentity.Authenticated -> listOfNotNull(
@@ -95,7 +108,6 @@ class ShareStatusScreen(
             val label = Component.translatable(
                 "connect_share.status.request",
                 identity.name,
-                identity.uuid.toString(),
                 badge,
             )
             addRenderableWidget(
@@ -126,7 +138,7 @@ class ShareStatusScreen(
                         "connect_share.status.more",
                         pending.size - visibleRows,
                     ),
-                    120 + visibleRows * 38,
+                    124 + visibleRows * 26,
                 ),
             )
         } else if (pending.isEmpty()) {
@@ -141,7 +153,7 @@ class ShareStatusScreen(
         addRenderableWidget(
             Button.builder(Component.translatable("connect_share.status.stop")) {
                 viewModel.stop()
-                minecraft?.setScreen(parent)
+                minecraft.setScreen(parent)
             }.bounds(width / 2 - 155, height - 28, 150, 20).build(),
         )
         addRenderableWidget(
@@ -160,16 +172,13 @@ class ShareStatusScreen(
     }
 
     override fun onClose() {
-        minecraft?.setScreen(parent)
+        minecraft.setScreen(parent)
     }
 
     private fun centered(message: Component, y: Int): StringWidget {
         val textWidth = font.width(message)
         return StringWidget(width / 2 - textWidth / 2, y, textWidth, 9, message, font)
     }
-
-    private fun availability(available: Boolean): Component =
-        Component.translatable(if (available) "options.on" else "options.off")
 
     private fun Ingress.displayName(): String = when (this) {
         Ingress.CONNECT -> "connect"
@@ -183,5 +192,9 @@ class ShareStatusScreen(
         is ShareState.Sharing -> "connect_share.status.active"
         ShareState.Stopping -> "connect_share.status.stopping"
         is ShareState.Failed -> "connect_share.status.failed"
+    }
+
+    private companion object {
+        const val CONTENT_WIDTH = 310
     }
 }

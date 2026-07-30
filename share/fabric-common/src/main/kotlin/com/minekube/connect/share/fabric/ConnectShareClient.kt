@@ -14,6 +14,8 @@ fun interface ConnectShareGuestScreenFactory {
 data class ConnectShareInstallation(
     val viewModel: ShareViewModel,
     val runtime: ConnectShareRuntime,
+    val friendCardIssuer: FriendCardIssuer,
+    val approvedJoins: ApprovedJoinTracker,
     val screens: ConnectShareScreenFactory,
     val guestScreens: ConnectShareGuestScreenFactory,
 )
@@ -22,6 +24,7 @@ object ConnectShareClient {
     @Volatile
     private var installation: ConnectShareInstallation? = null
     private val guestLease = GuestConnectionLease()
+    private val friendCardConsent = FriendCardExchangeConsent()
 
     fun install(value: ConnectShareInstallation) {
         check(installation == null) {
@@ -70,6 +73,19 @@ object ConnectShareClient {
         checkNotNull(installation).viewModel
 
     @JvmStatic
+    fun friendCardIssuer(): FriendCardIssuer =
+        checkNotNull(installation).friendCardIssuer
+
+    @JvmStatic
+    fun armFriendCardExchange() {
+        friendCardConsent.arm()
+    }
+
+    @JvmStatic
+    fun consumeFriendCardExchangeConsent(): Boolean =
+        friendCardConsent.consume()
+
+    @JvmStatic
     fun integratedWorldChanged(
         worldAvailable: Boolean,
         identity: Any?,
@@ -79,6 +95,7 @@ object ConnectShareClient {
 
     @JvmStatic
     fun shutdown() {
+        friendCardConsent.cancel()
         guestLease.close()
         installation?.runtime?.shutdown()
     }

@@ -9,14 +9,17 @@ import com.minekube.connect.share.direct.ShareJoinError
 import com.minekube.connect.share.direct.ShareRoute
 import com.minekube.connect.share.direct.SignedShareInvite
 import com.minekube.connect.share.direct.TransportSelector
+import com.minekube.connect.share.friend.SavedFriend
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import com.minekube.connect.tunnel.p2p.DirectP2pDiscoveredShare
 import com.minekube.connect.tunnel.p2p.DirectP2pDiscoveryListener
 import com.minekube.connect.tunnel.p2p.DirectP2pNode
 import com.minekube.connect.tunnel.p2p.DirectP2pProxy
 import java.net.InetSocketAddress
+import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
+import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -96,6 +99,14 @@ class FabricShareBrowser private constructor(
         ioDispatcher = Dispatchers.IO,
     )
 
+    constructor(dataDirectory: Path) : this(
+        node = CoreFabricGuestDirectNode(
+            DirectP2pNode(dataDirectory.resolve(IDENTITY_FILE_NAME)),
+        ),
+        now = Instant::now,
+        ioDispatcher = Dispatchers.IO,
+    )
+
     private val mutableDiscovered =
         MutableStateFlow<List<DiscoveredLanShare>>(emptyList())
     private val started = AtomicBoolean()
@@ -103,6 +114,8 @@ class FabricShareBrowser private constructor(
 
     val discovered: StateFlow<List<DiscoveredLanShare>> =
         mutableDiscovered.asStateFlow()
+    val peerId: String
+        get() = node.peerId()
 
     fun start(): Either<GuestJoinFailure, Unit> {
         if (started.get()) {
@@ -178,6 +191,27 @@ class FabricShareBrowser private constructor(
         }
     }
 
+    suspend fun join(
+        friend: SavedFriend,
+        authMode: DirectP2pAuthMode,
+    ): Either<GuestJoinFailure, GuestJoinTarget> =
+        withContext(ioDispatcher) {
+            matchingLanShare(friend)?.let { discovered ->
+                openDirect(
+                    route = ShareRoute.DIRECT_LAN,
+                    address = discovered.lanAddress,
+                    shareId = friend.shareId.toString(),
+                    capability = friend.capability,
+                    authMode = authMode,
+                    timeout = LAN_TIMEOUT,
+                )?.let { return@withContext it.right() }
+            }
+            friend.connectAddress?.let {
+                return@withContext GuestJoinTarget.Connect(it).right()
+            }
+            GuestJoinFailure.NoRoute.left()
+        }
+
     override fun close() {
         if (closed.compareAndSet(false, true)) {
             node.close()
@@ -217,18 +251,44 @@ class FabricShareBrowser private constructor(
         }?.lanAddress
     }
 
+    private fun matchingLanShare(friend: SavedFriend): DiscoveredLanShare? =
+        mutableDiscovered.value.firstOrNull {
+            val invitation = it.invitation
+            val payload = invitation.payload
+            payload.shareId == friend.shareId &&
+                payload.peerId == friend.peerId &&
+                payload.capability == friend.capability &&
+                Base64.getEncoder().encodeToString(invitation.publicKey) ==
+                friend.publicKeyBase64
+        }
+
     private fun openDirect(
         route: ShareRoute,
         address: String,
         invitation: SignedShareInvite,
         authMode: DirectP2pAuthMode,
         timeout: Duration,
+    ): GuestJoinTarget.Direct? = openDirect(
+        route = route,
+        address = address,
+        shareId = invitation.payload.shareId.toString(),
+        capability = invitation.payload.capability,
+        authMode = authMode,
+        timeout = timeout,
+    )
+
+    private fun openDirect(
+        route: ShareRoute,
+        address: String,
+        shareId: String,
+        capability: String,
+        authMode: DirectP2pAuthMode,
+        timeout: Duration,
     ): GuestJoinTarget.Direct? = try {
-        val payload = invitation.payload
         val proxy = node.openProxy(
             address = address,
-            shareId = payload.shareId.toString(),
-            capability = payload.capability,
+            shareId = shareId,
+            capability = capability,
             authMode = authMode,
             timeout = timeout,
         )
@@ -251,10 +311,13 @@ class FabricShareBrowser private constructor(
         private val LAN_TIMEOUT = Duration.ofSeconds(3)
         private val INTERNET_TIMEOUT = Duration.ofSeconds(5)
         private const val MAX_DISCOVERED_SHARES = 32
+        private const val IDENTITY_FILE_NAME = "share-libp2p-identity.key"
     }
 }
 
 internal interface FabricGuestDirectNode : AutoCloseable {
+    fun peerId(): String
+
     fun startDiscovery(listener: DirectP2pDiscoveryListener)
 
     fun openProxy(
@@ -269,6 +332,8 @@ internal interface FabricGuestDirectNode : AutoCloseable {
 private class CoreFabricGuestDirectNode(
     private val node: DirectP2pNode,
 ) : FabricGuestDirectNode {
+    override fun peerId(): String = node.peerId()
+
     override fun startDiscovery(listener: DirectP2pDiscoveryListener) {
         node.startDiscovery(listener)
     }
