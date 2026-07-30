@@ -40,6 +40,8 @@ import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 import com.minekube.connect.util.Utils;
 import com.minekube.connect.util.backoff.BackOff;
 import com.minekube.connect.util.backoff.ExponentialBackOff;
+import com.minekube.connect.watch.SessionAdmissionDecision;
+import com.minekube.connect.watch.SessionAdmissionGate;
 import com.minekube.connect.watch.SessionProposal;
 import com.minekube.connect.watch.SessionProposal.State;
 import com.minekube.connect.watch.WatchBootstrap;
@@ -49,7 +51,11 @@ import io.grpc.protobuf.StatusProto;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -68,6 +74,7 @@ public class WatcherRegister {
     @Inject private Libp2pEndpoint libp2pEndpoint;
     @Inject private BedrockIdentityReadiness bedrockIdentityReadiness;
     @Inject private BedrockAdmissionCoordinator admissionCoordinator;
+    @Inject private SessionAdmissionGate sessionAdmissionGate;
 
     // volatile: written from injection thread (start/stop) and read from the
     // scheduler thread (retry) and OkHttp dispatcher (WatcherImpl callbacks).
@@ -237,6 +244,8 @@ public class WatcherRegister {
 
     private class WatcherImpl implements Watcher {
         private volatile boolean ignoreTerminalEvents;
+        private final Set<PendingAdmission> pendingAdmissions =
+                ConcurrentHashMap.newKeySet();
 
         @Override
         public void onOpen(WatchBootstrap bootstrap) {
@@ -292,16 +301,27 @@ public class WatcherRegister {
                 return;
             }
 
+            PendingAdmission pending = new PendingAdmission(proposal);
+            pendingAdmissions.add(pending);
+            CompletionStage<SessionAdmissionDecision> decision;
             try {
-                tunneler.prepare(proposal.getSession());
-                new LocalSession(logger, api, tunneler,
-                        platformInjector.getServerSocketAddress(),
-                        proposal,
-                        admissionCoordinator
-                ).connect();
-            } catch (RuntimeException | Error e) {
-                reject(proposal, StatusProto.fromThrowable(e));
-                throw e;
+                decision = sessionAdmissionGate.request(proposal);
+            } catch (RuntimeException failure) {
+                dispatchAdmission(pending, null, failure);
+                return;
+            }
+            if (decision == null) {
+                dispatchAdmission(
+                        pending,
+                        null,
+                        new IllegalStateException("Session admission gate returned null"));
+                return;
+            }
+            try {
+                decision.whenComplete((result, failure) ->
+                        dispatchAdmission(pending, result, failure));
+            } catch (RuntimeException failure) {
+                dispatchAdmission(pending, null, failure);
             }
         }
 
@@ -316,6 +336,7 @@ public class WatcherRegister {
                                     : " (cause: " + t.getCause().toString() + ")"
                     )
             );
+            cancelPendingAdmissions();
             cancelResetBackOffTimer();
             retry();
         }
@@ -325,6 +346,7 @@ public class WatcherRegister {
             if (!acceptTerminalEvent()) {
                 return;
             }
+            cancelPendingAdmissions();
             cancelResetBackOffTimer();
             retry();
         }
@@ -356,6 +378,101 @@ public class WatcherRegister {
             synchronized (WatcherRegister.this) {
                 ignoreTerminalEvents = true;
                 cancelResetBackOffTimer();
+            }
+            cancelPendingAdmissions();
+        }
+
+        private void dispatchAdmission(
+                PendingAdmission pending,
+                SessionAdmissionDecision decision,
+                Throwable failure
+        ) {
+            ScheduledExecutorService executor = scheduler;
+            if (executor == null || executor.isShutdown()) {
+                pending.rejectStopped();
+                return;
+            }
+            try {
+                executor.execute(() -> pending.complete(decision, failure));
+            } catch (RejectedExecutionException ignored) {
+                pending.rejectStopped();
+            }
+        }
+
+        private void cancelPendingAdmissions() {
+            for (PendingAdmission pending : pendingAdmissions) {
+                pending.rejectStopped();
+            }
+        }
+
+        private final class PendingAdmission {
+            private final SessionProposal proposal;
+            private final AtomicBoolean completed = new AtomicBoolean();
+
+            private PendingAdmission(SessionProposal proposal) {
+                this.proposal = proposal;
+            }
+
+            private void complete(
+                    SessionAdmissionDecision decision,
+                    Throwable failure
+            ) {
+                if (!completed.compareAndSet(false, true)) {
+                    return;
+                }
+                pendingAdmissions.remove(this);
+
+                if (!started.get() || ignoreTerminalEvents) {
+                    rejectStoppedProposal();
+                    return;
+                }
+                if (proposal.getState() != State.ACCEPTED) {
+                    return;
+                }
+                if (failure != null || decision == null) {
+                    logger.error("Session admission failed before tunnel creation");
+                    reject(proposal, Status.newBuilder()
+                            .setCode(Code.INTERNAL_VALUE)
+                            .setMessage("Session admission failed")
+                            .build());
+                    return;
+                }
+                if (!decision.isAllowed() && !decision.isDeferredToLocalLogin()) {
+                    reject(proposal, Status.newBuilder()
+                            .setCode(Code.PERMISSION_DENIED_VALUE)
+                            .setMessage(decision.getSafeMessage())
+                            .build());
+                    return;
+                }
+
+                try {
+                    tunneler.prepare(proposal.getSession());
+                    new LocalSession(logger, api, tunneler,
+                            platformInjector.getServerSocketAddress(),
+                            proposal,
+                            admissionCoordinator
+                    ).connect();
+                } catch (RuntimeException | Error failureDuringTunnelCreation) {
+                    reject(proposal, StatusProto.fromThrowable(failureDuringTunnelCreation));
+                    throw failureDuringTunnelCreation;
+                }
+            }
+
+            private void rejectStopped() {
+                if (!completed.compareAndSet(false, true)) {
+                    return;
+                }
+                pendingAdmissions.remove(this);
+                rejectStoppedProposal();
+            }
+
+            private void rejectStoppedProposal() {
+                if (proposal.getState() == State.ACCEPTED) {
+                    reject(proposal, Status.newBuilder()
+                            .setCode(Code.CANCELLED_VALUE)
+                            .setMessage("Session admission stopped")
+                            .build());
+                }
             }
         }
 

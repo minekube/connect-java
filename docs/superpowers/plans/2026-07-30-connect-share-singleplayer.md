@@ -638,7 +638,7 @@ Run:
 
 Expected: all seven cases pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add share/common/src/main/kotlin/com/minekube/connect/share/admission share/common/src/test/kotlin/com/minekube/connect/share/admission
@@ -675,7 +675,7 @@ public final class SessionAdmissionDecision {
 }
 ```
 
-- [ ] **Step 1: Add failing WatcherRegister tests**
+- [x] **Step 1: Add failing WatcherRegister tests**
 
 Add tests that hold a `CompletableFuture<SessionAdmissionDecision>` and assert:
 
@@ -686,7 +686,7 @@ assertEquals(0, localSessionConnections.get());
 
 before completion. On `allow()`, assert one `prepare` and one local connection. On deny, timeout, exceptional completion, or watcher stop, assert proposal rejection and zero tunnel work.
 
-- [ ] **Step 2: Run and observe failure**
+- [x] **Step 2: Run and observe failure**
 
 Run:
 
@@ -696,7 +696,7 @@ Run:
 
 Expected: compilation fails because the gate does not exist.
 
-- [ ] **Step 3: Implement the default gate and WatcherRegister sequencing**
+- [x] **Step 3: Implement the default gate and WatcherRegister sequencing**
 
 Use Guice `OptionalBinder` in `CommonModule`: set
 `AllowAllSessionAdmissionGate` as the default `SessionAdmissionGate`, and let
@@ -713,7 +713,7 @@ started.get()
 
 Treat `deferToLocalLogin()` as permission to open the bounded tunnel without marking the player admitted; the Fabric login hook owns the later decision. Map deny/exception to a `PERMISSION_DENIED` or `INTERNAL` `google.rpc.Status` with only the safe message. Never throw asynchronous gate failures on OkHttp's callback thread.
 
-- [ ] **Step 4: Run Core tests**
+- [x] **Step 4: Run Core tests**
 
 Run:
 

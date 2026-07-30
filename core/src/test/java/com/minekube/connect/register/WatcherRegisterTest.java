@@ -1,6 +1,9 @@
 package com.minekube.connect.register;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -11,11 +14,14 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import com.google.rpc.Code;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
@@ -27,6 +33,8 @@ import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 import com.minekube.connect.tunnel.Tunneler;
+import com.minekube.connect.watch.SessionAdmissionDecision;
+import com.minekube.connect.watch.SessionAdmissionGate;
 import com.minekube.connect.watch.SessionProposal;
 import com.minekube.connect.watch.WatchBootstrap;
 import com.minekube.connect.watch.WatchClient;
@@ -38,8 +46,10 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Timer;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.mockito.ArgumentCaptor;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfile;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfileProperty;
@@ -401,8 +411,130 @@ class WatcherRegisterTest {
 
         watcher.getValue().onProposal(proposal);
 
-        verify(fixture.tunneler).prepare(session);
-        verify(fixture.platformInjector).getServerSocketAddress();
+        await().atMost(2, SECONDS).untilAsserted(() -> {
+            verify(fixture.tunneler).prepare(session);
+            verify(fixture.platformInjector).getServerSocketAddress();
+        });
+    }
+
+    @Test
+    void waitsForAdmissionBeforePreparingTunnel() throws Exception {
+        CompletableFuture<SessionAdmissionDecision> admission = new CompletableFuture<>();
+        SessionAdmissionGate gate = mock(SessionAdmissionGate.class);
+        when(gate.request(any(SessionProposal.class))).thenReturn(admission);
+        Fixture fixture = newFixture(gate);
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+        Session session = validSession("session-pending");
+        SessionProposal proposal = new SessionProposal(session, reason -> {
+            throw new AssertionError("proposal should not be rejected: " + reason);
+        });
+
+        watcher.getValue().onProposal(proposal);
+
+        verify(gate).request(proposal);
+        verifyNoInteractions(fixture.tunneler);
+        verify(fixture.platformInjector, never()).getServerSocketAddress();
+
+        admission.complete(SessionAdmissionDecision.allow());
+
+        await().atMost(2, SECONDS).untilAsserted(() -> {
+            verify(fixture.tunneler).prepare(session);
+            verify(fixture.platformInjector).getServerSocketAddress();
+        });
+    }
+
+    @Test
+    void deferredAdmissionMayOpenTunnelForLocalLoginApproval() throws Exception {
+        CompletableFuture<SessionAdmissionDecision> admission = new CompletableFuture<>();
+        SessionAdmissionGate gate = proposal ->
+                admission;
+        Fixture fixture = newFixture(gate);
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+        Session session = validSession("session-deferred");
+
+        watcher.getValue().onProposal(new SessionProposal(session, reason -> {
+            throw new AssertionError("proposal should not be rejected: " + reason);
+        }));
+        admission.complete(SessionAdmissionDecision.deferToLocalLogin());
+
+        await().atMost(2, SECONDS).untilAsserted(() ->
+                verify(fixture.tunneler).prepare(session));
+    }
+
+    @Test
+    void deniedOrTimedOutAdmissionRejectsWithoutTunnelWork() throws Exception {
+        CompletableFuture<SessionAdmissionDecision> admission = new CompletableFuture<>();
+        Fixture fixture = newFixture(proposal -> admission);
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+        AtomicReference<com.google.rpc.Status> rejection = new AtomicReference<>();
+        SessionProposal proposal = new SessionProposal(
+                validSession("session-denied"),
+                rejection::set);
+
+        watcher.getValue().onProposal(proposal);
+        admission.complete(SessionAdmissionDecision.deny("Host approval timed out"));
+
+        await().atMost(2, SECONDS).untilAsserted(() -> {
+            assertNotNull(rejection.get());
+            assertEquals(Code.PERMISSION_DENIED_VALUE, rejection.get().getCode());
+            assertEquals("Host approval timed out", rejection.get().getMessage());
+        });
+        verifyNoInteractions(fixture.tunneler);
+    }
+
+    @Test
+    void exceptionalAdmissionIsSanitizedAndDoesNotOpenTunnel() throws Exception {
+        CompletableFuture<SessionAdmissionDecision> admission = new CompletableFuture<>();
+        Fixture fixture = newFixture(proposal -> admission);
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+        AtomicReference<com.google.rpc.Status> rejection = new AtomicReference<>();
+        SessionProposal proposal = new SessionProposal(
+                validSession("session-exception"),
+                rejection::set);
+
+        watcher.getValue().onProposal(proposal);
+        admission.completeExceptionally(new IllegalStateException("T-secret"));
+
+        await().atMost(2, SECONDS).untilAsserted(() -> {
+            assertNotNull(rejection.get());
+            assertEquals(Code.INTERNAL_VALUE, rejection.get().getCode());
+            assertFalse(rejection.get().getMessage().contains("T-secret"));
+        });
+        verifyNoInteractions(fixture.tunneler);
+    }
+
+    @Test
+    void stoppingWatcherRejectsPendingAdmissionAndIgnoresLateAllow() throws Exception {
+        CompletableFuture<SessionAdmissionDecision> admission = new CompletableFuture<>();
+        Fixture fixture = newFixture(proposal -> admission);
+        register = fixture.register;
+        register.start();
+        ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+        verify(fixture.watchClient).watch(watcher.capture());
+        AtomicReference<com.google.rpc.Status> rejection = new AtomicReference<>();
+        SessionProposal proposal = new SessionProposal(
+                validSession("session-stopped"),
+                rejection::set);
+        watcher.getValue().onProposal(proposal);
+
+        register.stop();
+        admission.complete(SessionAdmissionDecision.allow());
+
+        assertNotNull(rejection.get());
+        assertEquals(Code.CANCELLED_VALUE, rejection.get().getCode());
+        verifyNoInteractions(fixture.tunneler);
     }
 
     @Test
@@ -447,10 +579,23 @@ class WatcherRegisterTest {
     }
 
     private static Fixture newFixture() throws Exception {
-        return newFixture(null);
+        return newFixture(null, new com.minekube.connect.watch.AllowAllSessionAdmissionGate());
     }
 
     private static Fixture newFixture(BedrockAdmissionCoordinator admissionCoordinator) throws Exception {
+        return newFixture(
+                admissionCoordinator,
+                new com.minekube.connect.watch.AllowAllSessionAdmissionGate());
+    }
+
+    private static Fixture newFixture(SessionAdmissionGate admissionGate) throws Exception {
+        return newFixture(null, admissionGate);
+    }
+
+    private static Fixture newFixture(
+            BedrockAdmissionCoordinator admissionCoordinator,
+            SessionAdmissionGate admissionGate
+    ) throws Exception {
         WatcherRegister register = new WatcherRegister();
         WatchClient watchClient = mock(WatchClient.class);
         when(watchClient.watch(any(Watcher.class))).thenReturn(mock(WebSocket.class));
@@ -461,6 +606,7 @@ class WatcherRegisterTest {
         inject(register, "logger", mock(ConnectLogger.class));
         inject(register, "api", new SimpleConnectApi(mock(ConnectLogger.class)));
         inject(register, "libp2pEndpoint", mock(Libp2pEndpoint.class));
+        inject(register, "sessionAdmissionGate", admissionGate);
         if (admissionCoordinator != null) {
             inject(register, "admissionCoordinator", admissionCoordinator);
         }
@@ -469,6 +615,18 @@ class WatcherRegisterTest {
         return new Fixture(register, watchClient, (Tunneler) getField(register, "tunneler"),
                 (PlatformInjector) getField(register, "platformInjector"),
                 (Libp2pEndpoint) getField(register, "libp2pEndpoint"));
+    }
+
+    private static Session validSession(String id) {
+        return Session.newBuilder()
+                .setId(id)
+                .setTunnelServiceAddr("wss://tunnel.example")
+                .setPlayer(Player.newBuilder()
+                        .setAddr("127.0.0.1")
+                        .setProfile(GameProfile.newBuilder()
+                                .setId("00000000-0000-0000-0000-000000000001")
+                                .setName("Player")))
+                .build();
     }
 
     private static void inject(WatcherRegister register, String fieldName, Object value)

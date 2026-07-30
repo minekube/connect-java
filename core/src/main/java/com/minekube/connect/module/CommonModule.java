@@ -29,6 +29,7 @@ import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
 import com.google.inject.Singleton;
 import com.google.inject.multibindings.Multibinder;
+import com.google.inject.multibindings.OptionalBinder;
 import com.google.inject.name.Named;
 import com.minekube.connect.api.ConnectApi;
 import com.minekube.connect.api.SimpleConnectApi;
@@ -53,6 +54,8 @@ import com.minekube.connect.util.Constants;
 import com.minekube.connect.util.HttpUtils;
 import com.minekube.connect.util.LanguageManager;
 import com.minekube.connect.util.Metrics;
+import com.minekube.connect.watch.AllowAllSessionAdmissionGate;
+import com.minekube.connect.watch.SessionAdmissionGate;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
@@ -76,6 +79,9 @@ public class CommonModule extends AbstractModule {
                 Multibinder.newSetBinder(binder(), TunnelClientTransport.class);
         transports.addBinding().to(WebSocketTunnelTransport.class);
         transports.addBinding().to(Libp2pTunnelTransport.class);
+        OptionalBinder.newOptionalBinder(binder(), SessionAdmissionGate.class)
+                .setDefault()
+                .to(AllowAllSessionAdmissionGate.class);
     }
 
     @Provides
