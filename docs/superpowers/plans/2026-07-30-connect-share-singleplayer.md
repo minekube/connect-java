@@ -855,7 +855,7 @@ git commit -m "feat: add Connect Share lifecycle"
 - Consumes: `EndpointIdentity`, `AdmissionController`, `PlatformInjector`, and `ConnectPlatform`.
 - Produces: `ConnectConfig.embedded(String endpoint, boolean allowOfflineModePlayers)`, `ConnectPlatform.initEmbedded(Path dataDirectory, ConnectConfig config, ConfigHolder configHolder, PacketHandlers packetHandlers)`, `FabricSessionAdmissionGate`, `FabricLocalLoginAdmission`, and `FabricConnectIngress`.
 
-- [ ] **Step 1: Write failing embedded-platform tests**
+- [x] **Step 1: Write failing embedded-platform tests**
 
 Assert:
 
@@ -867,7 +867,7 @@ assertEquals(Boolean.TRUE, config.getAllowOfflineModePlayers());
 
 Create a fake `PlatformInjector` and assert `initEmbedded` never creates `config.yml`, starts Watch only after injector success, and closes Watch, libp2p, tunnels, and local channel once.
 
-- [ ] **Step 2: Add the embedded Core entry point**
+- [x] **Step 2: Add the embedded Core entry point**
 
 Add:
 
@@ -887,7 +887,7 @@ public void initEmbedded(
 
 Share the common initialization tail with the existing `init`; do not change plugin config loading.
 
-- [ ] **Step 3: Implement the Kotlin admission adapter**
+- [x] **Step 3: Implement the Kotlin admission adapter**
 
 `FabricSessionAdmissionGate.request` maps:
 
@@ -914,7 +914,7 @@ offline profile to
 Ingress.CONNECT)`. It completes before vanilla moves the connection into
 configuration/play state.
 
-- [ ] **Step 4: Implement FabricConnectIngress**
+- [x] **Step 4: Implement FabricConnectIngress**
 
 Build a private Guice injector from `ServerCommonModule`, a Fabric platform module providing logger/platform metadata/injector/gate, `ConfigLoadedModule(config)`, `Libp2pEndpointModule`, and `WatcherModule`. Set:
 
@@ -926,7 +926,9 @@ allowOfflineModePlayers = true
 ```
 
 Use the already persisted `token.json`; do not generate or write credentials
-inside `start`. Return the `ConnectShareHandle` defined in Task 6:
+inside `start`. Read and compare the effective stored/environment token with
+the already resolved `EndpointIdentity` before constructing the runtime.
+Return the `ConnectShareHandle` defined in Task 6:
 
 ```kotlin
 ConnectShareHandle(
@@ -938,7 +940,7 @@ ConnectShareHandle(
 
 where `publicAddress` is `<endpoint>.play.minekube.net`.
 
-- [ ] **Step 5: Run focused and Core regression tests**
+- [x] **Step 5: Run focused and Core regression tests**
 
 Run:
 
@@ -948,7 +950,7 @@ Run:
 
 Expected: embedded lifecycle and admission mapping pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add core/src/main/java/com/minekube/connect/config/ConnectConfig.java core/src/main/java/com/minekube/connect/ConnectPlatform.java core/src/test/java/com/minekube/connect/EmbeddedConnectPlatformTest.java share/fabric-common

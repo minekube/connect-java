@@ -21,6 +21,7 @@ dependencies {
     implementation("io.arrow-kt:arrow-core")
     implementation("io.arrow-kt:arrow-fx-coroutines")
     implementation("com.google.protobuf:protobuf-java:${Versions.protocVersion}")
+    implementation("io.grpc:grpc-protobuf:${Versions.gRPCVersion}")
     implementation("com.squareup.okhttp3:okhttp:4.9.3")
 
     testImplementation(kotlin("test"))
