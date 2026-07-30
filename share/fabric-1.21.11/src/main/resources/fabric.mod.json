@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "connect_share",
+  "version": "${version}",
+  "name": "Connect Share",
+  "description": "Share a private Minecraft world through Minekube Connect.",
+  "environment": "*",
+  "mixins": [
+    "connect-share-fabric-1.21.11.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "fabric-language-kotlin": ">=1.13.13",
+    "minecraft": "1.21.11",
+    "java": ">=21"
+  }
+}

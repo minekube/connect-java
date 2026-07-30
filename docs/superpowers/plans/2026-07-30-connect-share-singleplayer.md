@@ -973,7 +973,7 @@ git commit -m "feat: add embedded Fabric Connect ingress"
 - Consumes: `IntegratedServer.publishServer`, `ServerConnectionListener.startTcpServerListener`, `LocalServerChannelWrapper`, and Connect channel attributes.
 - Produces: `Minecraft12111Bridge : MinecraftShareBridge`.
 
-- [ ] **Step 1: Generate and inspect exact 1.21.11 sources**
+- [x] **Step 1: Generate and inspect exact 1.21.11 sources**
 
 Run:
 
@@ -993,7 +993,7 @@ ServerConnectionListener.channels
 
 If Loom reports a different official member name, update only the adapter and record the exact resolved name in the mixin JSON; do not use broad reflection.
 
-- [ ] **Step 2: Write the bridge test before mixins**
+- [x] **Step 2: Write the bridge test before mixins**
 
 Use a fake captured transport and assert:
 
@@ -1006,7 +1006,7 @@ assertEquals(0, capturedListenerCountAfterClose)
 
 Opening twice after close must succeed; opening while active must fail without adding a second listener.
 
-- [ ] **Step 3: Capture vanilla's child initializer and force loopback**
+- [x] **Step 3: Capture vanilla's child initializer and force loopback**
 
 `ServerConnectionListenerMixin` uses `@ModifyArg` on `ServerBootstrap.childHandler` and `ServerBootstrap.group` to capture the exact initializer/group, and a second `@ModifyArg`/method argument modification so the active Share publish calls:
 
@@ -1022,7 +1022,7 @@ It must leave ordinary vanilla publishing unchanged unless `CapturedServerTransp
 Minecraft's `Connection` so the login mixin can read Connect's channel
 attribute without reflection.
 
-- [ ] **Step 4: Bind the local channel and implement stop**
+- [x] **Step 4: Bind the local channel and implement stop**
 
 After `publishServer`, identify exactly one newly added loopback `ChannelFuture`. Bind:
 
@@ -1038,13 +1038,13 @@ ServerBootstrap()
 
 On close, stop Connect first through the coordinator, close/remove the local future, close/remove the captured loopback future, set `publishedPort = -1`, and shut down the dedicated local event loop gracefully.
 
-- [ ] **Step 5: Inject Connect-authenticated login profiles**
+- [x] **Step 5: Inject Connect-authenticated login profiles**
 
 `ServerLoginPacketListenerMixin` reads `ConnectAttributes.CONNECT_PLAYER` from the connection channel. For non-passthrough sessions it converts the Connect profile to Mojang `GameProfile`, preserves signed properties, bypasses a second Mojang encryption/authentication round trip, and enters vanilla's verified-login continuation.
 
 For passthrough Connect sessions it lets vanilla resolve online/offline login, then pauses before configuration/play state, calls `FabricLocalLoginAdmission`, and continues only on `ALLOW`. Deny, timeout, disconnect, or share stop closes the connection. Ordinary LAN channels execute untouched vanilla code.
 
-- [ ] **Step 6: Run adapter tests and a headless launch smoke**
+- [x] **Step 6: Run adapter tests and a headless launch smoke**
 
 Run:
 
