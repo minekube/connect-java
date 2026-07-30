@@ -23,6 +23,10 @@ plugin release, hub image rebuild, and production rollout as separate steps.
   tag/release, then dispatches `release.yml` on that tag so the JAR artifacts
   are uploaded. Do not manually bump versions or create release tags unless
   repairing automation.
+- Its release-PR build is a manual dispatch whose native matrix checks are
+  audited on the captured head before merge. Do not mirror those checks into
+  synthetic check runs or legacy statuses; the boundary is pinned by
+  `core/.../release/ReleasePleaseCheckAuditTest`.
 - The `release.yml` workflow uploads:
   `connect-spigot.jar`, `connect-velocity.jar`, `connect-bungee.jar`, and
   `LICENSE`.
