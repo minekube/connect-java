@@ -106,6 +106,9 @@ val libp2pRuntimeJar = tasks.named<ShadowJar>("libp2pRuntimeJar") {
         )
     }
 }
+val minecraftGameProfileFactory =
+    "com/minekube/connect/share/fabric/v1_21_11/" +
+        "MinecraftGameProfileFactory.class"
 val connectShareShadowJar = tasks.named<ShadowJar>("shadowJar") {
     configurations = listOf(connectShareParentRuntime)
     archiveBaseName.set("connect-share-fabric-1.21.11")
@@ -113,6 +116,8 @@ val connectShareShadowJar = tasks.named<ShadowJar>("shadowJar") {
     archiveClassifier.set("dev-parent-shadow")
     mergeServiceFiles()
     from(rootProject.file("LICENSE"))
+    // Authlib's PropertyMap constructor must keep Minecraft's Guava ABI.
+    exclude(minecraftGameProfileFactory)
 }
 val connectShareJar = tasks.register<Jar>("connectShareJar") {
     dependsOn(connectShareShadowJar, libp2pRuntimeJar)
@@ -125,6 +130,9 @@ val connectShareJar = tasks.register<Jar>("connectShareJar") {
     })
     from(libp2pRuntimeJar) {
         into("META-INF/connect")
+    }
+    from(sourceSets.main.get().output) {
+        include(minecraftGameProfileFactory)
     }
 }
 

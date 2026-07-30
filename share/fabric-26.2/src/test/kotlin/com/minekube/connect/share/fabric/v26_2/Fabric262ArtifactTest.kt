@@ -59,6 +59,28 @@ class Fabric262ArtifactTest {
     }
 
     @Test
+    fun `minecraft profile mapper preserves Mojang Guava ABI`() {
+        JarFile(artifact().toFile()).use { jar ->
+            val factory = jar.getJarEntry(
+                "com/minekube/connect/share/fabric/v26_2/" +
+                    "MinecraftGameProfileFactory.class",
+            )
+            assertNotNull(factory)
+
+            val bytecode = jar.getInputStream(factory).use {
+                it.readBytes().toString(Charsets.ISO_8859_1)
+            }
+            assertTrue("com/google/common/collect/Multimap" in bytecode)
+            assertTrue(
+                "(Lcom/google/common/collect/Multimap;)V" in bytecode,
+            )
+            assertFalse(
+                "com/minekube/connect/shadow/com/google/common" in bytecode,
+            )
+        }
+    }
+
+    @Test
     fun `packaged loader reads libp2p only from child payload`() {
         URLClassLoader(
             arrayOf(artifact().toUri().toURL()),
