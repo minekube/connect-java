@@ -58,6 +58,6 @@ public final class BedrockIdentityReadiness {
 
     private boolean currentReady() {
         return BedrockIdentityConfiguration.from(config.getBedrockIdentity()).isUsable()
-                && keyProvider.hasUsableKeys();
+                && keyProvider.hasConfiguredKeySource();
     }
 }

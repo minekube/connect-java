@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.minekube.connect.api.logger.ConnectLogger;
@@ -16,6 +18,8 @@ import com.minekube.connect.config.ConfigLoader;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.config.ProxyConnectConfig;
 import com.minekube.connect.player.ConnectPlayerImpl;
+import com.minekube.connect.watch.WatchClient;
+import com.minekube.connect.watch.Watcher;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -31,8 +35,11 @@ import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Protocol;
+import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import okhttp3.WebSocketListener;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -126,6 +133,30 @@ class BedrockIdentityDefaultConfigTest {
         assertNull(decision.verifiedClaims());
         assertEquals(0, metadataRequests.get());
         verifyNoInteractions(logger);
+    }
+
+    @Test
+    void untouchedDefaultsAdvertiseDuringWatchRegistrationWithoutFetchingMetadata() throws Exception {
+        ConnectConfig config = loadUntouched(ConnectConfig.class, tempDir.resolve("watch"));
+        AtomicInteger metadataRequests = new AtomicInteger();
+        BedrockIdentityReadiness readiness = new BedrockIdentityReadiness(
+                config,
+                new BedrockIdentityKeyProvider(config, metadataClient(metadataRequests), () -> FIXTURE_TIME));
+        OkHttpClient watchHttpClient = mock(OkHttpClient.class);
+        WatchClient watchClient = new WatchClient(watchHttpClient, config, readiness, null);
+
+        watchClient.watch(new Watcher() {
+            @Override public void onOpen(com.minekube.connect.watch.WatchBootstrap bootstrap) { }
+            @Override public void onProposal(com.minekube.connect.watch.SessionProposal proposal) { }
+            @Override public void onCompleted() { }
+            @Override public void onError(Throwable throwable) { }
+        });
+
+        ArgumentCaptor<Request> request = ArgumentCaptor.forClass(Request.class);
+        verify(watchHttpClient).newWebSocket(request.capture(), any(WebSocketListener.class));
+        assertTrue(request.getValue().headers("Connect-Capabilities")
+                .contains(BedrockIdentityReadiness.CAPABILITY));
+        assertEquals(0, metadataRequests.get());
     }
 
     private <T extends ConnectConfig> T loadUntouched(Class<T> type, Path directory) throws IOException {
