@@ -1,7 +1,7 @@
-package com.minekube.connect.share.fabric.v1_21_11.mixin;
+package com.minekube.connect.share.fabric.v26_2.mixin;
 
 import com.mojang.authlib.GameProfile;
-import com.minekube.connect.share.fabric.v1_21_11.Minecraft12111LoginBridge;
+import com.minekube.connect.share.fabric.v26_2.Minecraft262LoginBridge;
 import net.minecraft.network.Connection;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.login.ServerboundHelloPacket;
@@ -20,10 +20,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class ServerLoginPacketListenerMixin {
     @Shadow @Final private MinecraftServer server;
     @Shadow @Final private Connection connection;
-    @Shadow @Nullable String requestedUsername;
+    @Shadow private @Nullable String requestedUsername;
 
     @Shadow
-    abstract void startClientVerification(GameProfile profile);
+    private void startClientVerification(GameProfile profile) {
+        throw new AssertionError();
+    }
 
     @Shadow
     public abstract void disconnect(Component reason);
@@ -35,11 +37,11 @@ public abstract class ServerLoginPacketListenerMixin {
     private void connectShare$acceptConnectProfile(
             ServerboundHelloPacket hello,
             CallbackInfo callback) {
-        if (!Minecraft12111LoginBridge.hasConnectIdentity(connection)) {
+        if (!Minecraft262LoginBridge.hasConnectIdentity(connection)) {
             return;
         }
 
-        GameProfile profile = Minecraft12111LoginBridge.authenticatedProfile(
+        GameProfile profile = Minecraft262LoginBridge.authenticatedProfile(
                 connection, hello.name());
         if (profile == null) {
             disconnect(Component.literal("Connect identity is invalid"));
@@ -59,7 +61,7 @@ public abstract class ServerLoginPacketListenerMixin {
     private void connectShare$awaitPassthroughAdmission(
             GameProfile profile,
             CallbackInfo callback) {
-        if (!Minecraft12111LoginBridge.isPassthroughConnect(connection)) {
+        if (!Minecraft262LoginBridge.isPassthroughConnect(connection)) {
             return;
         }
         if (connectShare$admissionAllowed) {
@@ -71,7 +73,7 @@ public abstract class ServerLoginPacketListenerMixin {
             return;
         }
         connectShare$admissionStarted = true;
-        Minecraft12111LoginBridge.requestPassthroughAdmission(
+        Minecraft262LoginBridge.requestPassthroughAdmission(
                 connection,
                 server,
                 profile,

@@ -1,4 +1,4 @@
-package com.minekube.connect.share.fabric.v1_21_11
+package com.minekube.connect.share
 
 import arrow.core.Either
 import arrow.core.left

@@ -1,5 +1,6 @@
 package com.minekube.connect.share.fabric.v1_21_11
 
+import com.minekube.connect.share.CaptureFailure
 import io.netty.channel.Channel
 import io.netty.channel.ChannelInitializer
 import io.netty.channel.DefaultEventLoopGroup

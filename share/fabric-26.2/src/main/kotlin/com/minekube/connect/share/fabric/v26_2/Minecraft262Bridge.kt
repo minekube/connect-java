@@ -1,4 +1,4 @@
-package com.minekube.connect.share.fabric.v1_21_11
+package com.minekube.connect.share.fabric.v26_2
 
 import com.minekube.connect.share.LocalShareChannel as CommonLocalShareChannel
 import com.minekube.connect.share.LocalShareChannelBinder as CommonLocalShareChannelBinder
@@ -6,14 +6,11 @@ import com.minekube.connect.share.MinecraftVersionTransport
 import com.minekube.connect.share.NettyLocalShareChannelBinder
 import com.minekube.connect.share.PublishedMinecraftTransport as CommonPublishedMinecraftTransport
 import com.minekube.connect.share.VersionedMinecraftBridge
-import com.minekube.connect.share.CaptureLease as CommonCaptureLease
-import com.minekube.connect.share.CapturedServerTransport as CommonCapturedServerTransport
-import com.minekube.connect.share.CapturedTransport as CommonCapturedTransport
-import com.minekube.connect.share.fabric.FabricLoginAdmissionRegistry
 import com.minekube.connect.share.fabric.FabricLocalLoginAdmissionGate
+import com.minekube.connect.share.fabric.FabricLoginAdmissionRegistry
 
-class Minecraft12111Bridge internal constructor(
-    transport: Minecraft12111Transport,
+class Minecraft262Bridge internal constructor(
+    transport: Minecraft262Transport,
     localBinder: LocalShareChannelBinder,
     loginAdmissionFactory: (() -> FabricLocalLoginAdmissionGate)? = null,
 ) : VersionedMinecraftBridge(
@@ -26,23 +23,20 @@ class Minecraft12111Bridge internal constructor(
     },
 ) {
     constructor() : this(
-        VanillaMinecraft12111Transport(),
+        VanillaMinecraft262Transport(),
         NettyLocalShareChannelBinder(),
     )
 
     constructor(
         loginAdmissionFactory: () -> FabricLocalLoginAdmissionGate,
     ) : this(
-        VanillaMinecraft12111Transport(),
+        VanillaMinecraft262Transport(),
         NettyLocalShareChannelBinder(),
         loginAdmissionFactory,
     )
 }
 
-internal typealias Minecraft12111Transport = MinecraftVersionTransport
+internal typealias Minecraft262Transport = MinecraftVersionTransport
 internal typealias PublishedMinecraftTransport = CommonPublishedMinecraftTransport
 internal typealias LocalShareChannelBinder = CommonLocalShareChannelBinder
 internal typealias LocalShareChannel = CommonLocalShareChannel
-internal typealias CapturedServerTransport = CommonCapturedServerTransport
-internal typealias CaptureLease = CommonCaptureLease
-internal typealias CapturedTransport = CommonCapturedTransport
