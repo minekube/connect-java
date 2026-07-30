@@ -34,7 +34,15 @@ class Fabric12111ArtifactTest {
             assertTrue("META-INF/connect/libp2p-runtime.jar" in entries)
             assertFalse(entries.any { it.startsWith("io/libp2p/") })
             assertFalse(entries.any { it.startsWith("io/netty/") })
+            assertFalse(entries.any { it.startsWith("it/unimi/dsi/fastutil/") })
             assertFalse(entries.any { it.startsWith("kotlin/") })
+            assertTrue(
+                entries.any {
+                    it.startsWith(
+                        "com/minekube/connect/shadow/it/unimi/dsi/fastutil/",
+                    )
+                },
+            )
 
             val payload = jar.getJarEntry("META-INF/connect/libp2p-runtime.jar")
             val payloadEntries = JarInputStream(jar.getInputStream(payload)).use { nested ->
