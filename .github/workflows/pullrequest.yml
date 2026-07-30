@@ -59,3 +59,71 @@ jobs:
         with:
           name: Connect Velocity
           path: velocity/build/libs/connect-velocity.jar
+
+  share-1-21-11:
+    name: Connect Share / Minecraft 1.21.11
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Connect Share for Minecraft 1.21.11
+        run: ./gradlew :share:fabric-1-21-11:build
+
+      - name: Archive Connect Share for Minecraft 1.21.11
+        uses: actions/upload-artifact@v4
+        with:
+          name: Connect Share Fabric 1.21.11
+          path: |
+            share/fabric-1.21.11/build/libs/connect-share-fabric-1.21.11-*.jar
+            !share/fabric-1.21.11/build/libs/*-sources.jar
+            !share/fabric-1.21.11/build/libs/*-dev-*.jar
+            !share/fabric-1.21.11/build/libs/*-unshaded.jar
+            !share/fabric-1.21.11/build/libs/*-parent-shadow.jar
+
+  share-26-2:
+    name: Connect Share / Minecraft 26.2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Connect Share for Minecraft 26.2
+        run: ./gradlew :share:fabric-26-2:build
+
+      - name: Archive Connect Share for Minecraft 26.2
+        uses: actions/upload-artifact@v4
+        with:
+          name: Connect Share Fabric 26.2
+          path: |
+            share/fabric-26.2/build/libs/connect-share-fabric-26.2-*.jar
+            !share/fabric-26.2/build/libs/*-sources.jar
+            !share/fabric-26.2/build/libs/*-dev-*.jar
+            !share/fabric-26.2/build/libs/*-unshaded.jar
+            !share/fabric-26.2/build/libs/*-parent-shadow.jar
