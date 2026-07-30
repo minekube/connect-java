@@ -264,6 +264,267 @@ jobs:
             verify_release "$target"
           done
 
+      # Publish the same verified release to Hangar alongside Modrinth. Hangar
+      # has three platform names: PAPER, VELOCITY and WATERFALL. Its WATERFALL
+      # slot is the correct home for the BungeeCord-compatible jar; attaching
+      # that jar to PAPER or VELOCITY would present operators with a download
+      # their platform cannot load.
+      #
+      # Resolve platform versions from Hangar itself on every release. A
+      # hard-coded compatibility list quietly ages while releases continue to
+      # look healthy. The Paper floor comes from the plugin descriptor the jar
+      # was built from; proxy compatibility is bounded by the versions Hangar
+      # currently accepts for those platforms.
+      #
+      # The API key needs create_version and edit_page. edit_page keeps the
+      # checked-in resource page authoritative instead of leaving release
+      # automation healthy beside stale installation guidance.
+      - name: Publish to Hangar
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        env:
+          HANGAR_API_TOKEN: ${{ secrets.HANGAR_API_TOKEN }}
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HANGAR_API_TOKEN:-}" ]; then
+            echo "::error::HANGAR_API_TOKEN is empty; refusing to skip publishing silently."
+            echo "::error::Create a Hangar API key with create_version and edit_page permissions."
+            exit 1
+          fi
+          if [ -z "${RELEASE_TAG:-}" ]; then
+            echo "::error::Release tag is empty; cannot publish a Hangar version."
+            exit 1
+          fi
+
+          API="https://hangar.papermc.io/api/v1"
+          PROJECT="Connect"
+          AUTHOR="minekube"
+          UA="minekube/connect-java release workflow (+https://github.com/minekube/connect-java)"
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+
+          # Authenticate without placing the API key in curl's process
+          # arguments or on disk. Hangar exchanges it for a short-lived JWT.
+          ENCODED_KEY="$(jq -rn --arg key "$HANGAR_API_TOKEN" '$key | @uri')"
+          AUTH_CODE="$(
+            printf 'url = "%s/authenticate?apiKey=%s"\n' "$API" "$ENCODED_KEY" \
+              | curl -sS -K - -X POST -A "$UA" -o "$TMP/auth.json" -w '%{http_code}'
+          )"
+          if [ "$AUTH_CODE" != "200" ]; then
+            echo "::error::HANGAR_API_TOKEN was refused (HTTP $AUTH_CODE)."
+            cat "$TMP/auth.json" || true
+            exit 1
+          fi
+          HANGAR_JWT="$(jq -r '.token // ""' "$TMP/auth.json")"
+          if [ -z "$HANGAR_JWT" ]; then
+            echo "::error::Hangar authentication returned no JWT."
+            exit 1
+          fi
+
+          # The JWT reaches curl through config on stdin. It is not written to
+          # disk and does not appear in the process argument list.
+          api() {
+            local out="$1"
+            shift
+            printf 'header = "Authorization: HangarAuth %s"\n' "$HANGAR_JWT" \
+              | curl -sS -K - -A "$UA" -o "$out" -w '%{http_code}' "$@"
+          }
+
+          # Sync the public resource page before creating an immutable version.
+          # If the token lacks edit_page, fail before partially publishing.
+          jq -n --rawfile content .github/hangar-description.md \
+            '{path: "", content: $content}' > "$TMP/page.json"
+          PAGE_CODE="$(api "$TMP/page-response.json" \
+            -X PATCH "$API/pages/edit/$PROJECT" \
+            -H 'Content-Type: application/json' \
+            --data-binary "@$TMP/page.json")"
+          if [ "$PAGE_CODE" = "401" ] || [ "$PAGE_CODE" = "403" ]; then
+            echo "::error::HANGAR_API_TOKEN cannot edit the Connect resource page (HTTP $PAGE_CODE)."
+            echo "::error::Add the edit_page permission to the Hangar API key."
+            cat "$TMP/page-response.json" || true
+            exit 1
+          fi
+          if [ "$PAGE_CODE" != "200" ]; then
+            echo "::error::Hangar rejected the resource-page update (HTTP $PAGE_CODE)."
+            cat "$TMP/page-response.json" || true
+            exit 1
+          fi
+
+          # Hangar returns accepted version identifiers newest-first. Flatten
+          # each platform at publish time and keep Paper only down to the
+          # api-version floor declared by the plugin being shipped.
+          for platform in PAPER VELOCITY WATERFALL; do
+            curl -sS --fail -A "$UA" \
+              "$API/platforms/$platform/versions" \
+              -o "$TMP/$platform-versions.json"
+          done
+
+          API_FLOOR="$(awk '/^api-version:/ {print $2; exit}' \
+            spigot/src/main/resources/plugin.yml)"
+          if [ -z "$API_FLOOR" ]; then
+            echo "::error::Could not read api-version from spigot/src/main/resources/plugin.yml."
+            exit 1
+          fi
+
+          flatten_versions='[
+            .[] |
+            if (.subVersions | length) > 0
+            then .subVersions[]
+            else .version
+            end
+          ]'
+          PAPER_VERSIONS="$(jq -c --arg floor "$API_FLOOR" "
+            $flatten_versions
+            | (index(\$floor)) as \$i
+            | if \$i == null then
+                error(\"declared api-version \(\$floor) is not a Hangar Paper version\")
+              else .[0:\$i + 1] end
+          " "$TMP/PAPER-versions.json")"
+          # Connect's existing compatibility contract starts at Velocity 3.0.
+          # Hangar also carries historical 1.x identifiers, which this plugin
+          # has never advertised and must not acquire merely because the API
+          # returns them.
+          VELOCITY_FLOOR="3.0"
+          VELOCITY_VERSIONS="$(jq -c --arg floor "$VELOCITY_FLOOR" "
+            $flatten_versions
+            | (index(\$floor)) as \$i
+            | if \$i == null then
+                error(\"Velocity floor \(\$floor) is not a Hangar version\")
+              else .[0:\$i + 1] end
+          " "$TMP/VELOCITY-versions.json")"
+          WATERFALL_VERSIONS="$(jq -c "$flatten_versions" "$TMP/WATERFALL-versions.json")"
+
+          if [ "$(echo "$PAPER_VERSIONS" | jq 'length')" -eq 0 ] \
+            || [ "$(echo "$VELOCITY_VERSIONS" | jq 'length')" -eq 0 ] \
+            || [ "$(echo "$WATERFALL_VERSIONS" | jq 'length')" -eq 0 ]; then
+            echo "::error::Hangar returned an empty accepted-version list for a platform."
+            exit 1
+          fi
+
+          CHANGELOG="Release notes: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG"
+          FILES_JSON='[]'
+          UPLOAD_ARGS=()
+
+          add_file() {
+            local platforms="$1"
+            local jar="$2"
+            if [ ! -f "$jar" ]; then
+              echo "::error::$jar was not produced by this build; nothing to publish."
+              exit 1
+            fi
+            FILES_JSON="$(jq -c --argjson platforms "$platforms" \
+              '. + [{platforms: $platforms}]' <<<"$FILES_JSON")"
+            UPLOAD_ARGS+=(-F "files=@$jar;type=application/java-archive")
+          }
+
+          # Multipart files are positional: keep these calls in the same order
+          # as FILES_JSON so each jar is bound only to its real platform.
+          add_file '["PAPER"]' spigot/build/libs/connect-spigot.jar
+          add_file '["VELOCITY"]' velocity/build/libs/connect-velocity.jar
+          add_file '["WATERFALL"]' bungee/build/libs/connect-bungee.jar
+
+          jq -n \
+            --arg version "$RELEASE_TAG" \
+            --arg description "$CHANGELOG" \
+            --argjson files "$FILES_JSON" \
+            --argjson paper "$PAPER_VERSIONS" \
+            --argjson velocity "$VELOCITY_VERSIONS" \
+            --argjson waterfall "$WATERFALL_VERSIONS" \
+            '{
+               version: $version,
+               channel: "Release",
+               description: $description,
+               files: $files,
+               platformDependencies: {
+                 PAPER: $paper,
+                 VELOCITY: $velocity,
+                 WATERFALL: $waterfall
+               },
+               pluginDependencies: {
+                 PAPER: [],
+                 VELOCITY: [],
+                 WATERFALL: []
+               }
+             }' > "$TMP/version.json"
+
+          ENCODED_TAG="$(jq -rn --arg tag "$RELEASE_TAG" '$tag | @uri')"
+          VERSION_URL="$API/projects/$AUTHOR/$PROJECT/versions/$ENCODED_TAG"
+          EXISTING_CODE="$(curl -sS -A "$UA" -o "$TMP/existing.json" \
+            -w '%{http_code}' "$VERSION_URL")"
+          case "$EXISTING_CODE" in
+            200)
+              echo "Hangar already carries $RELEASE_TAG; verifying it instead of duplicating it."
+              ;;
+            404)
+              UPLOAD_CODE="$(api "$TMP/uploaded.json" \
+                -X POST "$API/projects/$PROJECT/upload" \
+                -F "versionUpload=@$TMP/version.json;type=application/json" \
+                "${UPLOAD_ARGS[@]}")"
+              if [ "$UPLOAD_CODE" = "401" ] || [ "$UPLOAD_CODE" = "403" ]; then
+                echo "::error::HANGAR_API_TOKEN cannot create version $RELEASE_TAG (HTTP $UPLOAD_CODE)."
+                echo "::error::Add the create_version permission to the Hangar API key."
+                cat "$TMP/uploaded.json" || true
+                exit 1
+              fi
+              if [ "$UPLOAD_CODE" != "200" ]; then
+                echo "::error::Hangar rejected version $RELEASE_TAG (HTTP $UPLOAD_CODE)."
+                cat "$TMP/uploaded.json" || true
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::Unexpected HTTP $EXISTING_CODE reading Hangar version $RELEASE_TAG."
+              cat "$TMP/existing.json" || true
+              exit 1
+              ;;
+          esac
+
+          # Read the public version back. The upload response only confirms the
+          # request; the listing and its downloads are the release contract.
+          VERSION_CODE=000
+          for attempt in $(seq 1 12); do
+            VERSION_CODE="$(curl -sS -A "$UA" -o "$TMP/stored.json" \
+              -w '%{http_code}' "$VERSION_URL")"
+            if [ "$VERSION_CODE" = "200" ]; then
+              break
+            fi
+            echo "Hangar version is not public yet (HTTP $VERSION_CODE, attempt $attempt); waiting..."
+            sleep 10
+          done
+          if [ "$VERSION_CODE" != "200" ]; then
+            echo "::error::Hangar version $RELEASE_TAG is not publicly readable (HTTP $VERSION_CODE)."
+            exit 1
+          fi
+
+          verify_platform() {
+            local platform="$1"
+            local jar="$2"
+            local want_sha256 got_sha256 magic
+
+            want_sha256="$(sha256sum "$jar" | awk '{print $1}')"
+            got_sha256="$(jq -r --arg platform "$platform" \
+              '.downloads[$platform].fileInfo.sha256Hash // ""' "$TMP/stored.json")"
+            if [ "$got_sha256" != "$want_sha256" ]; then
+              echo "::error::Hangar stored different bytes for $platform."
+              echo "::error::sha256 built $want_sha256 / stored ${got_sha256:-<absent>}"
+              exit 1
+            fi
+
+            curl -sSL --fail --retry 3 --retry-all-errors --range 0-3 \
+              "$VERSION_URL/$platform/download" -o "$TMP/$platform.magic"
+            magic="$(od -An -tx1 -N4 "$TMP/$platform.magic" | tr -d ' \n')"
+            if [ "$magic" != "504b0304" ]; then
+              echo "::error::Hangar's $platform download is not a JAR (magic ${magic:-<absent>})."
+              exit 1
+            fi
+            echo "OK: $platform serves the jar this run built (sha256 $want_sha256; ZIP magic 504b0304)."
+          }
+
+          verify_platform PAPER spigot/build/libs/connect-spigot.jar
+          verify_platform VELOCITY velocity/build/libs/connect-velocity.jar
+          verify_platform WATERFALL bungee/build/libs/connect-bungee.jar
+
       # Publish the same jars this run just built to the Modrinth listing.
       #
       # THE EVENT GATE IS THIS STEP'S SAFETY PROPERTY. It carries the identical
