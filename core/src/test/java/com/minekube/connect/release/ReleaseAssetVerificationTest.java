@@ -158,9 +158,8 @@ class ReleaseAssetVerificationTest {
 
     /**
      * Pins the second failure condition. A non-empty asset list is not proof of a usable release:
-     * any asset outside a metadata blacklist, such as {@code source.tar.gz}, has a positive count
-     * and still offers no Connect plugin anyone can run. Only a named platform jar may satisfy the
-     * guard.
+     * only an uploaded, non-empty asset matching the positive plugin-JAR allowlist may satisfy the
+     * guard; every other asset, including {@code source.tar.gz}, is rejected.
      */
     @Test
     void releaseVerificationRequiresRealBuildArtifact() throws Exception {
