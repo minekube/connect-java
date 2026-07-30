@@ -156,21 +156,14 @@ jobs:
             TARGETS="$RELEASE_TAG latest"
           fi
 
-          # A non-empty asset list is NOT proof of a usable release. A release
-          # carrying only LICENSE, a checksum manifest, a signature bundle or
-          # an SBOM has a positive asset count and still offers nothing anyone
-          # can run. Counting assets is the same defect as trusting a green run
-          # without checking what it produced, so classify by name/type and
-          # require a real downloadable BUILD artifact (here: the plugin jars).
+          # A non-empty asset list is NOT proof of a usable release. Only an
+          # uploaded, non-empty asset matching the positive plugin-JAR allowlist
+          # counts; every other asset, including source.tar.gz, is rejected.
+          # Require a real downloadable platform jar by name instead.
           BUILD_FILTER='[.assets[]
             | select(.state == "uploaded")
-            | select(.name | test(
-                "^checksums\\.txt$|^SHA(256|512)SUMS$|^LICENSE|^README|"
-                + "\\.sig$|\\.sigstore\\.json$|\\.attest\\.spdx\\.json$|"
-                + "\\.spdx\\.json$|\\.asc$|\\.pem$|\\.sha256$|"
-                + "\\.h$|\\.hpp$|\\.md$|\\.txt$"
-              ) | not)
-            | select(.size > 0)]'
+            | select(.size > 0)
+            | select(.name | test("^connect-(spigot|velocity|bungee).*\\.jar$"))]'
 
           verify_release() {
             local tag="$1"
@@ -242,7 +235,7 @@ jobs:
             # It is the more dangerous one because the release looks populated.
             if [ "$BUILD_COUNT" -eq 0 ]; then
               echo "::error::Release $tag has $ASSET_COUNT asset(s) but NO real build artifact."
-              echo "::error::Only LICENSE/checksums/signatures/SBOMs were published - no plugin jar."
+              echo "::error::No asset matched the positive plugin-JAR allowlist; every non-matching asset, including source.tar.gz, was rejected."
               echo "::error::A positive asset count is not a release; a downloadable build is."
               exit 1
             fi
