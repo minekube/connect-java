@@ -13,12 +13,18 @@ on:
         description: Existing tag to publish or repair. Empty uses the workflow ref.
         required: false
         type: string
+      repair_modrinth_listing:
+        description: One-shot repair of the Minekube Connect listing; does not build or publish a release.
+        required: false
+        type: boolean
+        default: false
   # Trigger on branch push for pre-releases
   push:
     branches: [main]
 
 jobs:
   build:
+    if: ${{ !inputs.repair_modrinth_listing }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -480,3 +486,228 @@ jobs:
           publish_platform velocity velocity/build/libs/connect-velocity.jar '["velocity"]' "Velocity"
           publish_platform spigot   spigot/build/libs/connect-spigot.jar     '["paper","spigot","bukkit"]' "Spigot"
           publish_platform bungee   bungee/build/libs/connect-bungee.jar     '["bungeecord"]' "BungeeCord"
+
+  repair-modrinth-listing:
+    if: ${{ inputs.repair_modrinth_listing }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions: {}
+    steps:
+      - name: Repair and verify public Modrinth listing
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          MODRINTH_PROJECT_ID: PuSyuNRf
+        run: |
+          set -euo pipefail
+
+          if [ -z "${MODRINTH_TOKEN:-}" ]; then
+            echo "::error::MODRINTH_TOKEN is empty; authenticated listing repair is blocked."
+            exit 1
+          fi
+
+          API="https://api.modrinth.com/v2"
+          UA="minekube/connect-java listing repair (+https://github.com/minekube/connect-java)"
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+
+          api() {
+            local out="$1"
+            shift
+            printf 'header = "Authorization: %s"\n' "$MODRINTH_TOKEN" \
+              | curl -sS -K - -A "$UA" -o "$out" -w '%{http_code}' "$@"
+          }
+
+          SUMMARY="Let players join your Minecraft server without port forwarding, a public IP, or a domain — even if it runs on your own PC. Players join with an ordinary Minecraft client."
+          BODY="$(cat <<'MARKDOWN'
+          Connect is a plugin for Minecraft servers and proxies that gives your server a public address
+          players can join, without port forwarding, a public IP address, or a domain of your own.
+
+          Your server never has to accept an incoming connection. The plugin makes an outgoing connection to
+          Minekube's network, and players' connections are carried back to your server over it. That is why a
+          server on a home connection, a laptop, or a machine whose router you do not control is reachable the
+          same way a hosted one is.
+
+          Players join with an ordinary Minecraft client. There is nothing for them to install.
+
+          ## What you get
+
+          - A public address for your server. The plugin prints it to your console when the server starts.
+          - Players are authenticated before they reach you, so an online-mode server stays online-mode.
+          - Bedrock players can join at the same address as Java players, without Geyser or Floodgate on your
+            side and without opening a UDP port. By default, Connect only admits Bedrock players whose
+            Microsoft/Xbox account is linked to a Java account. Ask Minekube to enable unlinked Bedrock accounts
+            for your endpoint; there is no self-service switch.
+          - Your own domain, if you want one, can point at the server instead.
+
+          ## Installing
+
+          Put the jar in your `plugins` folder and start the server. The address appears in the console.
+
+          There is a separate jar per platform — take the one matching what you run from the downloads page
+          below.
+
+          Two things to know before you start:
+
+          - **If your server runs in online mode**, one setting has to be turned off before players can finish
+            joining. The setup guide gives the exact line for each platform.
+          - **If you run a login or auth plugin**, read the login-plugin guide first. Connect authenticates
+            players before they reach your server, and a plugin that insists on authenticating them a second
+            time will leave them stuck on the loading screen with no error.
+
+          ## Where your players' connections go
+
+          Player traffic is carried by Minekube's network, which this plugin connects out to. This is not a
+          self-contained plugin. Servers reachable this way are also listed in Minekube's in-game server
+          browser, and players who try to join while your server is offline are sent there instead. The plans
+          page covers that and what else the plans include.
+
+          ## Links
+
+          - Setup guide: https://connect.minekube.com/guide/quick-start
+          - Login and auth plugins: https://connect.minekube.com/guide/login-plugins
+          - Bedrock players: https://connect.minekube.com/guide/bedrock
+          - Custom domains: https://connect.minekube.com/guide/domains
+          - Plans: https://connect.minekube.com/plans
+          - Downloads and release notes: https://github.com/minekube/connect-java/releases
+          - Source: https://github.com/minekube/connect-java
+          - Support: https://minekube.com/discord
+          MARKDOWN
+          )"
+
+          code="$(api "$TMP/before.json" "$API/project/$MODRINTH_PROJECT_ID")"
+          if [ "$code" != "200" ]; then
+            echo "::error::Authenticated project lookup failed (HTTP $code)."
+            cat "$TMP/before.json" || true
+            exit 1
+          fi
+
+          jq -e --arg id "$MODRINTH_PROJECT_ID" '
+            .id == $id
+            and .slug == "minekube-connect"
+            and .organization == "HZSMfpx8"
+          ' "$TMP/before.json" >/dev/null
+          echo "Before: status=$(jq -r .status "$TMP/before.json"), requested_status=$(jq -r .requested_status "$TMP/before.json")."
+
+          jq -n --arg description "$SUMMARY" --arg body "$BODY" \
+            '{description: $description, body: $body}' > "$TMP/copy.json"
+          code="$(api "$TMP/copy-response.json" -X PATCH "$API/project/$MODRINTH_PROJECT_ID" \
+            -H 'Content-Type: application/json' --data-binary @"$TMP/copy.json")"
+          if [ "$code" != "204" ]; then
+            echo "::error::Description repair failed (HTTP $code)."
+            cat "$TMP/copy-response.json" || true
+            exit 1
+          fi
+
+          status="$(jq -r .status "$TMP/before.json")"
+          case "$status" in
+            approved)
+              echo "Project is already public."
+              ;;
+            archived|unlisted|private)
+              printf '%s\n' '{"status":"approved"}' > "$TMP/status.json"
+              ;;
+            processing)
+              printf '%s\n' '{"requested_status":"approved"}' > "$TMP/status.json"
+              ;;
+            draft|rejected)
+              printf '%s\n' '{"status":"processing","requested_status":"approved"}' > "$TMP/status.json"
+              ;;
+            *)
+              echo "::error::Refusing an unreviewed visibility transition from status '$status'."
+              exit 1
+              ;;
+          esac
+
+          if [ -f "$TMP/status.json" ]; then
+            code="$(api "$TMP/status-response.json" -X PATCH "$API/project/$MODRINTH_PROJECT_ID" \
+              -H 'Content-Type: application/json' --data-binary @"$TMP/status.json")"
+            if [ "$code" != "204" ]; then
+              echo "::error::Visibility transition failed (HTTP $code)."
+              cat "$TMP/status-response.json" || true
+              exit 1
+            fi
+          fi
+
+          code="$(api "$TMP/after-auth.json" "$API/project/$MODRINTH_PROJECT_ID")"
+          [ "$code" = "200" ]
+          jq -e --arg summary "$SUMMARY" --arg body "$BODY" '
+            .id == "PuSyuNRf"
+            and .slug == "minekube-connect"
+            and .organization == "HZSMfpx8"
+            and .description == $summary
+            and .body == $body
+            and (.icon_url | type == "string" and length > 0)
+          ' "$TMP/after-auth.json" >/dev/null
+          echo "After transition: status=$(jq -r .status "$TMP/after-auth.json"), requested_status=$(jq -r .requested_status "$TMP/after-auth.json")."
+
+          code="$(api "$TMP/versions-auth.json" "$API/project/$MODRINTH_PROJECT_ID/version")"
+          [ "$code" = "200" ]
+          jq -e '
+            . as $versions
+            | ["velocity", "spigot", "bungee"]
+            | all(.[]; . as $platform |
+                any($versions[];
+                  .version_number == ("0.13.1+" + $platform)
+                  and any(.files[]; .filename == ("connect-" + $platform + ".jar"))
+                  and (.changelog | contains("https://github.com/minekube/connect-java/releases/tag/0.13.1"))
+                )
+              )
+          ' "$TMP/versions-auth.json" >/dev/null
+          echo "Authenticated inventory contains all three 0.13.1 platform jars and GitHub release links."
+
+          for attempt in $(seq 1 60); do
+            public_code="$(curl -sS -A "$UA" -o "$TMP/project-public.json" -w '%{http_code}' \
+              "$API/project/$MODRINTH_PROJECT_ID")"
+            curl -sS -A "$UA" -o "$TMP/search-public.json" \
+              "$API/search?query=minekube%20connect"
+
+            if [ "$public_code" = "200" ] \
+              && jq -e 'any(.hits[]; .project_id == "PuSyuNRf")' "$TMP/search-public.json" >/dev/null; then
+              jq -e --arg summary "$SUMMARY" --arg body "$BODY" '
+                .description == $summary and .body == $body
+              ' "$TMP/project-public.json" >/dev/null
+
+              curl -sS -A "$UA" "$API/project/$MODRINTH_PROJECT_ID/version" \
+                -o "$TMP/versions-public.json"
+              jq -e '
+                . as $versions
+                | ["velocity", "spigot", "bungee"]
+                | all(.[]; . as $platform |
+                    any($versions[];
+                      .version_number == ("0.13.1+" + $platform)
+                      and any(.files[];
+                        .filename == ("connect-" + $platform + ".jar")
+                        and (.url | startswith("https://cdn.modrinth.com/data/PuSyuNRf/"))
+                      )
+                    )
+                  )
+              ' "$TMP/versions-public.json" >/dev/null
+
+              jq -r '
+                .[]
+                | select(.version_number | startswith("0.13.1+"))
+                | .files[]
+                | select(.primary)
+                | .url
+              ' "$TMP/versions-public.json" | while IFS= read -r jar_url; do
+                code="$(curl -sS -A "$UA" --range 0-3 -o "$TMP/jar-prefix" -w '%{http_code}' "$jar_url")"
+                case "$code" in
+                  200|206) ;;
+                  *)
+                    echo "::error::Anonymous jar download failed (HTTP $code): $jar_url"
+                    exit 1
+                    ;;
+                esac
+                [ "$(od -An -tx1 -N4 "$TMP/jar-prefix" | tr -d ' \n')" = "504b0304" ]
+              done
+
+              echo "Anonymous project lookup is 200, search returns PuSyuNRf, and all three 0.13.1 jars download as ZIP archives."
+              exit 0
+            fi
+
+            echo "Waiting for public listing/search propagation (attempt $attempt/60; project HTTP $public_code)."
+            sleep 30
+          done
+
+          echo "::error::Listing did not become anonymously visible and searchable within 30 minutes."
+          exit 1
