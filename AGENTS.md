@@ -60,8 +60,11 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
   `PAPER`, Velocity jar to `VELOCITY`, and Bungee jar to `WATERFALL` (Hangar
   has no BungeeCord platform). The step reads accepted platform versions at
   publish time, floors Paper from `plugin.yml` and Velocity at the existing
-  3.0 compatibility boundary, then verifies Hangar's stored SHA-256 and each
-  public download's JAR magic. Pinned by
+  3.0 compatibility boundary. The three shaded jars exceed Hangar's
+  Cloudflare request limit as one multipart upload, so the version uses
+  immutable versioned GitHub release URLs, stores their SHA-256 values in the
+  public version description, and verifies GitHub's asset digest plus each
+  Hangar download's final bytes, size, content type, and JAR magic. Pinned by
   `core/.../release/ReleaseHangarPublishTest`; keep its step names in sync.
 
 ### Repairing a release that published no assets
