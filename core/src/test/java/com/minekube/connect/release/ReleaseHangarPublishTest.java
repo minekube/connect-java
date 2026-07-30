@@ -131,20 +131,22 @@ class ReleaseHangarPublishTest {
     }
 
     @Test
-    void hangarPublishMapsEachBuildOutputToTheRightPlatform() throws Exception {
+    void hangarPublishMapsEachVersionedDownloadToTheRightPlatform() throws Exception {
         String script = hangarScript(readBuildJobSteps());
 
-        assertTrue(script.contains("spigot/build/libs/connect-spigot.jar")
+        assertTrue(script.contains("connect-spigot.jar")
                         && script.contains("'[\"PAPER\"]'"),
                 "Spigot jar is not mapped exclusively to PAPER");
-        assertTrue(script.contains("velocity/build/libs/connect-velocity.jar")
+        assertTrue(script.contains("connect-velocity.jar")
                         && script.contains("'[\"VELOCITY\"]'"),
                 "Velocity jar is not mapped exclusively to VELOCITY");
-        assertTrue(script.contains("bungee/build/libs/connect-bungee.jar")
+        assertTrue(script.contains("connect-bungee.jar")
                         && script.contains("'[\"WATERFALL\"]'"),
                 "Bungee jar is not mapped exclusively to Hangar's WATERFALL platform");
-        assertTrue(!script.contains("releases/download/"),
-                "Hangar publishing must upload this run's build output, not release downloads");
+        assertTrue(script.contains("releases/download/$RELEASE_TAG/"),
+                "Hangar does not use immutable versioned GitHub release URLs");
+        assertTrue(!script.contains("files=@"),
+                "Hangar still tries to send all three large jars in one multipart request");
     }
 
     @Test
@@ -204,12 +206,30 @@ class ReleaseHangarPublishTest {
     void hangarPublishVerifiesStoredDigestsAndJarMagic() throws Exception {
         String script = hangarScript(readBuildJobSteps());
 
-        assertTrue(script.contains("sha256sum") && script.contains("sha256Hash"),
-                "Hangar upload is not verified against Hangar's stored SHA-256");
+        assertTrue(script.contains("sha256sum") && script.contains(".digest"),
+                "Hangar download is not verified against GitHub's stored SHA-256");
+        assertTrue(script.contains(".description") && script.contains("SHA-256"),
+                "SHA-256 values are not retained in public Hangar version metadata");
+        assertTrue(script.contains(".size") && script.contains("content-type"),
+                "final download size and content type are not verified");
         assertTrue(script.contains("504b0304"),
                 "Hangar download is not probed for ZIP/JAR magic");
         assertTrue(script.contains("/download"),
                 "Hangar download endpoint is not probed");
+    }
+
+    @Test
+    void hangarPublishVerifiesPublicStateCompatibilityAndPage() throws Exception {
+        String script = hangarScript(readBuildJobSteps());
+
+        assertTrue(script.contains(".visibility") && script.contains("\"public\""),
+                "Hangar version visibility is not verified");
+        assertTrue(script.contains(".reviewState") && script.contains("\"reviewed\""),
+                "Hangar review state is not verified");
+        assertTrue(script.contains(".platformDependencies"),
+                "Hangar compatibility metadata is not verified");
+        assertTrue(script.contains("pages/main/$AUTHOR/$PROJECT"),
+                "public Hangar page is not read back");
     }
 
     @Test

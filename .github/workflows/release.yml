@@ -366,6 +366,13 @@ jobs:
             cat "$TMP/page-response.json" || true
             exit 1
           fi
+          curl -sS --fail -A "$UA" \
+            "$API/pages/main/$AUTHOR/$PROJECT" -o "$TMP/public-page.md"
+          if [ "$(cat "$TMP/public-page.md")" != "$(cat "$TMP/hangar-description.md")" ]; then
+            echo "::error::Hangar's public resource page differs from the checked-in page."
+            diff -u "$TMP/hangar-description.md" "$TMP/public-page.md" || true
+            exit 1
+          fi
 
           # Hangar returns accepted version identifiers newest-first. Flatten
           # each platform at publish time and keep Paper only down to the
@@ -418,27 +425,44 @@ jobs:
             exit 1
           fi
 
-          CHANGELOG="Release notes: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG"
           FILES_JSON='[]'
-          UPLOAD_ARGS=()
 
           add_file() {
             local platforms="$1"
             local jar="$2"
+            local filename="$3"
+            local external_url
             if [ ! -f "$jar" ]; then
               echo "::error::$jar was not produced by this build; nothing to publish."
               exit 1
             fi
-            FILES_JSON="$(jq -c --argjson platforms "$platforms" \
-              '. + [{platforms: $platforms}]' <<<"$FILES_JSON")"
-            UPLOAD_ARGS+=(-F "files=@$jar;type=application/java-archive")
+            external_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$filename"
+            FILES_JSON="$(jq -c \
+              --argjson platforms "$platforms" \
+              --arg external_url "$external_url" \
+              '. + [{platforms: $platforms, externalUrl: $external_url}]' <<<"$FILES_JSON")"
           }
 
-          # Multipart files are positional: keep these calls in the same order
-          # as FILES_JSON so each jar is bound only to its real platform.
-          add_file '["PAPER"]' spigot/build/libs/connect-spigot.jar
-          add_file '["VELOCITY"]' velocity/build/libs/connect-velocity.jar
-          add_file '["WATERFALL"]' bungee/build/libs/connect-bungee.jar
+          # The three shaded jars total about 178 MB, larger than Hangar's
+          # Cloudflare request limit. Hangar's documented API supports external
+          # files, so bind each platform to its immutable versioned GitHub
+          # release URL instead of using mutable "latest" links or trying to
+          # bypass the edge limit.
+          add_file '["PAPER"]' spigot/build/libs/connect-spigot.jar connect-spigot.jar
+          add_file '["VELOCITY"]' velocity/build/libs/connect-velocity.jar connect-velocity.jar
+          add_file '["WATERFALL"]' bungee/build/libs/connect-bungee.jar connect-bungee.jar
+
+          SPIGOT_SHA256="$(sha256sum spigot/build/libs/connect-spigot.jar | awk '{print $1}')"
+          VELOCITY_SHA256="$(sha256sum velocity/build/libs/connect-velocity.jar | awk '{print $1}')"
+          BUNGEE_SHA256="$(sha256sum bungee/build/libs/connect-bungee.jar | awk '{print $1}')"
+          CHANGELOG="$(
+            printf '%s\n\n%s\n%s\n%s\n%s\n' \
+              "Release notes: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" \
+              "SHA-256 (GitHub release assets):" \
+              "- PAPER / connect-spigot.jar: $SPIGOT_SHA256" \
+              "- VELOCITY / connect-velocity.jar: $VELOCITY_SHA256" \
+              "- WATERFALL / connect-bungee.jar: $BUNGEE_SHA256"
+          )"
 
           jq -n \
             --arg version "$RELEASE_TAG" \
@@ -475,8 +499,7 @@ jobs:
             404)
               UPLOAD_CODE="$(api "$TMP/uploaded.json" \
                 -X POST "$API/projects/$PROJECT/upload" \
-                -F "versionUpload=@$TMP/version.json;type=application/json" \
-                "${UPLOAD_ARGS[@]}")"
+                -F "versionUpload=@$TMP/version.json;type=application/json")"
               if [ "$UPLOAD_CODE" = "401" ] || [ "$UPLOAD_CODE" = "403" ]; then
                 echo "::error::HANGAR_API_TOKEN cannot create version $RELEASE_TAG (HTTP $UPLOAD_CODE)."
                 echo "::error::Add the create_version permission to the Hangar API key."
@@ -513,33 +536,117 @@ jobs:
             exit 1
           fi
 
+          if ! jq -e '.visibility == "public" and .reviewState == "reviewed"' \
+            "$TMP/stored.json" >/dev/null; then
+            echo "::error::Hangar version is not both public and reviewed."
+            jq '{visibility, reviewState}' "$TMP/stored.json"
+            exit 1
+          fi
+          if ! jq -e '.downloads | keys | sort == ["PAPER", "VELOCITY", "WATERFALL"]' \
+            "$TMP/stored.json" >/dev/null; then
+            echo "::error::Hangar version does not expose exactly PAPER, VELOCITY and WATERFALL."
+            jq '.downloads | keys' "$TMP/stored.json"
+            exit 1
+          fi
+          if ! jq -e \
+            --argjson paper "$PAPER_VERSIONS" \
+            --argjson velocity "$VELOCITY_VERSIONS" \
+            --argjson waterfall "$WATERFALL_VERSIONS" \
+            '(.platformDependencies.PAPER | sort) == ($paper | sort)
+             and (.platformDependencies.VELOCITY | sort) == ($velocity | sort)
+             and (.platformDependencies.WATERFALL | sort) == ($waterfall | sort)' \
+            "$TMP/stored.json" >/dev/null; then
+            echo "::error::Hangar stored different compatibility metadata than this release declared."
+            jq '.platformDependencies' "$TMP/stored.json"
+            exit 1
+          fi
+
+          curl -sS --fail -A "$UA" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$ENCODED_TAG" \
+            -o "$TMP/github-release.json"
+
           verify_platform() {
             local platform="$1"
             local jar="$2"
-            local want_sha256 got_sha256 magic
+            local filename="$3"
+            local want_url want_sha256 listed_url asset_digest asset_size asset_type
+            local got_sha256 got_size final_type magic
 
+            want_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$filename"
             want_sha256="$(sha256sum "$jar" | awk '{print $1}')"
-            got_sha256="$(jq -r --arg platform "$platform" \
-              '.downloads[$platform].fileInfo.sha256Hash // ""' "$TMP/stored.json")"
-            if [ "$got_sha256" != "$want_sha256" ]; then
-              echo "::error::Hangar stored different bytes for $platform."
-              echo "::error::sha256 built $want_sha256 / stored ${got_sha256:-<absent>}"
+            listed_url="$(jq -r --arg platform "$platform" \
+              '.downloads[$platform].externalUrl // ""' "$TMP/stored.json")"
+            if [ "$listed_url" != "$want_url" ]; then
+              echo "::error::Hangar stored the wrong external URL for $platform."
+              echo "::error::wanted $want_url / stored ${listed_url:-<absent>}"
+              exit 1
+            fi
+            if ! jq -e --arg hash "$want_sha256" '.description | contains($hash)' \
+              "$TMP/stored.json" >/dev/null; then
+              echo "::error::Hangar's public version metadata omits $platform SHA-256."
               exit 1
             fi
 
-            curl -sSL --fail --retry 3 --retry-all-errors --range 0-3 \
-              "$VERSION_URL/$platform/download" -o "$TMP/$platform.magic"
-            magic="$(od -An -tx1 -N4 "$TMP/$platform.magic" | tr -d ' \n')"
+            asset_digest="$(jq -r --arg name "$filename" \
+              'first(.assets[] | select(.name == $name) | .digest) // ""' \
+              "$TMP/github-release.json")"
+            asset_size="$(jq -r --arg name "$filename" \
+              'first(.assets[] | select(.name == $name) | .size) // 0' \
+              "$TMP/github-release.json")"
+            asset_type="$(jq -r --arg name "$filename" \
+              'first(.assets[] | select(.name == $name) | .content_type) // ""' \
+              "$TMP/github-release.json")"
+            if [ "$asset_digest" != "sha256:$want_sha256" ]; then
+              echo "::error::GitHub's stored digest differs for $filename."
+              echo "::error::wanted sha256:$want_sha256 / stored ${asset_digest:-<absent>}"
+              exit 1
+            fi
+
+            curl -sSL --fail --retry 3 --retry-all-errors \
+              -D "$TMP/$platform.headers" \
+              "$VERSION_URL/$platform/download" -o "$TMP/$platform.jar"
+            got_sha256="$(sha256sum "$TMP/$platform.jar" | awk '{print $1}')"
+            got_size="$(wc -c < "$TMP/$platform.jar" | tr -d ' ')"
+            final_type="$(awk '
+              BEGIN { IGNORECASE = 1 }
+              /^content-type:/ {
+                sub(/\r$/, "")
+                sub(/^[^:]*:[[:space:]]*/, "")
+                type = $0
+              }
+              END { print type }
+            ' "$TMP/$platform.headers")"
+            magic="$(od -An -tx1 -N4 "$TMP/$platform.jar" | tr -d ' \n')"
+
+            if [ "$got_sha256" != "$want_sha256" ]; then
+              echo "::error::Hangar's $platform download differs from the released jar."
+              echo "::error::sha256 built $want_sha256 / downloaded $got_sha256"
+              exit 1
+            fi
+            if [ "$got_size" != "$asset_size" ] || [ "$got_size" != "$(wc -c < "$jar" | tr -d ' ')" ]; then
+              echo "::error::Hangar's $platform download has the wrong size."
+              echo "::error::downloaded $got_size / GitHub API $asset_size / built $(wc -c < "$jar")"
+              exit 1
+            fi
+            case "$final_type" in
+              application/java-archive|application/octet-stream) ;;
+              *)
+                echo "::error::Hangar's $platform final content type is ${final_type:-<absent>}."
+                echo "::error::GitHub asset metadata reports ${asset_type:-<absent>}."
+                exit 1
+                ;;
+            esac
             if [ "$magic" != "504b0304" ]; then
               echo "::error::Hangar's $platform download is not a JAR (magic ${magic:-<absent>})."
               exit 1
             fi
-            echo "OK: $platform serves the jar this run built (sha256 $want_sha256; ZIP magic 504b0304)."
+            echo "OK: $platform serves $filename ($got_size bytes, $final_type,"
+            echo "OK: sha256 $want_sha256, ZIP magic 504b0304)."
           }
 
-          verify_platform PAPER spigot/build/libs/connect-spigot.jar
-          verify_platform VELOCITY velocity/build/libs/connect-velocity.jar
-          verify_platform WATERFALL bungee/build/libs/connect-bungee.jar
+          verify_platform PAPER spigot/build/libs/connect-spigot.jar connect-spigot.jar
+          verify_platform VELOCITY velocity/build/libs/connect-velocity.jar connect-velocity.jar
+          verify_platform WATERFALL bungee/build/libs/connect-bungee.jar connect-bungee.jar
 
       # Publish the same jars this run just built to the Modrinth listing.
       #
