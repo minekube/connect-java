@@ -2,6 +2,7 @@ package com.minekube.connect.share.fabric.v26_2
 
 import com.minekube.connect.share.ShareState
 import com.minekube.connect.share.admission.AdmissionIdentity
+import com.minekube.connect.share.admission.Ingress
 import com.minekube.connect.share.fabric.ConnectShareClient
 import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.components.StringWidget
@@ -82,10 +83,14 @@ class ShareStatusScreen(
             val y = 120 + index * 38
             val identity = request.identity
             val badge = when (identity) {
-                is AdmissionIdentity.Authenticated ->
-                    identity.source.name.lowercase()
+                is AdmissionIdentity.Authenticated -> listOfNotNull(
+                    identity.source.name.lowercase(),
+                    identity.ingress.takeUnless { it == Ingress.CONNECT }
+                        ?.displayName(),
+                ).joinToString(" · ")
 
-                is AdmissionIdentity.UnverifiedOffline -> "offline"
+                is AdmissionIdentity.UnverifiedOffline ->
+                    "offline · ${identity.ingress.displayName()}"
             }
             val label = Component.translatable(
                 "connect_share.status.request",
@@ -165,6 +170,12 @@ class ShareStatusScreen(
 
     private fun availability(available: Boolean): Component =
         Component.translatable(if (available) "options.on" else "options.off")
+
+    private fun Ingress.displayName(): String = when (this) {
+        Ingress.CONNECT -> "connect"
+        Ingress.DIRECT_LAN -> "lan"
+        Ingress.DIRECT_INTERNET -> "internet"
+    }
 
     private fun statusKey(state: ShareState): String = when (state) {
         ShareState.Idle -> "connect_share.status.idle"

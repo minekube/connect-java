@@ -2,6 +2,7 @@ package com.minekube.connect.share.fabric.v1_21_11
 
 import com.minekube.connect.share.ShareCoordinator
 import com.minekube.connect.share.fabric.ConnectShareClient
+import com.minekube.connect.tunnel.p2p.DirectP2pNode
 import com.minekube.connect.tunnel.p2p.Libp2pEndpoint
 import com.minekube.connect.tunnel.p2p.Libp2pTunnelTransport
 import java.nio.file.Files
@@ -42,6 +43,10 @@ class Fabric12111ArtifactTest {
             assertTrue(payloadEntries.any { it.startsWith("io/libp2p/") })
             assertTrue(payloadEntries.any { it.startsWith("io/netty/") })
             assertTrue(payloadEntries.any { it.startsWith("kotlin/") })
+            assertTrue(
+                "com/minekube/connect/tunnel/p2p/DirectP2pNodeRuntime.class" in
+                    payloadEntries,
+            )
         }
     }
 
@@ -79,6 +84,7 @@ class Fabric12111ArtifactTest {
         listOf(
             ConnectShareClient::class.java,
             ShareCoordinator::class.java,
+            DirectP2pNode::class.java,
             Libp2pEndpoint::class.java,
             Libp2pTunnelTransport::class.java,
         ).forEach(::assertParentFacingTypes)

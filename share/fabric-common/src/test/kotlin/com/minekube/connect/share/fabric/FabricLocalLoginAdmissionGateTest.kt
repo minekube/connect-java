@@ -16,6 +16,30 @@ import kotlinx.coroutines.test.runTest
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class FabricLocalLoginAdmissionGateTest {
     @Test
+    fun `authenticated direct approval retains its ingress`() = runTest {
+        val admission = admission()
+        val gate = FabricLocalLoginAdmissionGate(
+            FabricLocalLoginAdmission(admission),
+            backgroundScope,
+        )
+
+        gate.request(
+            name = "Alex",
+            uuid = PLAYER_UUID,
+            connectionId = "connection-1",
+            minecraftAuthenticated = true,
+            ingress = Ingress.DIRECT_INTERNET,
+        )
+        runCurrent()
+
+        val identity = assertIs<AdmissionIdentity.Authenticated>(
+            admission.pending.value.single().identity,
+        )
+        assertEquals(Ingress.DIRECT_INTERNET, identity.ingress)
+        admission.resetShare()
+    }
+
+    @Test
     fun `exposes offline login approval as a cancellable Java stage`() = runTest {
         val admission = admission()
         val gate = FabricLocalLoginAdmissionGate(
