@@ -28,6 +28,9 @@ package com.minekube.connect.config;
 import com.minekube.connect.util.Utils;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.regex.Pattern;
 import lombok.Getter;
 
 /**
@@ -36,6 +39,9 @@ import lombok.Getter;
  */
 @Getter
 public class ConnectConfig {
+    private static final Pattern ENDPOINT_PATTERN =
+            Pattern.compile("^[a-z0-9][a-z0-9-]{2,62}$");
+
     private String defaultLocale;
 
     private MetricsConfig metrics;
@@ -47,7 +53,7 @@ public class ConnectConfig {
      * The endpoint name of this instance that is registered when calling the watch service for
      * listening for sessions for this endpoint.
      */
-    private final String endpoint = Utils.randomString(5); // default to random name
+    private final String endpoint;
 
     /**
      * Whether cracked players should be allowed to join.
@@ -67,6 +73,27 @@ public class ConnectConfig {
     private List<String> superEndpoints;
 
     private static final String ENDPOINT_ENV = System.getenv("CONNECT_ENDPOINT");
+
+    public ConnectConfig() {
+        this(Utils.randomString(5));
+    }
+
+    private ConnectConfig(String endpoint) {
+        this.endpoint = endpoint;
+    }
+
+    public static ConnectConfig embedded(String endpoint, boolean allowOfflineModePlayers) {
+        String value = Objects.requireNonNull(endpoint, "endpoint");
+        if (!ENDPOINT_PATTERN.matcher(value).matches()) {
+            throw new IllegalArgumentException("Invalid Connect endpoint name");
+        }
+        ConnectConfig config = new ConnectConfig(value);
+        config.allowOfflineModePlayers = allowOfflineModePlayers;
+        config.metrics = new MetricsConfig();
+        config.metrics.disabled = true;
+        config.metrics.uuid = UUID.randomUUID().toString();
+        return config;
+    }
 
     public String getEndpoint() {
         if (ENDPOINT_ENV != null && !ENDPOINT_ENV.isEmpty()) {
