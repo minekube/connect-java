@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.2](https://github.com/minekube/connect-java/compare/0.13.1...0.13.2) (2026-07-30)
+
+
+### Bug Fixes
+
+* **ci:** load Hangar page during old-tag backfills ([#84](https://github.com/minekube/connect-java/issues/84)) ([f3844cf](https://github.com/minekube/connect-java/commit/f3844cfa82421b57a42551189cf8f99d3f3bf0e8))
+
 ## [0.13.1](https://github.com/minekube/connect-java/compare/0.13.0...0.13.1) (2026-07-28)
 
 
