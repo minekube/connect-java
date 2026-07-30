@@ -16,7 +16,7 @@ tasks {
                 "id" to "connect",
                 "name" to "connect",
                 "version" to fullVersion(),
-                "description" to project.description,
+                "description" to (project.description ?: ""),
                 "url" to "https://minekube.com",
                 "author" to "Minekube"
             )

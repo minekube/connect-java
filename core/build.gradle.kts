@@ -53,11 +53,16 @@ tasks.test {
 
 relocate("org.bstats")
 
-configure<BlossomExtension> {
-    val constantsFile = "src/main/java/com/minekube/connect/util/Constants.java"
-    replaceToken("\${connectVersion}", fullVersion(), constantsFile)
-    replaceToken("\${branch}", branchName(), constantsFile)
-    replaceToken("\${buildNumber}", buildNumber(), constantsFile)
+sourceSets {
+    main {
+        extensions.configure<BlossomExtension> {
+            javaSources {
+                property("connectVersion", fullVersion())
+                property("branch", branchName())
+                property("buildNumber", buildNumber().toString())
+            }
+        }
+    }
 }
 
 protobuf {
