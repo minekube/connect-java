@@ -2,9 +2,10 @@
 
 Connect Edge authenticates Bedrock players with Microsoft/Xbox and signs a short-lived,
 endpoint-scoped identity before forwarding the session. A newly installed Connect Java plugin
-trusts that Minekube-signed identity without extra operator configuration: it fetches the current
-Ed25519 verifier key over HTTPS from Minekube's authoritative metadata endpoint and advertises
-`bedrock-identity-v1` after validating the metadata.
+trusts that Minekube-signed identity without extra operator configuration: it validates the
+metadata URL syntax at registration and advertises `bedrock-identity-v1`. When a Bedrock session
+arrives, it fetches the current Ed25519 verifier key over HTTPS from Minekube's authoritative
+metadata endpoint and verifies the metadata lazily for that session.
 
 This default is appropriate because the Minekube Connect plugin is receiving sessions from the
 Minekube Connect edge. The metadata response contains public verifier keys only. The connector
