@@ -50,6 +50,15 @@ final class Libp2pRuntimeLoader {
             "kotlin.",
             "kotlinx.");
     private static final Set<String> PARENT_FIRST_CLASSES = new HashSet<>(Arrays.asList(
+            "com.minekube.connect.tunnel.p2p.DirectP2pAuthMode",
+            "com.minekube.connect.tunnel.p2p.DirectP2pDiscoveredShare",
+            "com.minekube.connect.tunnel.p2p.DirectP2pDiscoveryListener",
+            "com.minekube.connect.tunnel.p2p.DirectP2pHostConfig",
+            "com.minekube.connect.tunnel.p2p.DirectP2pHostHandler",
+            "com.minekube.connect.tunnel.p2p.DirectP2pHostInfo",
+            "com.minekube.connect.tunnel.p2p.DirectP2pNode",
+            "com.minekube.connect.tunnel.p2p.DirectP2pProxy",
+            "com.minekube.connect.tunnel.p2p.DirectP2pSession",
             "com.minekube.connect.tunnel.p2p.Libp2pEndpoint",
             "com.minekube.connect.tunnel.p2p.Libp2pRuntime",
             "com.minekube.connect.tunnel.p2p.Libp2pRuntimeLoader",
