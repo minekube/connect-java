@@ -54,6 +54,15 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
   `core/.../release/ReleaseModrinthPublishTest`; keep that test's step names in
   sync when editing `release.yml`. Dispatching `release.yml` at an OLD tag
   publishes that tag to Modrinth - the listing is not a backfill target.
+- `release.yml`'s "Publish to Hangar" step publishes to `minekube/Connect` and
+  syncs `.github/hangar-description.md`. `HANGAR_API_TOKEN` needs
+  `create_version` and `edit_page`. Hangar's platform mapping is Paper jar to
+  `PAPER`, Velocity jar to `VELOCITY`, and Bungee jar to `WATERFALL` (Hangar
+  has no BungeeCord platform). The step reads accepted platform versions at
+  publish time, floors Paper from `plugin.yml` and Velocity at the existing
+  3.0 compatibility boundary, then verifies Hangar's stored SHA-256 and each
+  public download's JAR magic. Pinned by
+  `core/.../release/ReleaseHangarPublishTest`; keep its step names in sync.
 
 ### Repairing a release that published no assets
 
