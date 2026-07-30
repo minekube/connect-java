@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.3](https://github.com/minekube/connect-java/compare/0.13.2...0.13.3) (2026-07-30)
+
+
+### Bug Fixes
+
+* **ci:** publish large Hangar releases by URL ([#86](https://github.com/minekube/connect-java/issues/86)) ([4b7ef5f](https://github.com/minekube/connect-java/commit/4b7ef5f39a865130aafb32227d6f840c94fa012e))
+
 ## [0.13.2](https://github.com/minekube/connect-java/compare/0.13.1...0.13.2) (2026-07-30)
 
 
