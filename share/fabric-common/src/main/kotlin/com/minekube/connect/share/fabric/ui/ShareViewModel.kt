@@ -1,0 +1,331 @@
+package com.minekube.connect.share.fabric.ui
+
+import arrow.core.Either
+import com.minekube.connect.share.ShareGameMode
+import com.minekube.connect.share.ShareLifecycleError
+import com.minekube.connect.share.ShareOptions
+import com.minekube.connect.share.ShareState
+import com.minekube.connect.share.admission.PendingAdmission
+import com.minekube.connect.share.identity.CredentialSource
+import com.minekube.connect.share.identity.CredentialValidationError
+import com.minekube.connect.share.identity.EndpointCredentialValidator
+import com.minekube.connect.share.identity.EndpointIdentity
+import com.minekube.connect.share.identity.EndpointIdentityStore
+import java.nio.file.Path
+import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+
+data class EndpointIdentitySummary(
+    val endpoint: String,
+    val endpointSource: CredentialSource,
+    val tokenSource: CredentialSource,
+) {
+    val endpointManagedByEnvironment: Boolean =
+        endpointSource == CredentialSource.ENVIRONMENT
+    val tokenManagedByEnvironment: Boolean =
+        tokenSource == CredentialSource.ENVIRONMENT
+}
+
+data class IdentityImportDraft(
+    val endpoint: String = "",
+    val token: String = "",
+    val endpointEditable: Boolean = true,
+    val tokenEditable: Boolean = true,
+) {
+    override fun toString(): String =
+        "IdentityImportDraft(endpoint=$endpoint, token=<redacted>, " +
+            "endpointEditable=$endpointEditable, tokenEditable=$tokenEditable)"
+}
+
+data class ShareUiState(
+    val worldAvailable: Boolean,
+    val shareState: ShareState,
+    val options: ShareOptions,
+    val pendingAdmissions: List<PendingAdmission>,
+    val identity: EndpointIdentitySummary? = null,
+    val importDraft: IdentityImportDraft = IdentityImportDraft(),
+    val operationInProgress: Boolean = false,
+    val safeMessage: String? = null,
+) {
+    val startEnabled: Boolean
+        get() = worldAvailable &&
+            shareState is ShareState.Idle &&
+            !operationInProgress
+}
+
+interface EndpointIdentityUiActions {
+    suspend fun current(): EndpointIdentitySummary
+
+    suspend fun import(
+        endpoint: String,
+        token: String,
+    ): Either<CredentialValidationError, EndpointIdentitySummary>
+
+    suspend fun importTokenFile(
+        endpoint: String,
+        tokenFile: Path,
+    ): Either<CredentialValidationError, EndpointIdentitySummary>
+
+    suspend fun reset(): Either<CredentialValidationError, EndpointIdentitySummary>
+}
+
+class StoredEndpointIdentityUiActions(
+    private val store: EndpointIdentityStore,
+    private val validator: EndpointCredentialValidator,
+) : EndpointIdentityUiActions {
+    override suspend fun current(): EndpointIdentitySummary =
+        store.currentOrCreate().redactedSummary()
+
+    override suspend fun import(
+        endpoint: String,
+        token: String,
+    ): Either<CredentialValidationError, EndpointIdentitySummary> =
+        store.import(endpoint, token, validator).map(EndpointIdentity::redactedSummary)
+
+    override suspend fun importTokenFile(
+        endpoint: String,
+        tokenFile: Path,
+    ): Either<CredentialValidationError, EndpointIdentitySummary> =
+        store.importTokenFile(endpoint, tokenFile, validator)
+            .map(EndpointIdentity::redactedSummary)
+
+    override suspend fun reset():
+        Either<CredentialValidationError, EndpointIdentitySummary> =
+        store.resetConfirmed().map(EndpointIdentity::redactedSummary)
+}
+
+class ShareViewModel(
+    private val scope: CoroutineScope,
+    shareState: StateFlow<ShareState>,
+    pendingAdmissions: StateFlow<List<PendingAdmission>>,
+    initialWorldAvailable: Boolean,
+    private val identityActions: EndpointIdentityUiActions,
+    private val startShare:
+        suspend (ShareOptions) -> Either<ShareLifecycleError, ShareState.Sharing>,
+    private val stopShare: suspend () -> Either<ShareLifecycleError, Unit>,
+    private val answerAdmission: (UUID, Boolean) -> Unit,
+) {
+    private val mutableState = MutableStateFlow(
+        ShareUiState(
+            worldAvailable = initialWorldAvailable,
+            shareState = shareState.value,
+            options = ShareOptions(
+                gameMode = ShareGameMode.SURVIVAL,
+                allowCheats = false,
+            ),
+            pendingAdmissions = pendingAdmissions.value,
+        ),
+    )
+
+    val state: StateFlow<ShareUiState> = mutableState.asStateFlow()
+
+    init {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            shareState.collectLatest { next ->
+                update { copy(shareState = next) }
+            }
+        }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            pendingAdmissions.collectLatest { next ->
+                update { copy(pendingAdmissions = next) }
+            }
+        }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            runOperation {
+                val identity = identityActions.current()
+                update {
+                    copy(
+                        identity = identity,
+                        importDraft = importDraft.withEditability(identity),
+                    )
+                }
+            }
+        }
+    }
+
+    fun setWorldAvailable(available: Boolean) {
+        update { copy(worldAvailable = available) }
+    }
+
+    fun setGameMode(gameMode: ShareGameMode) {
+        update { copy(options = options.copy(gameMode = gameMode)) }
+    }
+
+    fun setAllowCheats(allowCheats: Boolean) {
+        update { copy(options = options.copy(allowCheats = allowCheats)) }
+    }
+
+    fun setMaxGuests(maxGuests: Int) {
+        update {
+            copy(
+                options = options.copy(
+                    maxGuests = maxGuests.coerceIn(
+                        ShareOptions.MIN_GUESTS,
+                        ShareOptions.MAX_GUESTS,
+                    ),
+                ),
+            )
+        }
+    }
+
+    fun start() {
+        if (!state.value.startEnabled) return
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            runOperation {
+                startShare(state.value.options).fold(
+                    ifLeft = { failure ->
+                        update { copy(safeMessage = failure.safeMessage) }
+                    },
+                    ifRight = {
+                        update { copy(safeMessage = null) }
+                    },
+                )
+            }
+        }
+    }
+
+    fun stop() {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            runOperation {
+                stopShare().fold(
+                    ifLeft = { failure ->
+                        update { copy(safeMessage = failure.safeMessage) }
+                    },
+                    ifRight = {
+                        update { copy(safeMessage = null) }
+                    },
+                )
+            }
+        }
+    }
+
+    fun allow(requestId: UUID) {
+        answerAdmission(requestId, true)
+    }
+
+    fun deny(requestId: UUID) {
+        answerAdmission(requestId, false)
+    }
+
+    fun setImportEndpoint(endpoint: String) {
+        update {
+            if (!importDraft.endpointEditable) {
+                this
+            } else {
+                copy(importDraft = importDraft.copy(endpoint = endpoint))
+            }
+        }
+    }
+
+    fun setImportToken(token: String) {
+        update {
+            if (!importDraft.tokenEditable) {
+                this
+            } else {
+                copy(importDraft = importDraft.copy(token = token))
+            }
+        }
+    }
+
+    fun importIdentity() {
+        val draft = state.value.importDraft
+        if (!draft.endpointEditable || !draft.tokenEditable) {
+            update { copy(safeMessage = MANAGED_MESSAGE) }
+            return
+        }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            runOperation {
+                applyIdentityResult(
+                    identityActions.import(draft.endpoint, draft.token),
+                )
+            }
+        }
+    }
+
+    fun importTokenFile(tokenFile: Path) {
+        val draft = state.value.importDraft
+        if (!draft.endpointEditable || !draft.tokenEditable) {
+            update { copy(safeMessage = MANAGED_MESSAGE) }
+            return
+        }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            runOperation {
+                applyIdentityResult(
+                    identityActions.importTokenFile(draft.endpoint, tokenFile),
+                )
+            }
+        }
+    }
+
+    fun resetIdentity() {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            runOperation {
+                applyIdentityResult(identityActions.reset())
+            }
+        }
+    }
+
+    private fun applyIdentityResult(
+        result: Either<CredentialValidationError, EndpointIdentitySummary>,
+    ) {
+        result.fold(
+            ifLeft = { failure ->
+                update { copy(safeMessage = failure.safeMessage) }
+            },
+            ifRight = { identity ->
+                update {
+                    copy(
+                        identity = identity,
+                        importDraft = IdentityImportDraft()
+                            .withEditability(identity),
+                        safeMessage = null,
+                    )
+                }
+            },
+        )
+    }
+
+    private suspend fun runOperation(operation: suspend () -> Unit) {
+        update { copy(operationInProgress = true) }
+        try {
+            operation()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            update { copy(safeMessage = GENERIC_FAILURE_MESSAGE) }
+        } finally {
+            update { copy(operationInProgress = false) }
+        }
+    }
+
+    private fun update(transform: ShareUiState.() -> ShareUiState) {
+        mutableState.value = mutableState.value.transform()
+    }
+
+    private fun IdentityImportDraft.withEditability(
+        identity: EndpointIdentitySummary,
+    ): IdentityImportDraft = copy(
+        endpointEditable = !identity.endpointManagedByEnvironment,
+        tokenEditable = !identity.tokenManagedByEnvironment,
+    )
+
+    private companion object {
+        const val MANAGED_MESSAGE =
+            "Connect credentials are managed by the environment"
+        const val GENERIC_FAILURE_MESSAGE =
+            "Could not update Connect Share"
+    }
+}
+
+private fun EndpointIdentity.redactedSummary() = EndpointIdentitySummary(
+    endpoint = endpoint,
+    endpointSource = endpointSource,
+    tokenSource = tokenSource,
+)

@@ -12,7 +12,8 @@
   "client": [
     "IntegratedServerAccessor",
     "IntegratedServerMixin",
-    "LanServerPingerAccessor"
+    "LanServerPingerAccessor",
+    "PauseScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1
