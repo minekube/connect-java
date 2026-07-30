@@ -22,10 +22,18 @@
 
 package com.minekube.connect.tunnel.p2p;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.CodeSource;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -34,6 +42,7 @@ import java.util.List;
 import java.util.Set;
 
 final class Libp2pRuntimeLoader {
+    private static final String RUNTIME_RESOURCE = "META-INF/connect/libp2p-runtime.jar";
     private static final List<String> CHILD_FIRST_PREFIXES = Arrays.asList(
             "com.minekube.connect.tunnel.p2p.",
             "io.libp2p.",
@@ -46,32 +55,81 @@ final class Libp2pRuntimeLoader {
             "com.minekube.connect.tunnel.p2p.Libp2pRuntimeLoader",
             "com.minekube.connect.tunnel.p2p.Libp2pTunnelTransport"));
 
-    private static volatile ClassLoader classLoader;
+    private static volatile ChildFirstRuntimeClassLoader classLoader;
+    private static Path runtimePayload;
+    private static boolean shutdownHookInstalled;
 
     private Libp2pRuntimeLoader() {
     }
 
     static ClassLoader classLoader() {
-        ClassLoader existing = classLoader;
+        ChildFirstRuntimeClassLoader existing = classLoader;
         if (existing != null) {
             return existing;
         }
         synchronized (Libp2pRuntimeLoader.class) {
             existing = classLoader;
             if (existing == null) {
-                existing = new ChildFirstRuntimeClassLoader(runtimeUrls(), Libp2pRuntimeLoader.class.getClassLoader());
+                RuntimeLocation runtime = runtimeLocation();
+                existing = new ChildFirstRuntimeClassLoader(
+                        runtime.urls,
+                        Libp2pRuntimeLoader.class.getClassLoader());
                 classLoader = existing;
+                runtimePayload = runtime.payload;
+                installShutdownHook();
             }
             return existing;
         }
     }
 
-    private static URL[] runtimeUrls() {
-        Set<URL> urls = new LinkedHashSet<>();
-        CodeSource codeSource = Libp2pRuntimeLoader.class.getProtectionDomain().getCodeSource();
-        if (codeSource != null && codeSource.getLocation() != null) {
-            urls.add(codeSource.getLocation());
+    static void close() {
+        ChildFirstRuntimeClassLoader closing;
+        Path payload;
+        synchronized (Libp2pRuntimeLoader.class) {
+            closing = classLoader;
+            payload = runtimePayload;
+            classLoader = null;
+            runtimePayload = null;
         }
+        if (closing != null) {
+            try {
+                closing.close();
+            } catch (IOException ignored) {
+                // Closing is best effort during platform shutdown.
+            }
+        }
+        if (payload != null) {
+            try {
+                deleteRuntimePayload(payload);
+            } catch (IOException ignored) {
+                // The operating system can clear a stale temporary payload later.
+            }
+        }
+    }
+
+    private static RuntimeLocation runtimeLocation() {
+        InputStream packaged = Libp2pRuntimeLoader.class
+                .getClassLoader()
+                .getResourceAsStream(RUNTIME_RESOURCE);
+        if (packaged == null) {
+            return new RuntimeLocation(developmentRuntimeUrls(), null);
+        }
+        try (InputStream input = packaged) {
+            Path payload = extractRuntimePayload(input);
+            Set<URL> urls = new LinkedHashSet<>();
+            codeSourceUrl().ifPresent(urls::add);
+            urls.add(payload.toUri().toURL());
+            return new RuntimeLocation(urls.toArray(new URL[0]), payload);
+        } catch (IOException e) {
+            throw new IllegalStateException(
+                    "Could not extract the isolated Connect libp2p runtime",
+                    e);
+        }
+    }
+
+    private static URL[] developmentRuntimeUrls() {
+        Set<URL> urls = new LinkedHashSet<>();
+        codeSourceUrl().ifPresent(urls::add);
         ClassLoader parent = Libp2pRuntimeLoader.class.getClassLoader();
         if (parent instanceof URLClassLoader) {
             urls.addAll(Arrays.asList(((URLClassLoader) parent).getURLs()));
@@ -79,6 +137,65 @@ final class Libp2pRuntimeLoader {
             urls.addAll(classPathUrls());
         }
         return urls.toArray(new URL[0]);
+    }
+
+    static Path extractRuntimePayload(InputStream input) throws IOException {
+        Path directory = Files.createTempDirectory("minekube-connect-libp2p-");
+        Path partial = directory.resolve("libp2p-runtime.part");
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
+        try (DigestInputStream source = new DigestInputStream(input, digest)) {
+            Files.copy(source, partial, StandardCopyOption.REPLACE_EXISTING);
+        } catch (Throwable failure) {
+            Files.deleteIfExists(partial);
+            Files.deleteIfExists(directory);
+            throw failure;
+        }
+
+        String hash = hexadecimal(digest.digest());
+        Path target = directory.resolve("libp2p-runtime-" + hash + ".jar");
+        try {
+            Files.move(partial, target, StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+            Files.move(partial, target);
+        }
+        return target;
+    }
+
+    static void deleteRuntimePayload(Path payload) throws IOException {
+        Files.deleteIfExists(payload);
+        Path directory = payload.getParent();
+        if (directory != null) {
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    private static java.util.Optional<URL> codeSourceUrl() {
+        CodeSource codeSource = Libp2pRuntimeLoader.class.getProtectionDomain().getCodeSource();
+        return codeSource == null
+                ? java.util.Optional.empty()
+                : java.util.Optional.ofNullable(codeSource.getLocation());
+    }
+
+    private static String hexadecimal(byte[] bytes) {
+        StringBuilder value = new StringBuilder(bytes.length * 2);
+        for (byte current : bytes) {
+            value.append(String.format("%02x", current & 0xff));
+        }
+        return value.toString();
+    }
+
+    private static synchronized void installShutdownHook() {
+        if (shutdownHookInstalled) {
+            return;
+        }
+        Runtime.getRuntime().addShutdownHook(
+                new Thread(Libp2pRuntimeLoader::close, "Connect libp2p runtime cleanup"));
+        shutdownHookInstalled = true;
     }
 
     private static List<URL> classPathUrls() {
@@ -95,6 +212,16 @@ final class Libp2pRuntimeLoader {
             }
         }
         return urls;
+    }
+
+    private static final class RuntimeLocation {
+        private final URL[] urls;
+        private final Path payload;
+
+        private RuntimeLocation(URL[] urls, Path payload) {
+            this.urls = urls;
+            this.payload = payload;
+        }
     }
 
     private static final class ChildFirstRuntimeClassLoader extends URLClassLoader {

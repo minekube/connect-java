@@ -1,4 +1,7 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
 plugins {
+    id("connect.shadow-conventions")
     id("net.fabricmc.fabric-loom")
     id("org.jetbrains.kotlin.jvm")
 }
@@ -8,6 +11,8 @@ base {
 }
 
 java {
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
     }
@@ -31,6 +36,11 @@ repositories {
     }
 }
 
+val connectShareParentRuntime by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
 dependencies {
     minecraft("com.mojang:minecraft:26.2")
     implementation("net.fabricmc:fabric-loader:${Versions.fabricLoaderVersion}")
@@ -40,6 +50,12 @@ dependencies {
     implementation(projects.core)
     implementation(projects.share.common)
     implementation(projects.share.fabricCommon)
+    connectShareParentRuntime(projects.share.fabricCommon) {
+        exclude(group = "io.libp2p")
+        exclude(group = "io.netty")
+        exclude(group = "org.jetbrains.kotlin")
+        exclude(group = "org.jetbrains.kotlinx")
+    }
 
     testImplementation(kotlin("test"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -54,4 +70,60 @@ tasks.processResources {
     filesMatching("fabric.mod.json") {
         expand("version" to project.version)
     }
+}
+
+relocate("arrow")
+relocate("aopalliance")
+relocate("cloud.commandframework")
+relocate("com.google.common")
+relocate("com.google.gson")
+relocate("com.google.inject")
+relocate("com.google.protobuf")
+relocate("com.nukkitx.fastutil")
+relocate("io.grpc")
+relocate("io.leangen.geantyref")
+relocate("jakarta.inject")
+relocate("javax.inject")
+relocate("okhttp3")
+relocate("okio")
+relocate("org.bstats")
+relocate("org.geysermc.configutils")
+relocate("org.yaml.snakeyaml")
+
+val libp2pRuntimeJar = tasks.named<ShadowJar>("libp2pRuntimeJar")
+val connectShareShadowJar = tasks.named<ShadowJar>("shadowJar") {
+    configurations = listOf(connectShareParentRuntime)
+    archiveBaseName.set("connect-share-fabric-26.2")
+    archiveVersion.set(project.version.toString())
+    archiveClassifier.set("parent-shadow")
+    mergeServiceFiles()
+    from(rootProject.file("LICENSE"))
+}
+val connectShareJar = tasks.register<Jar>("connectShareJar") {
+    dependsOn(connectShareShadowJar, libp2pRuntimeJar)
+    archiveBaseName.set("connect-share-fabric-26.2")
+    archiveVersion.set(project.version.toString())
+    archiveClassifier.set("")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from({
+        zipTree(connectShareShadowJar.get().archiveFile.get().asFile)
+    })
+    from(libp2pRuntimeJar) {
+        into("META-INF/connect")
+    }
+}
+
+tasks.assemble {
+    dependsOn(connectShareJar)
+}
+
+tasks.test {
+    dependsOn(connectShareJar)
+    systemProperty(
+        "connectShareArtifact",
+        connectShareJar.flatMap { it.archiveFile }
+            .get()
+            .asFile
+            .absolutePath,
+    )
 }

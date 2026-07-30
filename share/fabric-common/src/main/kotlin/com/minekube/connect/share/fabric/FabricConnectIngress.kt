@@ -22,6 +22,7 @@ import com.minekube.connect.share.ConnectShareIngress
 import com.minekube.connect.share.admission.AdmissionController
 import com.minekube.connect.share.identity.EndpointIdentity
 import com.minekube.connect.share.identity.EndpointIdentityStore
+import com.minekube.connect.tunnel.p2p.Libp2pRuntime
 import com.minekube.connect.watch.SessionAdmissionGate
 import java.net.SocketAddress
 import java.nio.file.Files
@@ -164,13 +165,19 @@ private class GuiceFabricConnectRuntimeFactory(
                 )
             }
             return FabricConnectRuntime {
-                platform.disable()
+                try {
+                    platform.disable()
+                } finally {
+                    Libp2pRuntime.close()
+                }
             }
         } catch (failure: Throwable) {
             try {
                 platform.disable()
             } catch (cleanupFailure: Throwable) {
                 failure.addSuppressed(cleanupFailure)
+            } finally {
+                Libp2pRuntime.close()
             }
             throw failure
         }
