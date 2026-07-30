@@ -150,3 +150,76 @@ class FabricLocalLoginAdmission(
         return admission.request(identity)
     }
 }
+
+class FabricLocalLoginAdmissionGate(
+    private val admission: FabricLocalLoginAdmission,
+    private val scope: CoroutineScope,
+) {
+    private val stopped = AtomicBoolean()
+    private val active = ConcurrentHashMap<CompletableFuture<AdmissionAnswer>, Job>()
+
+    fun request(
+        name: String,
+        uuid: UUID,
+        connectionId: String,
+        minecraftAuthenticated: Boolean,
+    ): CompletionStage<AdmissionAnswer> {
+        val future = CompletableFuture<AdmissionAnswer>()
+        if (stopped.get()) {
+            future.cancel(false)
+            return future
+        }
+
+        lateinit var job: Job
+        job = scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                future.complete(
+                    admission.request(
+                        name = name,
+                        uuid = uuid,
+                        connectionId = connectionId,
+                        minecraftAuthenticated = minecraftAuthenticated,
+                    ),
+                )
+            } catch (cancellation: CancellationException) {
+                future.cancel(false)
+                throw cancellation
+            } catch (_: Exception) {
+                future.complete(AdmissionAnswer.DENY)
+            } finally {
+                active.remove(future)
+            }
+        }
+        active[future] = job
+        job.invokeOnCompletion { failure ->
+            active.remove(future)
+            if (failure is CancellationException && !future.isDone) {
+                future.cancel(false)
+            }
+        }
+        future.whenComplete { _, _ ->
+            if (future.isCancelled) {
+                job.cancel()
+            }
+        }
+        if (stopped.get()) {
+            active.remove(future)
+            future.cancel(false)
+            job.cancel()
+        } else {
+            job.start()
+        }
+        return future
+    }
+
+    fun stop() {
+        if (!stopped.compareAndSet(false, true)) {
+            return
+        }
+        active.forEach { (future, job) ->
+            future.cancel(false)
+            job.cancel()
+        }
+        active.clear()
+    }
+}
