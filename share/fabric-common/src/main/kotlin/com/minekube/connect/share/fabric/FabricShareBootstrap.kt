@@ -5,8 +5,10 @@ import com.minekube.connect.identity.EndpointTokenStore
 import com.minekube.connect.share.ShareCoordinator
 import com.minekube.connect.share.VersionedMinecraftBridge
 import com.minekube.connect.share.admission.AdmissionController
+import com.minekube.connect.share.admission.AdmissionIdentity
 import com.minekube.connect.share.fabric.ui.ShareViewModel
 import com.minekube.connect.share.fabric.ui.StoredEndpointIdentityUiActions
+import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.share.friend.SharePreferences
 import com.minekube.connect.share.friend.SharePreferencesStore
 import com.minekube.connect.share.identity.EndpointIdentityStore
@@ -30,7 +32,11 @@ object FabricShareBootstrap {
         playerCount: () -> Int,
         worldDisplayName: () -> String = { "Minecraft world" },
         bridgeFactory:
-            (AdmissionController, CoroutineScope) -> VersionedMinecraftBridge,
+            (
+                AdmissionController,
+                CoroutineScope,
+                ApprovedJoinTracker,
+            ) -> VersionedMinecraftBridge,
         screens: ConnectShareScreenFactory,
         guestScreens: ConnectShareGuestScreenFactory,
         environment: Map<String, String> = System.getenv(),
@@ -38,6 +44,8 @@ object FabricShareBootstrap {
         httpClient: OkHttpClient = OkHttpClient(),
     ): ConnectShareInstallation {
         val viewModelReference = AtomicReference<ShareViewModel?>()
+        val friendStore = FriendStore(dataDirectory)
+        val approvedJoins = ApprovedJoinTracker()
         val admission = AdmissionController(
             scope = scope,
             connectedCount = {
@@ -47,8 +55,26 @@ object FabricShareBootstrap {
                 viewModelReference.get()?.state?.value?.options?.maxGuests
                     ?: DEFAULT_MAX_GUESTS
             },
+            autoApprove = { identity ->
+                runCatching {
+                    friendStore.all().any { friend ->
+                        val directIdentityMatches =
+                            friend.peerId == identity.directPeerId
+                        val minecraftIdentityMatches =
+                            identity is AdmissionIdentity.Authenticated &&
+                                friend.minecraftUuid == identity.uuid
+                        friend.permissions.canJoinAutomatically &&
+                            (directIdentityMatches ||
+                                minecraftIdentityMatches)
+                    }
+                }.getOrDefault(false)
+            },
         )
-        val bridge = bridgeFactory(admission, scope)
+        val bridge = bridgeFactory(
+            admission,
+            scope,
+            approvedJoins,
+        )
         val identityStore = EndpointIdentityStore(
             directory = dataDirectory,
             environment = environment,
@@ -76,6 +102,7 @@ object FabricShareBootstrap {
                 playerCount = playerCount,
             ),
             admission = admission,
+            approvedJoins = approvedJoins,
             scope = scope,
         )
         val directIngress = FabricDirectShareIngress(
@@ -122,6 +149,10 @@ object FabricShareBootstrap {
         return ConnectShareInstallation(
             viewModel = viewModel,
             runtime = runtime,
+            friendCardIssuer = FriendCardIssuer(dataDirectory) {
+                "${identityStore.currentOrCreate().endpoint}.play.minekube.net"
+            },
+            approvedJoins = approvedJoins,
             screens = screens,
             guestScreens = guestScreens,
         )

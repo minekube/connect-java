@@ -33,6 +33,7 @@ import kotlinx.coroutines.CoroutineScope
 class FabricConnectIngress private constructor(
     private val dataDirectory: Path,
     private val admission: AdmissionController,
+    private val approvedJoins: ApprovedJoinTracker,
     private val scope: CoroutineScope,
     private val runtimeFactory: FabricConnectRuntimeFactory,
 ) : ConnectShareIngress {
@@ -42,10 +43,12 @@ class FabricConnectIngress private constructor(
         logger: ConnectLogger,
         platformUtils: FabricPlatformUtils,
         admission: AdmissionController,
+        approvedJoins: ApprovedJoinTracker,
         scope: CoroutineScope,
     ) : this(
         dataDirectory = dataDirectory,
         admission = admission,
+        approvedJoins = approvedJoins,
         scope = scope,
         runtimeFactory = GuiceFabricConnectRuntimeFactory(
             dataDirectory = dataDirectory,
@@ -72,7 +75,11 @@ class FabricConnectIngress private constructor(
             "Connect endpoint identity changed before sharing started"
         }
 
-        val gate = FabricSessionAdmissionGate(admission, scope)
+        val gate = FabricSessionAdmissionGate(
+            admission,
+            scope,
+            approvedJoins,
+        )
         val runtime = try {
             runtimeFactory.start(identity, target, gate)
         } catch (failure: Throwable) {
@@ -98,9 +105,12 @@ class FabricConnectIngress private constructor(
             admission: AdmissionController,
             scope: CoroutineScope,
             runtimeFactory: FabricConnectRuntimeFactory,
+            approvedJoins: ApprovedJoinTracker =
+                ApprovedJoinTracker(),
         ) = FabricConnectIngress(
             dataDirectory = dataDirectory,
             admission = admission,
+            approvedJoins = approvedJoins,
             scope = scope,
             runtimeFactory = runtimeFactory,
         )

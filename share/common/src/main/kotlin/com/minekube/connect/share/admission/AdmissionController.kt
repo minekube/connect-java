@@ -19,6 +19,7 @@ class AdmissionController(
     private val maxPending: Int = 16,
     private val connectedCount: () -> Int,
     private val maxGuests: () -> Int,
+    private val autoApprove: (AdmissionIdentity) -> Boolean = { false },
 ) {
     private val lock = Any()
     private val requests = linkedMapOf<AdmissionKey, PendingRequest>()
@@ -40,6 +41,9 @@ class AdmissionController(
             }
             if (connectedCount() >= maxGuests()) {
                 return@synchronized RequestLookup.Immediate(AdmissionAnswer.CAPACITY)
+            }
+            if (autoApprove(identity)) {
+                return@synchronized RequestLookup.Immediate(AdmissionAnswer.ALLOW)
             }
             if (
                 identity is AdmissionIdentity.Authenticated &&

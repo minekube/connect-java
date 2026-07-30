@@ -39,13 +39,14 @@ data class SavedFriend(
     val capability: String,
     val connectAddress: String?,
     val displayName: String,
+    val minecraftUuid: UUID? = null,
     val permissions: FriendPermissions = FriendPermissions(),
 ) {
     override fun toString(): String =
         "SavedFriend(peerId=$peerId, publicKey=<redacted>, " +
             "shareId=$shareId, capability=<redacted>, " +
             "connectAddress=$connectAddress, displayName=$displayName, " +
-            "permissions=$permissions)"
+            "minecraftUuid=$minecraftUuid, permissions=$permissions)"
 }
 
 sealed interface FriendStoreError {
@@ -106,6 +107,7 @@ class FriendStore(
             capability = invite.payload.capability,
             connectAddress = invite.payload.connectAddress,
             displayName = existing?.displayName ?: normalizedName,
+            minecraftUuid = existing?.minecraftUuid,
             permissions = existing?.permissions ?: FriendPermissions(),
         )
         write(
@@ -132,6 +134,14 @@ class FriendStore(
         permissions: FriendPermissions,
     ): Either<FriendStoreError, SavedFriend> = update(peerId) { friend ->
         friend.copy(permissions = permissions)
+    }
+
+    @Synchronized
+    fun linkMinecraftIdentity(
+        peerId: String,
+        minecraftUuid: UUID,
+    ): Either<FriendStoreError, SavedFriend> = update(peerId) { friend ->
+        friend.copy(minecraftUuid = minecraftUuid)
     }
 
     @Synchronized
@@ -199,6 +209,8 @@ class FriendStore(
         val capability = json.requiredString("capability")
         val connectAddress = json.optionalString("connectAddress")
         val displayName = json.requiredString("displayName")
+        val minecraftUuid = json.optionalString("minecraftUuid")
+            ?.let(UUID::fromString)
         if (
             peerId.isBlank() ||
             publicKey.isBlank() ||
@@ -217,6 +229,7 @@ class FriendStore(
             capability = capability,
             connectAddress = connectAddress,
             displayName = displayName,
+            minecraftUuid = minecraftUuid,
             permissions = FriendPermissions(
                 notifyWhenOnline = permissions.requiredBoolean("notifyWhenOnline"),
                 canSeeMyWorlds = permissions.requiredBoolean("canSeeMyWorlds"),
@@ -242,6 +255,9 @@ class FriendStore(
                     addProperty("connectAddress", it)
                 }
                 addProperty("displayName", friend.displayName)
+                friend.minecraftUuid?.let {
+                    addProperty("minecraftUuid", it.toString())
+                }
                 add(
                     "permissions",
                     JsonObject().apply {

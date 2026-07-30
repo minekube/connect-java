@@ -19,17 +19,17 @@ class ShareSetupScreen(
 
     override fun init() {
         val current = viewModel.state.value
-        minecraft?.singleplayerServer?.let { server ->
+        minecraft.singleplayerServer?.let { server ->
             viewModel.setGameMode(server.defaultGameType.toShareGameMode())
             viewModel.setAllowCheats(server.worldData.isAllowCommands)
         }
 
-        addRenderableWidget(centered(title, 32))
+        addRenderableWidget(centered(title, 18))
         addRenderableWidget(
             centered(
                 Component.translatable("connect_share.setup.description"),
-                52,
-            ),
+                36,
+            ).setMaxWidth(CONTENT_WIDTH),
         )
         addRenderableWidget(
             CycleButton.builder(
@@ -40,7 +40,7 @@ class ShareSetupScreen(
             ).withValues(ShareGameMode.entries)
                 .create(
                     width / 2 - 155,
-                    78,
+                    68,
                     150,
                     20,
                     Component.translatable("selectWorld.gameMode"),
@@ -50,7 +50,7 @@ class ShareSetupScreen(
             CycleButton.onOffBuilder(current.options.allowCheats)
                 .create(
                     width / 2 + 5,
-                    78,
+                    68,
                     150,
                     20,
                     Component.translatable("selectWorld.allowCommands"),
@@ -63,7 +63,7 @@ class ShareSetupScreen(
             ).withValues((1..16).toList())
                 .create(
                     width / 2 - 75,
-                    110,
+                    96,
                     150,
                     20,
                     Component.translatable("connect_share.setup.max_guests"),
@@ -73,7 +73,7 @@ class ShareSetupScreen(
             Checkbox.builder(
                 Component.translatable("connect_share.setup.internet"),
                 font,
-            ).pos(width / 2 - 155, 138)
+            ).pos(width / 2 - 155, 126)
                 .selected(current.options.allowInternetDirect)
                 .onValueChange { _, allowed ->
                     viewModel.setAllowInternetDirect(allowed)
@@ -87,12 +87,20 @@ class ShareSetupScreen(
                 )
                 .build(),
         )
+        addRenderableWidget(
+            centered(
+                Component.translatable(
+                    "connect_share.setup.persistence",
+                ),
+                154,
+            ).setMaxWidth(CONTENT_WIDTH),
+        )
         startButton = addRenderableWidget(
             Button.builder(
                 Component.translatable("connect_share.setup.start"),
             ) {
                 viewModel.start()
-                minecraft?.setScreen(ShareStatusScreen(parent))
+                minecraft.setScreen(ShareStatusScreen(parent))
             }.bounds(width / 2 - 155, height - 28, 150, 20).build(),
         )
         addRenderableWidget(
@@ -109,7 +117,7 @@ class ShareSetupScreen(
     }
 
     override fun onClose() {
-        minecraft?.setScreen(parent)
+        minecraft.setScreen(parent)
     }
 
     private fun refresh() {
@@ -119,6 +127,10 @@ class ShareSetupScreen(
     private fun centered(message: Component, y: Int): StringWidget {
         val textWidth = font.width(message)
         return StringWidget(width / 2 - textWidth / 2, y, textWidth, 9, message, font)
+    }
+
+    private companion object {
+        const val CONTENT_WIDTH = 310
     }
 }
 

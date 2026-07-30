@@ -124,6 +124,7 @@ object Minecraft262LoginBridge {
             connectionId = session.connectionId(),
             minecraftAuthenticated = minecraftAuthenticated,
             ingress = session.route().toIngress(),
+            directPeerId = session.peerId(),
         ).toCompletableFuture()
         channel.closeFuture().addListener {
             decision.cancel(false)

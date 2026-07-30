@@ -28,6 +28,7 @@ object FabricLoginAdmissionRegistry {
         connectionId: String,
         minecraftAuthenticated: Boolean,
         ingress: Ingress,
+        directPeerId: String? = null,
     ): CompletionStage<AdmissionAnswer> {
         val gate = installed.get()
         if (gate == null) {
@@ -39,6 +40,7 @@ object FabricLoginAdmissionRegistry {
             connectionId = connectionId,
             minecraftAuthenticated = minecraftAuthenticated,
             ingress = ingress,
+            directPeerId = directPeerId,
         )
     }
 }

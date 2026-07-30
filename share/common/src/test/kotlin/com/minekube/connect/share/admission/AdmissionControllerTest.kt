@@ -166,15 +166,43 @@ class AdmissionControllerTest {
         assertEquals(AdmissionAnswer.STOPPED, pending.await())
     }
 
+    @Test
+    fun `saved direct peer can join automatically without a pending card`() = runTest {
+        val controller = controller(
+            autoApprove = { it.directPeerId == "12D3KooWSavedFriend" },
+        )
+        val saved = authenticated("Alex", AUTHENTICATED_UUID).copy(
+            directPeerId = "12D3KooWSavedFriend",
+            ingress = Ingress.DIRECT_LAN,
+        )
+
+        val answer = controller.request(saved)
+
+        assertEquals(AdmissionAnswer.ALLOW, answer)
+        assertTrue(controller.pending.value.isEmpty())
+
+        val unknown = async {
+            controller.request(
+                saved.copy(directPeerId = "12D3KooWUnknownFriend"),
+            )
+        }
+        runCurrent()
+        assertEquals(1, controller.pending.value.size)
+        controller.resetShare()
+        assertEquals(AdmissionAnswer.STOPPED, unknown.await())
+    }
+
     private fun kotlinx.coroutines.test.TestScope.controller(
         connectedCount: () -> Int = { 0 },
         maxGuests: () -> Int = { 8 },
+        autoApprove: (AdmissionIdentity) -> Boolean = { false },
     ) = AdmissionController(
         scope = backgroundScope,
         timeout = 30.seconds,
         maxPending = 16,
         connectedCount = connectedCount,
         maxGuests = maxGuests,
+        autoApprove = autoApprove,
     )
 
     private fun authenticated(

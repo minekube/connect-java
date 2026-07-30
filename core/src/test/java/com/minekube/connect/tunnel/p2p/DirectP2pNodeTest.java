@@ -177,6 +177,36 @@ class DirectP2pNodeTest {
     }
 
     @Test
+    void persistentPeerIdentityIsAvailableWithoutOpeningAWorld() {
+        java.nio.file.Path identityFile = tempDir.resolve("friend-peer.key");
+
+        host = new DirectP2pNode(identityFile);
+        String firstPeerId = host.peerId();
+        host.close();
+        host = null;
+        Libp2pRuntime.close();
+
+        host = new DirectP2pNode(identityFile);
+
+        assertEquals(firstPeerId, host.peerId());
+        assertFalse(firstPeerId.isBlank());
+    }
+
+    @Test
+    void persistentIdentityCanSignAFriendCardWithoutOpeningAWorld() throws Exception {
+        host = new DirectP2pNode(tempDir.resolve("friend-card-peer.key"));
+        byte[] message = "friend card".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        byte[] signature = host.sign(message);
+
+        Signature verifier = Signature.getInstance("Ed25519");
+        verifier.initVerify(KeyFactory.getInstance("Ed25519").generatePublic(
+                new X509EncodedKeySpec(host.publicKey())));
+        verifier.update(message);
+        assertTrue(verifier.verify(signature));
+    }
+
+    @Test
     void publishedHostMetadataCanBeInspectedWithoutAdvertisingItsCapability() {
         host = new DirectP2pNode();
         DirectP2pHostInfo hostInfo = host.startHost(

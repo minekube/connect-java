@@ -70,6 +70,24 @@ class FriendStoreTest {
     }
 
     @Test
+    fun `approved friend can be bound to an authenticated Minecraft identity`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        val minecraftUuid = UUID.fromString(
+            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        )
+
+        assertIs<Either.Right<SavedFriend>>(
+            store.linkMinecraftIdentity(PEER_ID, minecraftUuid),
+        )
+
+        assertEquals(
+            minecraftUuid,
+            FriendStore(tempDir).all().single().minecraftUuid,
+        )
+    }
+
+    @Test
     fun `removing a friend revokes the locally stored relationship`() {
         val store = FriendStore(tempDir)
         store.accept(signedLink(), "Robin", NOW)
