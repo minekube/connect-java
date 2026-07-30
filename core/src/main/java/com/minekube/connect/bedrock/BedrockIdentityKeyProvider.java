@@ -112,14 +112,17 @@ public final class BedrockIdentityKeyProvider {
         return Collections.emptyList();
     }
 
-    synchronized boolean hasUsableKeys() {
-        List<byte[]> keys = keys();
+    synchronized boolean hasConfiguredKeySource() {
         String metadataUrl = config().getBedrockIdentity().getMetadataUrl();
-        if (metadataUrl == null || metadataUrl.isEmpty()) {
-            return !keys.isEmpty();
+        if (metadataUrl != null && !metadataUrl.isEmpty()) {
+            try {
+                validMetadataUrl(metadataUrl);
+                return true;
+            } catch (IllegalArgumentException ignored) {
+                return false;
+            }
         }
-        Instant current = now.get();
-        return cachedKeys != null && !cachedKeys.keys.isEmpty() && current.isBefore(cachedKeys.staleUntil);
+        return !staticKeys().isEmpty();
     }
 
     private RemoteKeys fetchKeys(String metadataUrl) throws IOException {
