@@ -1,6 +1,7 @@
 package com.minekube.connect.share.fabric.ui
 
 import arrow.core.Either
+import com.minekube.connect.share.ShareLifecycleError
 import com.minekube.connect.share.ShareOptions
 import com.minekube.connect.share.ShareState
 import com.minekube.connect.share.admission.AdmissionIdentity
@@ -130,6 +131,48 @@ class ShareViewModelTest {
         )
     }
 
+    @Test
+    fun `starting enables persistent friend sharing and stopping disables it`() = runTest {
+        val persisted = mutableListOf<Boolean>()
+        val viewModel = viewModel(
+            persistShareWithFriends = persisted::add,
+        )
+        advanceUntilIdle()
+
+        viewModel.start()
+        advanceUntilIdle()
+        viewModel.stop()
+        advanceUntilIdle()
+
+        assertEquals(listOf(true, false), persisted)
+        assertFalse(viewModel.state.value.shareWithFriendsEnabled)
+    }
+
+    @Test
+    fun `enabled friend sharing resumes automatically in a new world`() = runTest {
+        var starts = 0
+        val viewModel = viewModel(
+            worldAvailable = false,
+            initialShareWithFriends = true,
+            startShare = {
+                starts++
+                Either.Right(
+                    ShareState.Sharing(
+                        endpoint = "share",
+                        address = "share.example.test",
+                    ),
+                )
+            },
+        )
+        advanceUntilIdle()
+
+        viewModel.setWorldAvailable(true)
+        viewModel.resumeIfEnabled()
+
+        assertEquals(1, starts)
+        assertTrue(viewModel.state.value.shareWithFriendsEnabled)
+    }
+
     private fun TestScope.viewModel(
         shareState: MutableStateFlow<ShareState> =
             MutableStateFlow(ShareState.Idle),
@@ -139,20 +182,27 @@ class ShareViewModelTest {
         identityActions: EndpointIdentityUiActions =
             FakeIdentityActions(localIdentity()),
         answerAdmission: (UUID, Boolean) -> Unit = { _, _ -> },
+        initialShareWithFriends: Boolean = false,
+        persistShareWithFriends: (Boolean) -> Unit = {},
+        startShare:
+            suspend (ShareOptions) -> Either<ShareLifecycleError, ShareState.Sharing> =
+            { options ->
+                Either.Right(
+                    ShareState.Sharing(
+                        endpoint = "share",
+                        address = "${options.maxGuests}.example.test",
+                    ),
+                )
+            },
     ) = ShareViewModel(
         scope = backgroundScope,
         shareState = shareState,
         pendingAdmissions = pending,
         initialWorldAvailable = worldAvailable,
         identityActions = identityActions,
-        startShare = { options ->
-            Either.Right(
-                ShareState.Sharing(
-                    endpoint = "share",
-                    address = "${options.maxGuests}.example.test",
-                ),
-            )
-        },
+        initialShareWithFriendsEnabled = initialShareWithFriends,
+        persistShareWithFriendsEnabled = persistShareWithFriends,
+        startShare = startShare,
         stopShare = { Either.Right(Unit) },
         answerAdmission = answerAdmission,
     )

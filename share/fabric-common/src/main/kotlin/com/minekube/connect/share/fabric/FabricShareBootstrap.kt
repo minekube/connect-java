@@ -7,6 +7,8 @@ import com.minekube.connect.share.VersionedMinecraftBridge
 import com.minekube.connect.share.admission.AdmissionController
 import com.minekube.connect.share.fabric.ui.ShareViewModel
 import com.minekube.connect.share.fabric.ui.StoredEndpointIdentityUiActions
+import com.minekube.connect.share.friend.SharePreferences
+import com.minekube.connect.share.friend.SharePreferencesStore
 import com.minekube.connect.share.identity.EndpointIdentityStore
 import com.minekube.connect.util.MessageFormatter
 import java.nio.file.Path
@@ -53,6 +55,13 @@ object FabricShareBootstrap {
             endpointNames = RandomEndpointNameSource(httpClient),
             tokenStore = EndpointTokenStore(),
         )
+        val preferencesStore = SharePreferencesStore(dataDirectory)
+        val initialPreferences = try {
+            preferencesStore.load()
+        } catch (_: Exception) {
+            logger.warn("Connect Share preferences could not be loaded")
+            SharePreferences()
+        }
         val validator = WatchEndpointCredentialValidator(
             client = httpClient,
             watchUrl = watchHttpUrl(environment),
@@ -86,6 +95,13 @@ object FabricShareBootstrap {
             shareState = coordinator.state,
             pendingAdmissions = admission.pending,
             initialWorldAvailable = worldAvailable,
+            initialShareWithFriendsEnabled =
+                initialPreferences.shareWithFriends,
+            persistShareWithFriendsEnabled = { enabled ->
+                preferencesStore.save(
+                    SharePreferences(shareWithFriends = enabled),
+                )
+            },
             identityActions = StoredEndpointIdentityUiActions(
                 store = identityStore,
                 validator = validator,
@@ -100,6 +116,7 @@ object FabricShareBootstrap {
             stopShare = {
                 coordinator.worldReplaced()
             },
+            resumeShare = viewModel::resumeIfEnabled,
             worldAvailabilityChanged = viewModel::setWorldAvailable,
         )
         return ConnectShareInstallation(
