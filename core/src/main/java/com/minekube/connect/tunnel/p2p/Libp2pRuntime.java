@@ -37,4 +37,12 @@ public final class Libp2pRuntime {
     public static String hostClassName() {
         return "io.libp2p.core.Host";
     }
+
+    /**
+     * Releases the isolated runtime class loader and its extracted payload.
+     * A later Connect start creates a fresh isolated runtime.
+     */
+    public static void close() {
+        Libp2pRuntimeLoader.close();
+    }
 }
