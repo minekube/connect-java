@@ -70,7 +70,26 @@ class Fabric12111ArtifactTest {
                     false,
                     runtimeLoader,
                 )
+                val directRuntime = Class.forName(
+                    "com.minekube.connect.tunnel.p2p.DirectP2pNodeRuntime",
+                    false,
+                    runtimeLoader,
+                )
                 assertTrue(host.classLoader === runtimeLoader)
+                assertTrue(directRuntime.classLoader === runtimeLoader)
+                val directCodeSource =
+                    directRuntime.protectionDomain.codeSource.location
+                assertNotNull(directCodeSource)
+                assertTrue(
+                    directCodeSource.toString().contains("libp2p-runtime-"),
+                )
+                val nodeType = Class.forName(
+                    "com.minekube.connect.tunnel.p2p.DirectP2pNode",
+                    true,
+                    artifactLoader,
+                )
+                val node = nodeType.getDeclaredConstructor().newInstance()
+                nodeType.getMethod("close").invoke(node)
             } finally {
                 loaderType.getDeclaredMethod("close")
                     .apply { isAccessible = true }

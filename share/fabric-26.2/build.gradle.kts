@@ -90,7 +90,16 @@ relocate("org.bstats")
 relocate("org.geysermc.configutils")
 relocate("org.yaml.snakeyaml")
 
-val libp2pRuntimeJar = tasks.named<ShadowJar>("libp2pRuntimeJar")
+val libp2pRuntimeJar = tasks.named<ShadowJar>("libp2pRuntimeJar") {
+    dependsOn(":core:classes")
+    from(rootProject.project(":core").layout.buildDirectory.dir("classes/java/main")) {
+        include(
+            "com/minekube/connect/tunnel/p2p/DirectP2pNodeRuntime*.class",
+            "com/minekube/connect/tunnel/p2p/Libp2pEndpointRuntime*.class",
+            "com/minekube/connect/tunnel/p2p/impl/Libp2pTunnelTransportRuntime*.class",
+        )
+    }
+}
 val connectShareShadowJar = tasks.named<ShadowJar>("shadowJar") {
     configurations = listOf(connectShareParentRuntime)
     archiveBaseName.set("connect-share-fabric-26.2")

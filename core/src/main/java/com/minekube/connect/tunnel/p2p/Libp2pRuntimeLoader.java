@@ -127,8 +127,8 @@ final class Libp2pRuntimeLoader {
         try (InputStream input = packaged) {
             Path payload = extractRuntimePayload(input);
             Set<URL> urls = new LinkedHashSet<>();
-            codeSourceUrl().ifPresent(urls::add);
             urls.add(payload.toUri().toURL());
+            codeSourceUrl().ifPresent(urls::add);
             return new RuntimeLocation(urls.toArray(new URL[0]), payload);
         } catch (IOException e) {
             throw new IllegalStateException(
