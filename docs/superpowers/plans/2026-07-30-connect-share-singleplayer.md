@@ -295,7 +295,7 @@ git commit -m "build: add multi-version Fabric Share modules"
 - Consumes: `Utils.randomSecureString(20)` and Gson.
 - Produces: `EndpointTokenStore.load(Path, Map<String,String>)`, `loadOrCreate(Path, Map<String,String>)`, `save(Path,String)`, `generate()`, and `redact(String)`.
 
-- [ ] **Step 1: Write failing token-store tests**
+- [x] **Step 1: Write failing token-store tests**
 
 Cover these exact cases:
 
@@ -316,7 +316,7 @@ assertEquals(token, new Gson().fromJson(Files.readString(file), JsonObject.class
 assertFalse(EndpointTokenStore.redact(token).contains(token));
 ```
 
-- [ ] **Step 2: Run the focused test and observe failure**
+- [x] **Step 2: Run the focused test and observe failure**
 
 Run:
 
@@ -326,7 +326,7 @@ Run:
 
 Expected: compilation fails because `EndpointTokenStore` does not exist.
 
-- [ ] **Step 3: Implement the store**
+- [x] **Step 3: Implement the store**
 
 `EndpointTokenStore` must:
 
@@ -344,7 +344,7 @@ public final class EndpointTokenStore {
 
 `save` writes `{"token":"T-AAAAAAAAAAAAAAAAAAAA"}` to a sibling temporary file, applies owner read/write permissions when POSIX permissions are supported, then moves with `ATOMIC_MOVE` and `REPLACE_EXISTING`, falling back to `REPLACE_EXISTING` only when atomic moves are unsupported. `load` validates the environment or disk value before returning it.
 
-- [ ] **Step 4: Make CommonModule use the shared store**
+- [x] **Step 4: Make CommonModule use the shared store**
 
 Replace the private `CommonModule.Token` class with an injected/provider-created `EndpointTokenStore` and:
 
@@ -356,7 +356,7 @@ return endpointTokenStore.loadOrCreate(
 
 Keep the existing `CommonModuleTest.connectTokenIsPersistedForAllConnectClients` green.
 
-- [ ] **Step 5: Run token and core tests**
+- [x] **Step 5: Run token and core tests**
 
 Run:
 
@@ -366,7 +366,7 @@ Run:
 
 Expected: all focused tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add core/src/main/java/com/minekube/connect/identity core/src/test/java/com/minekube/connect/identity core/src/main/java/com/minekube/connect/module/CommonModule.java core/src/test/java/com/minekube/connect/module/CommonModuleTest.java

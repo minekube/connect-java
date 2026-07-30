@@ -32,7 +32,7 @@ class CommonModuleTest {
                 platformUtils,
                 "spigot",
                 new SimpleConnectApi(mock(ConnectLogger.class)),
-                module.connectToken()
+                module.connectToken(module.endpointTokenStore())
         );
 
         try (MockWebServer server = new MockWebServer()) {
@@ -56,10 +56,10 @@ class CommonModuleTest {
     void connectTokenIsPersistedForAllConnectClients() throws Exception {
         CommonModule module = new CommonModule(tempDir);
 
-        String token = module.connectToken();
+        String token = module.connectToken(module.endpointTokenStore());
 
         assertTrue(token.startsWith("T-"));
-        assertEquals(token, module.connectToken());
+        assertEquals(token, module.connectToken(module.endpointTokenStore()));
         assertTrue(java.nio.file.Files.readString(tempDir.resolve("token.json")).contains(token));
     }
 
@@ -72,7 +72,7 @@ class CommonModuleTest {
                 platformUtils,
                 "spigot",
                 new SimpleConnectApi(mock(ConnectLogger.class)),
-                module.connectToken()
+                module.connectToken(module.endpointTokenStore())
         );
         OkHttpClient watchClient = module.watchOkHttpClient(connectClient);
 
