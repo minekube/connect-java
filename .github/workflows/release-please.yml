@@ -133,6 +133,7 @@ jobs:
           for _ in $(seq 1 30); do
             if gh pr merge "$PR_NUMBER" \
               --repo "${{ github.repository }}" \
+              --match-head-commit "$HEAD_SHA" \
               --merge; then
               break
             fi

@@ -102,5 +102,7 @@ class ReleasePleaseCheckAuditTest {
                 "release-please does not reject incomplete or unsuccessful native checks");
         assertTrue(script.contains("CURRENT_HEAD_SHA") && script.contains("!= \"$HEAD_SHA\""),
                 "release-please does not refuse a merge when the PR moved after validation");
+        assertTrue(script.contains("--match-head-commit \"$HEAD_SHA\""),
+                "release-please does not atomically merge only the validated PR head");
     }
 }
