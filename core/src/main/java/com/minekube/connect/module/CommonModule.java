@@ -25,10 +25,6 @@
 
 package com.minekube.connect.module;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import com.google.gson.Gson;
-import com.google.gson.annotations.SerializedName;
 import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
 import com.google.inject.Singleton;
@@ -46,6 +42,7 @@ import com.minekube.connect.config.ConfigLoader;
 import com.minekube.connect.config.ConfigLoader.EndpointNameGenerator;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.inject.CommonPlatformInjector;
+import com.minekube.connect.identity.EndpointTokenStore;
 import com.minekube.connect.packet.PacketHandlersImpl;
 import com.minekube.connect.platform.util.PlatformUtils;
 import com.minekube.connect.tunnel.TunnelClientTransport;
@@ -55,14 +52,8 @@ import com.minekube.connect.util.Constants;
 import com.minekube.connect.util.HttpUtils;
 import com.minekube.connect.util.LanguageManager;
 import com.minekube.connect.util.Metrics;
-import com.minekube.connect.util.Utils;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.io.Reader;
-import java.io.Writer;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import okhttp3.OkHttpClient;
@@ -139,17 +130,17 @@ public class CommonModule extends AbstractModule {
 
     @Provides
     @Singleton
-    @Named("connectToken")
-    public String connectToken() throws IOException {
-        Path tokenFile = dataDirectory.resolve("token.json");
+    public EndpointTokenStore endpointTokenStore() {
+        return new EndpointTokenStore();
+    }
 
-        Optional<String> token = Token.load(tokenFile);
-        if (!token.isPresent()) {
-            String t = Token.generate();
-            Token.save(tokenFile, t);
-            token = Optional.of(t);
-        }
-        return token.get();
+    @Provides
+    @Singleton
+    @Named("connectToken")
+    public String connectToken(EndpointTokenStore endpointTokenStore) throws IOException {
+        return endpointTokenStore.loadOrCreate(
+                dataDirectory.resolve("token.json"),
+                System.getenv());
     }
 
     @Provides
@@ -196,37 +187,4 @@ public class CommonModule extends AbstractModule {
                 .build();
     }
 
-    @RequiredArgsConstructor
-    private static class Token {
-        @SerializedName("token") final String token;
-
-        static Optional<String> load(Path tokenFile) throws IOException {
-            String TOKEN_ENV = System.getenv("CONNECT_TOKEN");
-            if (TOKEN_ENV != null && !TOKEN_ENV.isEmpty()) {
-                return Optional.of(TOKEN_ENV);
-            } else {
-                if (Files.exists(tokenFile)) {
-                    // Read existing token file
-                    try (Reader reader = Files.newBufferedReader(tokenFile)) {
-                        return Optional.ofNullable(new Gson().fromJson(reader, Token.class))
-                                .map(t -> t.token);
-                    }
-                }
-                return Optional.empty();
-            }
-        }
-
-        static void save(Path tokenFile, String token) throws IOException {
-            checkNotNull(tokenFile);
-            checkNotNull(token);
-            tokenFile.toFile().getParentFile().mkdirs(); // In case our data directory doesn't exist yet
-            try (Writer writer = new FileWriter(tokenFile.toFile())) {
-                new Gson().toJson(new Token(token), writer);
-            }
-        }
-
-        static String generate() {
-            return "T-" + Utils.randomSecureString(20);
-        }
-    }
 }
