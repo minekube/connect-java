@@ -13,6 +13,28 @@ low latency edge proxies network nearest to you.
 
 Please refer to https://connect.minekube.com for more documentation.
 
+## Connect Share Fabric mod
+
+Connect Share is an in-development client-side Fabric mod for Minecraft Java
+1.21.11 and 26.2. It shares a singleplayer world through the normal Connect
+network without exposing Minecraft's LAN listener to the local network.
+
+The first slice provides:
+
+- a native **Share with Connect** flow in the pause menu;
+- one persistent endpoint identity reused across worlds and restarts;
+- import of an existing dashboard endpoint and token, including `token.json`;
+- `CONNECT_ENDPOINT` and `CONNECT_TOKEN` environment overrides;
+- a stable `*.play.minekube.net` address for unmodified Java clients;
+- host approval before each new guest reaches the world;
+- support for both authenticated and offline-mode guests; and
+- isolated, self-contained Fabric artifacts for both supported game versions.
+
+The mod artifacts have their own build and acceptance process. They are not part
+of the stable proxy/plugin release workflow. See
+[docs/connect-share-testing.md](docs/connect-share-testing.md) for the manual
+singleplayer acceptance pass.
+
 ## Integrating with login / auth plugins
 
 Connect authenticates players at the edge, so login plugins that force online mode on a
