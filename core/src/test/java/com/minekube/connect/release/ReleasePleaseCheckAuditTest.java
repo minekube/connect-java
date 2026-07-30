@@ -104,5 +104,13 @@ class ReleasePleaseCheckAuditTest {
                 "release-please does not refuse a merge when the PR moved after validation");
         assertTrue(script.contains("--match-head-commit \"$HEAD_SHA\""),
                 "release-please does not atomically merge only the validated PR head");
+        assertTrue(script.contains("if [ \"$STATE\" = \"MERGED\" ]; then")
+                        && script.contains(
+                                "CURRENT_HEAD_SHA=$(jq -r '.headRefOid' <<< \"$PR_STATE_JSON\")")
+                        && script.contains("Release PR #$PR_NUMBER merged at unvalidated head"),
+                "release-please accepts an externally merged unvalidated head");
+        assertTrue(script.contains(
+                        "if [ \"$STATE\" != \"MERGED\" ] || [ \"$CURRENT_HEAD_SHA\" != \"$HEAD_SHA\" ]; then"),
+                "release-please does not verify the final merged head");
     }
 }
