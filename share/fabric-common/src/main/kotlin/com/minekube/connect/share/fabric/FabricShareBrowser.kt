@@ -133,8 +133,10 @@ class FabricShareBrowser private constructor(
             ifRight = { it },
         )
         val payload = invitation.payload
+        val effectiveLanAddress =
+            lanAddress ?: matchingLanAddress(invitation)
         val routes = TransportSelector.plan(
-            sameLan = lanAddress != null,
+            sameLan = effectiveLanAddress != null,
             hostInternetOptIn = payload.internetDirectEnabled,
             guestInternetOptIn = internetOptIn,
             connectAddress = payload.connectAddress,
@@ -143,7 +145,7 @@ class FabricShareBrowser private constructor(
             for (route in routes.distinct()) {
                 when (route) {
                     ShareRoute.DIRECT_LAN -> {
-                        val address = lanAddress ?: continue
+                        val address = effectiveLanAddress ?: continue
                         openDirect(
                             route,
                             address,
@@ -202,6 +204,17 @@ class FabricShareBrowser private constructor(
                 it.invitation.payload.shareId == invitation.payload.shareId
             } + found
         ).takeLast(MAX_DISCOVERED_SHARES)
+    }
+
+    private fun matchingLanAddress(
+        invitation: SignedShareInvite,
+    ): String? {
+        val payload = invitation.payload
+        return mutableDiscovered.value.firstOrNull {
+            val discovered = it.invitation.payload
+            discovered.shareId == payload.shareId &&
+                discovered.peerId == payload.peerId
+        }?.lanAddress
     }
 
     private fun openDirect(
