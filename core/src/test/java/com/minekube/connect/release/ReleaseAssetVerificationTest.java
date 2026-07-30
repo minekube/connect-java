@@ -25,10 +25,13 @@
 
 package com.minekube.connect.release;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -109,6 +112,40 @@ class ReleaseAssetVerificationTest {
         return (String) run;
     }
 
+    private static String buildFilter(String script) {
+        java.util.regex.Matcher matcher = Pattern.compile("(?s)BUILD_FILTER='(\\[.*?\\])'")
+                .matcher(script);
+        assertTrue(matcher.find(), "verification script is missing BUILD_FILTER");
+        return matcher.group(1);
+    }
+
+    /**
+     * Executes the build-artifact decision from the workflow against a captured release payload.
+     */
+    private static int runBuildArtifactGuard(String filter, String releaseJson) throws Exception {
+        String guard = String.join("\n",
+                "set -euo pipefail",
+                "RELEASE_JSON=$(cat)",
+                "BUILD_COUNT=$(printf '%s' \"$RELEASE_JSON\" | jq '"
+                        + filter + " | length')",
+                "if [ \"$BUILD_COUNT\" -eq 0 ]; then",
+                "  exit 1",
+                "fi");
+
+        Process process = new ProcessBuilder("bash", "-c", guard)
+                .redirectErrorStream(true)
+                .start();
+        try (OutputStream stdin = process.getOutputStream()) {
+            stdin.write(releaseJson.getBytes(StandardCharsets.UTF_8));
+        }
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        int exitCode = process.waitFor();
+        assertTrue(exitCode == 0 || exitCode == 1,
+                "build-artifact guard harness failed unexpectedly (exit " + exitCode + "): "
+                        + output);
+        return exitCode;
+    }
+
     /**
      * The core regression guard: the release job must fail when the published release carries no
      * downloadable artifact.
@@ -172,6 +209,25 @@ class ReleaseAssetVerificationTest {
         // And it must actually gate on the classified count, not just compute it.
         assertTrue(Pattern.compile("BUILD_COUNT\"\\s*-eq\\s*0").matcher(script).find(),
                 "guard does not fail on the classified zero build-artifact count");
+    }
+
+    /**
+     * Executes the source-archive false-positive regression. Before the positive allowlist,
+     * source.tar.gz produced a non-zero build count and this assertion failed; after the fix it
+     * fails the guard, while a real platform plugin JAR passes it.
+     */
+    @Test
+    void sourceArchiveFailsTheExecutablePublishedBuildGuard() throws Exception {
+        String filter = buildFilter(verifyScript(readBuildJobSteps()));
+        String sourceOnlyRelease = "{\"assets\":[{\"name\":\"source.tar.gz\","
+                + "\"state\":\"uploaded\",\"size\":1234}]}";
+        String realPluginRelease = "{\"assets\":[{\"name\":\"connect-velocity.jar\","
+                + "\"state\":\"uploaded\",\"size\":1234}]}";
+
+        assertEquals(1, runBuildArtifactGuard(filter, sourceOnlyRelease),
+                "source.tar.gz must fail the published build-artifact guard");
+        assertEquals(0, runBuildArtifactGuard(filter, realPluginRelease),
+                "a non-empty Connect platform plugin JAR must pass the guard");
     }
 
     /**
