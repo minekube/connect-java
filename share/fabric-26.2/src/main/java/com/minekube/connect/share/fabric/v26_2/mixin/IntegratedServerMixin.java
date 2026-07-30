@@ -1,4 +1,4 @@
-package com.minekube.connect.share.fabric.v1_21_11.mixin;
+package com.minekube.connect.share.fabric.v26_2.mixin;
 
 import com.minekube.connect.share.CapturedServerTransport;
 import net.minecraft.client.server.IntegratedServer;
@@ -10,7 +10,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 @Mixin(IntegratedServer.class)
 public abstract class IntegratedServerMixin {
     @Redirect(
-            method = "publishServer",
+            method = "publishServer(Lnet/minecraft/server/MinecraftServer$MultiplayerScope;I)Z",
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/client/server/LanServerPinger;start()V"))

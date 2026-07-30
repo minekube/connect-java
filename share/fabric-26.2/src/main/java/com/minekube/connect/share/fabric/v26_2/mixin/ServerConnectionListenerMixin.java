@@ -1,4 +1,4 @@
-package com.minekube.connect.share.fabric.v1_21_11.mixin;
+package com.minekube.connect.share.fabric.v26_2.mixin;
 
 import com.minekube.connect.share.CapturedServerTransport;
 import io.netty.channel.Channel;

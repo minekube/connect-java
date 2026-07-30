@@ -1,24 +1,26 @@
-package com.minekube.connect.share.fabric.v1_21_11
+package com.minekube.connect.share.fabric.v26_2
 
+import com.minekube.connect.share.CapturedServerTransport
 import com.minekube.connect.share.ShareGameMode
 import com.minekube.connect.share.ShareOptions
-import com.minekube.connect.share.fabric.v1_21_11.mixin.IntegratedServerAccessor
-import com.minekube.connect.share.fabric.v1_21_11.mixin.LanServerPingerAccessor
-import com.minekube.connect.share.fabric.v1_21_11.mixin.ServerConnectionListenerAccessor
+import com.minekube.connect.share.fabric.v26_2.mixin.IntegratedServerAccessor
+import com.minekube.connect.share.fabric.v26_2.mixin.LanServerPingerAccessor
+import com.minekube.connect.share.fabric.v26_2.mixin.ServerConnectionListenerAccessor
 import io.netty.channel.Channel
 import io.netty.channel.ChannelFuture
 import io.netty.channel.ChannelInitializer
 import java.net.InetSocketAddress
 import net.minecraft.client.Minecraft
 import net.minecraft.client.server.IntegratedServer
+import net.minecraft.server.MinecraftServer
 import net.minecraft.util.HttpUtil
 import net.minecraft.world.level.GameType
 
-internal class VanillaMinecraft12111Transport(
+internal class VanillaMinecraft262Transport(
     private val serverProvider: () -> IntegratedServer? = {
         Minecraft.getInstance().singleplayerServer
     },
-) : Minecraft12111Transport {
+) : Minecraft262Transport {
     override fun publish(options: ShareOptions): PublishedMinecraftTransport {
         val server = checkNotNull(serverProvider()) {
             "Connect Share requires an active singleplayer world"
@@ -34,6 +36,7 @@ internal class VanillaMinecraft12111Transport(
         var published = false
         try {
             published = server.publishServer(
+                MinecraftServer.MultiplayerScope.LAN,
                 options.gameMode.toMinecraft(),
                 options.allowCheats,
                 HttpUtil.getAvailablePort(),
@@ -88,7 +91,9 @@ internal class VanillaMinecraft12111Transport(
             channels.filterNot(before::contains).also(channels::removeAll)
         }
         added.forEach(ChannelFuture::closeChannel)
-        (server as IntegratedServerAccessor).setConnectSharePublishedPort(-1)
+        if (server.isPublished) {
+            server.unpublishServer()
+        }
     }
 
     private fun suppressLanAdvertisement(server: IntegratedServer) {
@@ -134,11 +139,12 @@ private class PublishedVanillaTransport(
     }
 
     override fun close() {
-        synchronized(channels) {
-            channels.remove(loopback)
+        if (!server.unpublishServer()) {
+            synchronized(channels) {
+                channels.remove(loopback)
+            }
+            loopback.closeChannel()
         }
-        loopback.closeChannel()
-        (server as IntegratedServerAccessor).setConnectSharePublishedPort(-1)
     }
 }
 

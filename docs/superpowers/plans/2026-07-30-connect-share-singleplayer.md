@@ -1072,7 +1072,7 @@ git commit -m "feat: bridge Connect into 1.21.11 singleplayer"
 - Consumes: the same `MinecraftShareBridge` contract and unobfuscated 26.2 Minecraft classes.
 - Produces: `Minecraft262Bridge : MinecraftShareBridge` with behavior identical to Task 8.
 
-- [ ] **Step 1: Generate 26.2 sources and verify names**
+- [x] **Step 1: Generate 26.2 sources and verify names**
 
 Run:
 
@@ -1082,7 +1082,7 @@ Run:
 
 Use the unobfuscated 26.2 member names reported by Loom. Keep all changed names inside `v26_2`; do not add Minecraft types to `share/common` or `share/fabric-common`.
 
-- [ ] **Step 2: Write parity tests**
+- [x] **Step 2: Write parity tests**
 
 Run the same contract fixture against both fake adapters:
 
@@ -1096,11 +1096,11 @@ fun bridgeContract(factory: () -> MinecraftShareBridgeHarness) {
 }
 ```
 
-- [ ] **Step 3: Implement the 26.2 bridge and mixins**
+- [x] **Step 3: Implement the 26.2 bridge and mixins**
 
 Repeat the explicit loopback, captured initializer, `LocalServerChannelWrapper`, login profile injection, and exact close semantics with 26.2 official names. The behavioral code remains Kotlin; Java mixins only expose/capture Minecraft internals.
 
-- [ ] **Step 4: Build and smoke both versions**
+- [x] **Step 4: Build and smoke both versions**
 
 Run:
 
@@ -1110,7 +1110,7 @@ Run:
 
 Expected: both artifacts compile and parity tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add share/fabric-26.2 share/common/src/test/kotlin/com/minekube/connect/share/AdapterContractTest.kt

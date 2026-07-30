@@ -1,13 +1,12 @@
-package com.minekube.connect.share.fabric.v1_21_11
+package com.minekube.connect.share.fabric
 
 import com.minekube.connect.share.admission.AdmissionAnswer
-import com.minekube.connect.share.fabric.FabricLocalLoginAdmissionGate
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.atomic.AtomicReference
 
-object Minecraft12111LoginAdmission {
+object FabricLoginAdmissionRegistry {
     private val installed = AtomicReference<FabricLocalLoginAdmissionGate?>()
 
     fun install(gate: FabricLocalLoginAdmissionGate): AutoCloseable {
