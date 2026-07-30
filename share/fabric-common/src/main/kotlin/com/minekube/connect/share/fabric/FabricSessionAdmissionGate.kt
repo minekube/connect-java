@@ -139,6 +139,7 @@ class FabricLocalLoginAdmission(
                 name = name,
                 uuid = uuid,
                 source = AuthSource.MOJANG,
+                ingress = ingress,
             )
         } else {
             AdmissionIdentity.UnverifiedOffline(

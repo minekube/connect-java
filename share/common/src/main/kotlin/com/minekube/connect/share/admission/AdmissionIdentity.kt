@@ -10,6 +10,7 @@ sealed interface AdmissionIdentity {
         override val name: String,
         override val uuid: UUID,
         val source: AuthSource,
+        val ingress: Ingress = Ingress.CONNECT,
     ) : AdmissionIdentity
 
     data class UnverifiedOffline(
