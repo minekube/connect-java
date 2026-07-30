@@ -41,4 +41,30 @@ class ConnectShareRuntimeTest {
 
         assertEquals(1, stopCalls)
     }
+
+    @Test
+    fun `enabled sharing resumes when the host enters or switches worlds`() = runTest {
+        val lifecycle = mutableListOf<String>()
+        val runtime = ConnectShareRuntime(
+            scope = backgroundScope,
+            stopShare = {
+                lifecycle += "stop"
+            },
+            resumeShare = {
+                lifecycle += "resume"
+            },
+        )
+
+        runtime.integratedWorldChanged(worldAvailable = true, identity = "one")
+        advanceUntilIdle()
+        runtime.integratedWorldChanged(worldAvailable = true, identity = "two")
+        advanceUntilIdle()
+        runtime.integratedWorldChanged(worldAvailable = false)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("resume", "stop", "resume", "stop"),
+            lifecycle,
+        )
+    }
 }

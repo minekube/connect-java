@@ -49,6 +49,7 @@ data class ShareUiState(
     val shareState: ShareState,
     val options: ShareOptions,
     val pendingAdmissions: List<PendingAdmission>,
+    val shareWithFriendsEnabled: Boolean = false,
     val identity: EndpointIdentitySummary? = null,
     val importDraft: IdentityImportDraft = IdentityImportDraft(),
     val operationInProgress: Boolean = false,
@@ -107,6 +108,8 @@ class ShareViewModel(
     pendingAdmissions: StateFlow<List<PendingAdmission>>,
     initialWorldAvailable: Boolean,
     private val identityActions: EndpointIdentityUiActions,
+    initialShareWithFriendsEnabled: Boolean = false,
+    private val persistShareWithFriendsEnabled: (Boolean) -> Unit = {},
     private val startShare:
         suspend (ShareOptions) -> Either<ShareLifecycleError, ShareState.Sharing>,
     private val stopShare: suspend () -> Either<ShareLifecycleError, Unit>,
@@ -121,6 +124,7 @@ class ShareViewModel(
                 allowCheats = false,
             ),
             pendingAdmissions = pendingAdmissions.value,
+            shareWithFriendsEnabled = initialShareWithFriendsEnabled,
         ),
     )
 
@@ -185,14 +189,8 @@ class ShareViewModel(
         if (!state.value.startEnabled) return
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             runOperation {
-                startShare(state.value.options).fold(
-                    ifLeft = { failure ->
-                        update { copy(safeMessage = failure.safeMessage) }
-                    },
-                    ifRight = {
-                        update { copy(safeMessage = null) }
-                    },
-                )
+                setShareWithFriendsEnabled(true)
+                startCurrentWorld()
             }
         }
     }
@@ -200,15 +198,24 @@ class ShareViewModel(
     fun stop() {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             runOperation {
-                stopShare().fold(
-                    ifLeft = { failure ->
-                        update { copy(safeMessage = failure.safeMessage) }
-                    },
-                    ifRight = {
-                        update { copy(safeMessage = null) }
-                    },
-                )
+                try {
+                    setShareWithFriendsEnabled(false)
+                } finally {
+                    stopCurrentWorld()
+                }
             }
+        }
+    }
+
+    suspend fun resumeIfEnabled() {
+        if (
+            !state.value.shareWithFriendsEnabled ||
+            !state.value.startEnabled
+        ) {
+            return
+        }
+        runOperation {
+            startCurrentWorld()
         }
     }
 
@@ -294,6 +301,33 @@ class ShareViewModel(
                         safeMessage = null,
                     )
                 }
+            },
+        )
+    }
+
+    private fun setShareWithFriendsEnabled(enabled: Boolean) {
+        persistShareWithFriendsEnabled(enabled)
+        update { copy(shareWithFriendsEnabled = enabled) }
+    }
+
+    private suspend fun startCurrentWorld() {
+        startShare(state.value.options).fold(
+            ifLeft = { failure ->
+                update { copy(safeMessage = failure.safeMessage) }
+            },
+            ifRight = {
+                update { copy(safeMessage = null) }
+            },
+        )
+    }
+
+    private suspend fun stopCurrentWorld() {
+        stopShare().fold(
+            ifLeft = { failure ->
+                update { copy(safeMessage = failure.safeMessage) }
+            },
+            ifRight = {
+                update { copy(safeMessage = null) }
             },
         )
     }

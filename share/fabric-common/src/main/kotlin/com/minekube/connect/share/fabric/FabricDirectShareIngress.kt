@@ -7,6 +7,8 @@ import com.minekube.connect.share.direct.DirectSessionRegistry
 import com.minekube.connect.share.direct.ShareInviteCodec
 import com.minekube.connect.share.direct.ShareInvitePayload
 import com.minekube.connect.share.direct.SignedShareInvite
+import com.minekube.connect.share.friend.ShareAccessIdentity
+import com.minekube.connect.share.friend.ShareAccessIdentityStore
 import com.minekube.connect.tunnel.p2p.DirectP2pHostConfig
 import com.minekube.connect.tunnel.p2p.DirectP2pHostHandler
 import com.minekube.connect.tunnel.p2p.DirectP2pHostInfo
@@ -17,17 +19,14 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketAddress
 import java.nio.file.Path
-import java.security.SecureRandom
 import java.time.Instant
-import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 class FabricDirectShareIngress private constructor(
     private val nodeFactory: () -> FabricDirectNode,
     private val now: () -> Instant,
-    private val shareId: () -> UUID,
-    private val capability: () -> String,
+    private val accessIdentity: () -> ShareAccessIdentity,
     private val displayName: () -> String,
     private val localSocket: (SocketAddress, DirectP2pSession) -> Socket,
 ) : DirectShareIngress {
@@ -41,8 +40,9 @@ class FabricDirectShareIngress private constructor(
             )
         },
         now = Instant::now,
-        shareId = UUID::randomUUID,
-        capability = ::newCapability,
+        accessIdentity = ShareAccessIdentityStore(
+            dataDirectory,
+        )::currentOrCreate,
         displayName = displayName,
         localSocket = ::openTaggedLoopbackSocket,
     )
@@ -54,8 +54,9 @@ class FabricDirectShareIngress private constructor(
     ): DirectShareHandle {
         val node = nodeFactory()
         try {
-            val id = shareId()
-            val secret = capability()
+            val access = accessIdentity()
+            val id = access.shareId
+            val secret = access.capability
             val host = node.startHost(
                 DirectP2pHostConfig(
                     id.toString(),
@@ -132,15 +133,15 @@ class FabricDirectShareIngress private constructor(
         ) = FabricDirectShareIngress(
             nodeFactory = nodeFactory,
             now = now,
-            shareId = shareId,
-            capability = capability,
+            accessIdentity = {
+                ShareAccessIdentity(
+                    shareId = shareId(),
+                    capability = capability(),
+                )
+            },
             displayName = displayName,
             localSocket = localSocket,
         )
-
-        private fun newCapability(): String = ByteArray(CAPABILITY_BYTES)
-            .also(SecureRandom()::nextBytes)
-            .let(Base64.getUrlEncoder().withoutPadding()::encodeToString)
 
         private fun openTaggedLoopbackSocket(
             target: SocketAddress,
@@ -177,7 +178,6 @@ class FabricDirectShareIngress private constructor(
 
         private const val DEFAULT_DISPLAY_NAME = "Minecraft world"
         private const val IDENTITY_FILE_NAME = "share-libp2p-identity.key"
-        private const val CAPABILITY_BYTES = 32
         private const val INVITATION_LIFETIME_SECONDS = 24 * 60 * 60L
         private const val LOCAL_CONNECT_TIMEOUT_MILLIS = 3_000
     }

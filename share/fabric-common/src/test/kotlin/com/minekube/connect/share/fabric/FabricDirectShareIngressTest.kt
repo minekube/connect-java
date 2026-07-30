@@ -140,9 +140,9 @@ class FabricDirectShareIngressTest {
             displayName = { "First World" },
         )
         val first = firstIngress.start(OPTIONS, target, null)
-        val firstPeerId = assertIs<Either.Right<SignedShareInvite>>(
+        val firstInvite = assertIs<Either.Right<SignedShareInvite>>(
             ShareInviteCodec.decode(first.invitation),
-        ).value.payload.peerId
+        ).value
         first.close()
         Libp2pRuntime.close()
 
@@ -151,11 +151,16 @@ class FabricDirectShareIngressTest {
             displayName = { "Second World" },
         )
         val second = secondIngress.start(OPTIONS, target, null)
-        val secondPeerId = assertIs<Either.Right<SignedShareInvite>>(
+        val secondInvite = assertIs<Either.Right<SignedShareInvite>>(
             ShareInviteCodec.decode(second.invitation),
-        ).value.payload.peerId
+        ).value
 
-        assertEquals(firstPeerId, secondPeerId)
+        assertEquals(firstInvite.payload.peerId, secondInvite.payload.peerId)
+        assertEquals(firstInvite.payload.shareId, secondInvite.payload.shareId)
+        assertEquals(
+            firstInvite.payload.capability,
+            secondInvite.payload.capability,
+        )
         second.close()
         Libp2pRuntime.close()
     }
