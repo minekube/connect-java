@@ -157,41 +157,18 @@ class ReleaseAssetVerificationTest {
     }
 
     /**
-     * Pins the second failure condition. A non-empty asset list is not proof of a usable release: a
-     * release carrying only LICENSE, a checksum manifest, a signature bundle or an SBOM has a
-     * positive asset count and still offers nothing anyone can run. So the guard must classify by
-     * name/type rather than count.
+     * Pins the second failure condition. A non-empty asset list is not proof of a usable release:
+     * any asset outside a metadata blacklist, such as {@code source.tar.gz}, has a positive count
+     * and still offers no Connect plugin anyone can run. Only a named platform jar may satisfy the
+     * guard.
      */
     @Test
     void releaseVerificationRequiresRealBuildArtifact() throws Exception {
         String script = verifyScript(readBuildJobSteps());
 
-        // The metadata types that must NOT satisfy the guard on their own.
-        List<String> excluded = Arrays.asList(
-                "^checksums\\\\.txt$",        // checksum manifests
-                "^SHA(256|512)SUMS$",         // checksum manifests
-                "^LICENSE",                   // license metadata - connect-java uploads this
-                "^README",                    // readme metadata
-                "\\\\.sig$",                  // detached signatures
-                "\\\\.sigstore\\\\.json$",    // signature bundles
-                "\\\\.attest\\\\.spdx\\\\.json$", // SBOM attestations
-                "\\\\.spdx\\\\.json$",        // SBOM metadata
-                "\\\\.asc$",                  // armored signatures
-                "\\\\.pem$",                  // certificate metadata
-                "\\\\.sha256$",               // checksum sidecars
-                "\\\\.h$",                    // C headers
-                "\\\\.hpp$",                  // C++ headers
-                "\\\\.md$",                   // markdown metadata
-                "\\\\.txt$");                 // text metadata
-
-        List<String> notExcluded = new ArrayList<>();
-        for (String pattern : excluded) {
-            if (!script.contains(pattern)) {
-                notExcluded.add(pattern);
-            }
-        }
-        assertTrue(notExcluded.isEmpty(), "build-artifact classifier does not exclude "
-                + notExcluded + "; a release of pure metadata would pass the guard");
+        assertTrue(script.contains("^connect-(spigot|velocity|bungee).*\\\\.jar$"),
+                "build-artifact classifier does not require a real plugin jar by name; an asset "
+                        + "such as source.tar.gz could satisfy it while no build landed");
 
         // And it must actually gate on the classified count, not just compute it.
         assertTrue(Pattern.compile("BUILD_COUNT\"\\s*-eq\\s*0").matcher(script).find(),

@@ -37,10 +37,8 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
 ```
 
 - `release.yml`'s "Verify published release assets" step re-reads each published
-  release from the API (never the upload step's own output) and rejects
-  metadata-only assets such as `LICENSE`. Its broad negative filter is
-  intentionally weaker than `release-repair.yml`'s positive plugin-jar
-  allowlist; tightening it is a separate follow-up. Pinned by
+  release from the API (never the upload step's own output) and requires the
+  same positive plugin-jar allowlist as `release-repair.yml`. Pinned by
   `core/.../release/ReleaseAssetVerificationTest`; keep that test's step and
   upload-step names in sync when editing `release.yml`.
 - `release.yml`'s "Publish to Modrinth" step publishes the same jars to the

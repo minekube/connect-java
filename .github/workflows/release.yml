@@ -156,21 +156,14 @@ jobs:
             TARGETS="$RELEASE_TAG latest"
           fi
 
-          # A non-empty asset list is NOT proof of a usable release. A release
-          # carrying only LICENSE, a checksum manifest, a signature bundle or
-          # an SBOM has a positive asset count and still offers nothing anyone
-          # can run. Counting assets is the same defect as trusting a green run
-          # without checking what it produced, so classify by name/type and
-          # require a real downloadable BUILD artifact (here: the plugin jars).
+          # A non-empty asset list is NOT proof of a usable release. Any asset
+          # outside a metadata blacklist, such as source.tar.gz, could have a
+          # positive count while offering no Connect plugin anyone can run.
+          # Require a real downloadable platform jar by name instead.
           BUILD_FILTER='[.assets[]
             | select(.state == "uploaded")
-            | select(.name | test(
-                "^checksums\\.txt$|^SHA(256|512)SUMS$|^LICENSE|^README|"
-                + "\\.sig$|\\.sigstore\\.json$|\\.attest\\.spdx\\.json$|"
-                + "\\.spdx\\.json$|\\.asc$|\\.pem$|\\.sha256$|"
-                + "\\.h$|\\.hpp$|\\.md$|\\.txt$"
-              ) | not)
-            | select(.size > 0)]'
+            | select(.size > 0)
+            | select(.name | test("^connect-(spigot|velocity|bungee).*\\.jar$"))]'
 
           verify_release() {
             local tag="$1"
