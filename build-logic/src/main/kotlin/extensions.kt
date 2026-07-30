@@ -28,7 +28,6 @@ import org.gradle.api.Project
 import org.gradle.api.artifacts.ExternalModuleDependency
 import org.gradle.api.artifacts.ProjectDependency
 import org.gradle.kotlin.dsl.the
-import java.io.ByteArrayOutputStream
 
 /**
  * Calculates the version from git tags.
@@ -46,13 +45,12 @@ fun Project.gitVersion(): String {
 
     // Try to get version from git describe
     return try {
-        val stdout = ByteArrayOutputStream()
-        exec {
-            commandLine("git", "describe", "--tags", "--always", "--dirty")
-            standardOutput = stdout
-            isIgnoreExitValue = true
-        }
-        val describe = stdout.toString().trim()
+        val process = ProcessBuilder("git", "describe", "--tags", "--always", "--dirty")
+            .directory(rootDir)
+            .redirectErrorStream(true)
+            .start()
+        val describe = process.inputStream.bufferedReader().use { it.readText() }.trim()
+        process.waitFor()
 
         if (describe.isEmpty()) {
             "0.0.0-SNAPSHOT"
@@ -124,7 +122,7 @@ fun Project.fullVersion(): String {
 }
 
 fun Project.lastCommitHash(): String? =
-    the<IndraGitExtension>().commit()?.name?.substring(0, 7)
+    the<IndraGitExtension>().commit().orNull?.name?.substring(0, 7)
 
 // retrieved from https://wiki.jenkins-ci.org/display/JENKINS/Building+a+software+project
 // some properties might be specific to Jenkins

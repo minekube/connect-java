@@ -112,5 +112,5 @@ fun addRelocations(project: Project, shadowJar: ShadowJar) {
 fun callAddRelocations(configuration: Configuration, shadowJar: ShadowJar) =
     configuration.dependencies.forEach {
         if (it is ProjectDependency)
-            addRelocations(it.dependencyProject, shadowJar)
+            addRelocations(shadowJar.project.project(it.path), shadowJar)
     }

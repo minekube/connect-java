@@ -38,7 +38,8 @@ This plan is the independently testable singleplayer-through-Connect slice. It e
 - `gradle/wrapper/gradle-wrapper.properties` — Gradle 9.5.1 wrapper.
 - `settings.gradle.kts` — Fabric repositories/plugins and four Share projects.
 - `build.gradle.kts` — keeps Java-11 plugin conventions away from Fabric projects.
-- `build-logic/src/main/kotlin/Versions.kt` — pins Loom/Fabric/Kotlin/libp2p versions.
+- `build-logic/src/main/kotlin/Versions.kt` — pins Loom/Fabric/Kotlin/Arrow/libp2p versions.
+- `share/AGENTS.md` — requires appropriate Arrow abstractions throughout the Kotlin mod.
 - `.github/workflows/pullrequest.yml` — plugin matrix plus isolated Java-21/25 mod jobs.
 
 ### Connect Core extension
@@ -98,6 +99,7 @@ This plan is the independently testable singleplayer-through-Connect slice. It e
 
 **Files:**
 - Modify: `gradle/wrapper/gradle-wrapper.properties`
+- Modify: `gradle.properties`
 - Modify: `settings.gradle.kts`
 - Modify: `build.gradle.kts`
 - Modify: `build-logic/src/main/kotlin/Versions.kt`
@@ -110,9 +112,9 @@ This plan is the independently testable singleplayer-through-Connect slice. It e
 
 **Interfaces:**
 - Consumes: Existing root versioning through `gitVersion()` and existing `:api`/`:core` projects.
-- Produces: Gradle projects `:share:common`, `:share:fabric-common`, `:share:fabric-1.21.11`, and `:share:fabric-26.2`; constants `Versions.fabricLoaderVersion`, `fabricApi12111Version`, `fabricApi262Version`, `fabricLanguageKotlinVersion`, `kotlinVersion`, `coroutinesVersion`, and `loomVersion`.
+- Produces: Gradle projects `:share:common`, `:share:fabric-common`, `:share:fabric-1-21-11`, and `:share:fabric-26-2`; constants `Versions.fabricLoaderVersion`, `fabricApi12111Version`, `fabricApi262Version`, `fabricLanguageKotlinVersion`, `kotlinVersion`, `coroutinesVersion`, `arrowVersion`, and `loomVersion`.
 
-- [ ] **Step 1: Write the failing build-pin test**
+- [x] **Step 1: Write the failing build-pin test**
 
 ```kotlin
 package com.minekube.connect.share
@@ -140,7 +142,7 @@ object ShareBuild {
 }
 ```
 
-- [ ] **Step 2: Add the exact Gradle pins and project includes**
+- [x] **Step 2: Add the exact Gradle pins and project includes**
 
 Add these constants to `Versions.kt`:
 
@@ -152,6 +154,7 @@ const val fabricApi262Version = "0.156.0+26.2"
 const val fabricLanguageKotlinVersion = "1.13.13+kotlin.2.4.10"
 const val kotlinVersion = "2.4.10"
 const val coroutinesVersion = "1.11.0"
+const val arrowVersion = "2.2.3"
 const val jvmLibp2pVersion = "1.3.5-RELEASE"
 ```
 
@@ -160,8 +163,8 @@ Add `maven("https://maven.fabricmc.net/")` to dependency and plugin repositories
 ```kotlin
 include(":share:common")
 include(":share:fabric-common")
-include(":share:fabric-1.21.11")
-include(":share:fabric-26.2")
+include(":share:fabric-1-21-11")
+include(":share:fabric-26-2")
 ```
 
 Set the wrapper URL exactly:
@@ -170,26 +173,42 @@ Set the wrapper URL exactly:
 distributionUrl=https\://services.gradle.org/distributions/gradle-9.5.1-bin.zip
 ```
 
-- [ ] **Step 3: Keep plugin and Fabric conventions separate**
+Give the combined Loom-remap and plugin-shadow build enough heap:
 
-In root `build.gradle.kts`, define:
-
-```kotlin
-val fabricProjects = setOf(
-    projects.share.common,
-    projects.share.fabricCommon,
-    projects.share.fabric12111,
-    projects.share.fabric262,
-).map { it.dependencyProject }
+```properties
+org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=768m
 ```
 
-Apply the existing Java-11/Lombok/Shadow conventions only when `this !in fabricProjects`. The common modules apply Kotlin JVM and target Java 21. The 1.21.11 module applies `net.fabricmc.fabric-loom-remap` and Java 21. The 26.2 module applies `net.fabricmc.fabric-loom` and Java 25.
+- [x] **Step 3: Keep plugin and Fabric conventions separate**
+
+In root `build.gradle.kts`, use Gradle-safe project paths (the directory names
+retain dots while Gradle project names use hyphens):
+
+```kotlin
+val shareProjectPaths = setOf(
+    ":share",
+    ":share:common",
+    ":share:fabric-common",
+    ":share:fabric-1-21-11",
+    ":share:fabric-26-2",
+)
+```
+
+Apply the existing Java-11/Lombok/Shadow conventions only when
+`path !in shareProjectPaths`. The common modules apply Kotlin JVM and target
+Java 21. The 1.21.11 module applies `net.fabricmc.fabric-loom-remap` and Java
+21. The 26.2 module applies `net.fabricmc.fabric-loom` and Java 25. Declare the
+Kotlin plugin once on the root with `apply false` so Gradle shares one plugin
+classloader across the modules.
 
 The `share/common` dependencies are:
 
 ```kotlin
 implementation(projects.core)
 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${Versions.coroutinesVersion}")
+api(platform("io.arrow-kt:arrow-stack:${Versions.arrowVersion}"))
+api("io.arrow-kt:arrow-core")
+implementation("io.arrow-kt:arrow-fx-coroutines")
 testImplementation(kotlin("test"))
 testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:${Versions.coroutinesVersion}")
 testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -201,6 +220,9 @@ The `share/fabric-common` dependencies are:
 implementation(projects.core)
 implementation(projects.share.common)
 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${Versions.coroutinesVersion}")
+implementation(platform("io.arrow-kt:arrow-stack:${Versions.arrowVersion}"))
+implementation("io.arrow-kt:arrow-core")
+implementation("io.arrow-kt:arrow-fx-coroutines")
 implementation("com.squareup.okhttp3:okhttp:4.9.3")
 testImplementation(kotlin("test"))
 testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:${Versions.coroutinesVersion}")
@@ -223,19 +245,28 @@ implementation(projects.share.common)
 implementation(projects.share.fabricCommon)
 ```
 
-The 26.2 block uses `minecraft("com.mojang:minecraft:26.2")`, no mappings dependency, and `Versions.fabricApi262Version`.
+The 26.2 block uses `minecraft("com.mojang:minecraft:26.2")`, no mappings
+dependency, and ordinary `implementation` dependencies for Fabric Loader,
+Fabric API at `Versions.fabricApi262Version`, and Fabric Language Kotlin. The
+non-remapping Loom plugin intentionally does not create `modImplementation`.
 
-- [ ] **Step 4: Run the new test and both empty mod builds**
+Loom owns project-local repositories for remapped artifacts, so repository mode
+must allow project repositories. Declare Connect Core's non-central runtime
+sources (OpenCollab releases and snapshots, jvm-libp2p Cloudsmith, ConsenSys,
+and the group-filtered JitPack source) in both Fabric projects so Loom
+resolution does not hide the settings repositories.
+
+- [x] **Step 4: Run the new test and both empty mod builds**
 
 Run:
 
 ```bash
-./gradlew :share:common:test :share:fabric-1.21.11:build :share:fabric-26.2:build
+./gradlew :share:common:test :share:fabric-1-21-11:build :share:fabric-26-2:build
 ```
 
 Expected: `BuildPinsTest` passes and both Fabric projects produce JAR tasks without changing plugin artifact names.
 
-- [ ] **Step 5: Run the existing plugin build**
+- [x] **Step 5: Run the existing plugin build**
 
 Run:
 
@@ -245,7 +276,7 @@ Run:
 
 Expected: all existing plugin tests pass under Gradle 9.5.1. Fix only concrete Gradle-9 API errors encountered; retain Java-11 bytecode for `api`, `core`, `spigot`, `velocity`, and `bungee`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add gradle/wrapper/gradle-wrapper.properties settings.gradle.kts build.gradle.kts build-logic/src/main/kotlin/Versions.kt share
@@ -913,7 +944,7 @@ git commit -m "feat: add embedded Fabric Connect ingress"
 Run:
 
 ```bash
-./gradlew :share:fabric-1.21.11:genSources
+./gradlew :share:fabric-1-21-11:genSources
 ```
 
 Confirm the official mapped members used by this task exist:
@@ -984,7 +1015,7 @@ For passthrough Connect sessions it lets vanilla resolve online/offline login, t
 Run:
 
 ```bash
-./gradlew :share:fabric-1.21.11:test :share:fabric-1.21.11:runServer --args='nogui'
+./gradlew :share:fabric-1-21-11:test :share:fabric-1-21-11:runServer --args='nogui'
 ```
 
 Expected: unit tests pass; the dev server reaches startup with every mixin applied. Terminate the smoke after the ready log and confirm no mixin application error.
@@ -1012,7 +1043,7 @@ git commit -m "feat: bridge Connect into 1.21.11 singleplayer"
 Run:
 
 ```bash
-./gradlew :share:fabric-26.2:genSources
+./gradlew :share:fabric-26-2:genSources
 ```
 
 Use the unobfuscated 26.2 member names reported by Loom. Keep all changed names inside `v26_2`; do not add Minecraft types to `share/common` or `share/fabric-common`.
@@ -1040,7 +1071,7 @@ Repeat the explicit loopback, captured initializer, `LocalServerChannelWrapper`,
 Run:
 
 ```bash
-./gradlew :share:fabric-1.21.11:test :share:fabric-26.2:test :share:fabric-1.21.11:build :share:fabric-26.2:build
+./gradlew :share:fabric-1-21-11:test :share:fabric-26-2:test :share:fabric-1-21-11:build :share:fabric-26-2:build
 ```
 
 Expected: both artifacts compile and parity tests pass.
@@ -1126,7 +1157,7 @@ Each `fabric.mod.json` declares client environment, Kotlin entrypoint, exact Min
 Run:
 
 ```bash
-./gradlew :share:fabric-common:test :share:fabric-1.21.11:build :share:fabric-26.2:build
+./gradlew :share:fabric-common:test :share:fabric-1-21-11:build :share:fabric-26-2:build
 ```
 
 Expected: view-model tests pass and both UI adapters compile.
@@ -1184,7 +1215,7 @@ Construct failures containing endpoint tokens, invitations, and direct candidate
 Run:
 
 ```bash
-./gradlew :core:test --tests '*Libp2pRuntime*' :share:fabric-1.21.11:build :share:fabric-26.2:build :share:fabric-1.21.11:test --tests '*ArtifactTest' :share:fabric-26.2:test --tests '*ArtifactTest'
+./gradlew :core:test --tests '*Libp2pRuntime*' :share:fabric-1-21-11:build :share:fabric-26-2:build :share:fabric-1-21-11:test --tests '*ArtifactTest' :share:fabric-26-2:test --tests '*ArtifactTest'
 ```
 
 Expected: all isolation and artifact assertions pass.
@@ -1224,7 +1255,7 @@ share-1-21-11:
         java-version: "21"
         cache: gradle
     - uses: gradle/actions/setup-gradle@v4
-    - run: ./gradlew :share:fabric-1.21.11:build
+    - run: ./gradlew :share:fabric-1-21-11:build
 
 share-26-2:
   runs-on: ubuntu-latest
@@ -1238,7 +1269,7 @@ share-26-2:
         java-version: "25"
         cache: gradle
     - uses: gradle/actions/setup-gradle@v4
-    - run: ./gradlew :share:fabric-26.2:build
+    - run: ./gradlew :share:fabric-26-2:build
 ```
 
 Archive each remapped mod JAR under a distinct artifact name. Do not add mod files to the plugin release workflow in this plan.
@@ -1262,7 +1293,7 @@ Document exact checks:
 Run:
 
 ```bash
-./gradlew :core:test :share:common:test :share:fabric-common:test :share:fabric-1.21.11:build :share:fabric-26.2:build
+./gradlew :core:test :share:common:test :share:fabric-common:test :share:fabric-1-21-11:build :share:fabric-26-2:build
 ./gradlew build
 git diff --check
 ```

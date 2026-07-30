@@ -40,8 +40,16 @@ object Versions {
     const val protocVersion = "3.19.4"
     const val bstatsVersion = "3.0.2"
     const val gsonVersion = "2.8.6"
-    const val jvmLibp2pVersion = "1.3.2-RELEASE"
+    const val jvmLibp2pVersion = "1.3.5-RELEASE"
     const val kotlinStdlibVersion = "1.9.22"
+    const val loomVersion = "1.17.17"
+    const val fabricLoaderVersion = "0.19.3"
+    const val fabricApi12111Version = "0.141.6+1.21.11"
+    const val fabricApi262Version = "0.156.0+26.2"
+    const val fabricLanguageKotlinVersion = "1.13.13+kotlin.2.4.10"
+    const val kotlinVersion = "2.4.10"
+    const val coroutinesVersion = "1.11.0"
+    const val arrowVersion = "2.2.3"
 
     const val checkerQual = "3.19.0"
 }

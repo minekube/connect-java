@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     `kotlin-dsl`
@@ -9,16 +10,16 @@ repositories {
 }
 
 dependencies {
-    implementation("net.kyori", "indra-common", "2.0.6")
-    implementation("org.jfrog.buildinfo", "build-info-extractor-gradle", "4.26.1")
+    implementation("net.kyori.indra.git:net.kyori.indra.git.gradle.plugin:4.0.0")
+    implementation("com.jfrog.artifactory:com.jfrog.artifactory.gradle.plugin:6.0.4")
     implementation("com.gradleup.shadow:shadow-gradle-plugin:8.3.11")
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_11
-    targetCompatibility = JavaVersion.VERSION_11
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
 }
 
-tasks.withType<KotlinCompile> {
-    kotlinOptions.jvmTarget = "11"
+tasks.withType<KotlinCompile>().configureEach {
+    compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
 }
