@@ -42,7 +42,7 @@ classloader boundary.
   signed invitation validation, and classloader boundary safety.
 - Add parent-first JDK-only direct boundary types and a reflective
   `DirectP2pNode` facade.
-- Implement the child-loaded runtime with Noise, Yamux, TCP/QUIC, mDNS,
+- Implement the child-loaded runtime with Noise, Yamux, TCP, mDNS,
   versioned control frames, signed invitations, bounded timeouts, and no relay
   transport.
 - Implement a host stream-to-loopback socket proxy and a guest loopback-only

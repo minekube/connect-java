@@ -1,8 +1,8 @@
-# Connect Share singleplayer acceptance
+# Connect Share acceptance
 
 Connect Share is built separately for Minecraft Java 1.21.11 on Java 21 and
 Minecraft Java 26.2 on Java 25. Run this pass against both artifacts before
-calling the singleplayer slice release-ready.
+calling the singleplayer and direct-sharing implementation release-ready.
 
 The mod build does not publish a Connect Java plugin release, rebuild a hub
 image, or roll anything out to production.
@@ -56,6 +56,54 @@ For each supported host version:
 9. Fill the configured guest capacity and confirm additional guests receive a
    safe full-share rejection.
 
+## Modded same-LAN direct joins
+
+Use two machines on the same LAN with the matching Connect Share artifact.
+Connect may remain configured, but temporarily block the guest from reaching
+the host's `*.play.minekube.net` address so a successful join proves the direct
+route works.
+
+1. Start a host world, choose **Share with Connect**, and leave
+   **Allow direct internet connections** disabled.
+2. On the guest title screen, choose **Join Connect Share**.
+3. Confirm the host world appears automatically as a nearby share. The host
+   must not use Minecraft's **Open to LAN** action.
+4. Choose the nearby world with the default online identity. Confirm the host
+   receives an authenticated direct-LAN approval request, can deny it, and can
+   approve a later attempt.
+5. Repeat with **Use an offline identity (unverified)**. Confirm the host sees
+   an unverified identity and approval is not reused for a later connection.
+6. Confirm the guest joins while the Connect hostname remains blocked.
+7. Stop sharing and confirm discovery disappears and the old signed invitation
+   cannot create a usable direct session.
+8. Start sharing again. Confirm the libp2p peer identity, share capability, and
+   invitation changed while the persistent Connect endpoint did not.
+
+## Invitation, internet-direct, and fallback behavior
+
+Internet-direct is best-effort and requires an actually reachable public
+address, such as a publicly routed host or an explicitly configured network.
+The mod does not open a public Minecraft listener, configure UPnP, or use a
+self-hosted libp2p relay.
+
+1. Copy the signed invitation from the host status screen and paste it into
+   **Join Connect Share** on a guest outside the LAN.
+2. With internet-direct disabled on either peer, confirm the guest does not
+   attempt a direct internet route and uses Connect once.
+3. Enable internet-direct on both peers. Confirm both UIs disclose that the
+   path reveals public IP addresses before it is attempted.
+4. On a directly reachable network, confirm the direct route succeeds and the
+   host approval identifies it as internet-direct.
+5. Make the advertised direct address unreachable while leaving Connect
+   available. Confirm one bounded direct attempt is followed by exactly one
+   Connect attempt and the guest can still join.
+6. Repeat without a usable Connect ingress. Confirm same-LAN sharing remains
+   available, while a relay-required remote guest receives a safe no-route
+   failure.
+7. Modify, truncate, expire, or reuse a signed invitation with a different
+   libp2p peer address. Confirm it is rejected before Minecraft connects and no
+   capability, candidate, endpoint token, or signature bytes appear in logs.
+
 ## Listener and lifecycle safety
 
 1. While sharing, scan the host from another LAN device. Confirm Minecraft's
@@ -72,6 +120,9 @@ For each supported host version:
    close.
 8. Repeat start/stop twice and compare thread and channel counts. There must be
    no accumulating Connect, Netty, watcher, or coroutine resources.
+9. Join a direct share, disconnect, and wait for the title screen. Confirm the
+   guest loopback proxy and discovery node close. Abort a direct connection
+   before login and confirm the same resources close after the bounded timeout.
 
 ## Artifact inspection
 
@@ -93,6 +144,8 @@ Each final artifact must contain:
 
 It must not contain top-level `io/libp2p/`, `io/netty/`, or `kotlin/`
 packages. Those runtime classes belong only inside the child-loaded payload.
+The nested payload must include
+`com/minekube/connect/tunnel/p2p/DirectP2pNodeRuntime.class`.
 
 ## Evidence to retain
 
