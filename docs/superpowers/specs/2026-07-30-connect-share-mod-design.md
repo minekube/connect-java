@@ -1,7 +1,7 @@
 # Connect Share Mod Design
 
 **Date:** 2026-07-30  
-**Status:** Architecture approved; written-spec review pending  
+**Status:** Approved for implementation
 **Epic:** [minekube/connect-java#83](https://github.com/minekube/connect-java/issues/83)
 
 ## Summary
@@ -30,12 +30,19 @@ logic is written in Kotlin and shared across both versions.
   persists its endpoint name and token like the Connect plugin. Every world
   reuses that identity, so repeated shares do not create control-plane endpoint
   records.
+- A player who already created or imported an endpoint in the Minekube
+  Dashboard can import that exact endpoint name and dashboard-issued token
+  instead of creating another endpoint.
 - Stopping the share or leaving the world makes the stable endpoint
   unreachable until the host explicitly starts another share.
-- Connect authenticates vanilla guests at the edge. The mod preserves the
-  resulting verified player context when it injects the session locally.
-- The host must approve every new verified Minecraft UUID. An approval is
-  remembered only for the current share session.
+- Connect supplies the vanilla guest's profile and authentication type at the
+  edge. The mod preserves that session context when it injects the connection
+  locally.
+- Online and offline-mode Java accounts are supported, matching Connect. A
+  profile authenticated by the managed Connect edge or by Mojang may be
+  remembered for the current share. A locally accepted offline profile is
+  visibly labeled unverified and approved per connection so a copied username
+  cannot inherit an earlier approval.
 - Same-LAN mod-to-mod traffic is attempted automatically through direct
   libp2p discovery and dialing.
 - Internet P2P is disabled by default. Both peers must enable it for the
@@ -43,7 +50,6 @@ logic is written in Kotlin and shared across both versions.
 - Connect is the only fallback when direct connectivity fails. Without
   Connect, same-LAN and otherwise directly reachable peers can still connect;
   NAT combinations that require a relay fail with an actionable message.
-- Offline-mode Java accounts are not supported in the first release.
 - Fabric builds are published for Minecraft 1.21.11 and 26.2. NeoForge is a
   later adapter, not part of this implementation.
 
@@ -53,13 +59,17 @@ logic is written in Kotlin and shared across both versions.
    or a publicly bound LAN listener.
 2. Let an unmodified Java client join through the host's Connect hostname
    while sharing is active.
-3. Reuse Connect's authenticated session and tunnel semantics instead of
-   creating a parallel public ingress service.
+3. Reuse Connect's session identity, authentication-type, and tunnel semantics
+   instead of creating a parallel public ingress service.
 4. Let two modded clients connect directly on the same LAN without Connect.
 5. Let two modded clients optionally attempt a direct internet connection,
    falling back to Connect when available.
 6. Keep the Minecraft-version hooks small and keep lifecycle, admission,
    invitation, and transport selection independently testable.
+7. Let an endpoint owner reuse a dashboard-managed endpoint, token, public
+   hostname, and attached custom domains without creating a duplicate endpoint.
+8. Accept both online and offline-mode Java guests while presenting whether
+   identity was authenticated by Connect, Mojang, or neither.
 
 ## Non-goals
 
@@ -68,7 +78,6 @@ logic is written in Kotlin and shared across both versions.
 - A friend graph, social network, or persistent invitations
 - UPnP-based public Minecraft TCP listeners
 - An independent libp2p relay network
-- Offline/cracked-account support
 - Bedrock guest support in the first mod release
 - Voice chat tunneling
 - NeoForge, Forge, or Quilt artifacts in the first release
@@ -145,16 +154,19 @@ The adapter invokes Minecraft's integrated-server publishing lifecycle with a
 loopback-only TCP listener so vanilla initializes its normal connection
 pipeline. It captures the resulting child `ChannelInitializer` and event loop,
 then binds a Connect `LocalServerChannelWrapper` using that initializer.
-Connect's `LocalChannelWithSessionContext` carries the verified session into
-the accepted local channel.
+Connect's `LocalChannelWithSessionContext` carries the profile,
+authentication type, and other Connect session data into the accepted local
+channel.
 
 The loopback listener is an implementation detail and is never advertised.
 External sessions use the in-memory local channel. This is deliberately safer
 than manually reconstructing a Minecraft `Connection` and less invasive than
 trying to bypass the publishing lifecycle completely.
 
-The bridge also provides the version-specific hook that pauses a verified
-login until `AdmissionController` accepts or rejects it.
+The bridge also provides the version-specific hook that pauses login until
+`AdmissionController` accepts or rejects it. It can accept a profile already
+authenticated by Connect, run normal Mojang authentication, or initialize the
+vanilla-compatible offline profile without changing unrelated local play.
 
 ### ConnectShareIngress
 
@@ -170,9 +182,15 @@ config/minekube-connect-share/token.json
 `token.json` stores the endpoint token using the same `{"token":"T-..."}`
 shape as the Connect plugin. The token is created once, written with
 owner-only permissions where the operating system supports them, and redacted
-from logs and UI. `CONNECT_SHARE_ENDPOINT` and `CONNECT_SHARE_TOKEN` override
-the files for development and managed launchers without colliding with a
-server plugin in the same process.
+from logs and UI. The standard `CONNECT_ENDPOINT` and `CONNECT_TOKEN`
+environment variables override the files for compatibility with existing
+Connect deployments and managed launchers.
+
+Environment overrides are resolved per field, matching the existing plugin:
+`CONNECT_ENDPOINT` overrides the stored endpoint name and `CONNECT_TOKEN`
+overrides `token.json`. While either override is active, the corresponding
+field is marked **Managed by environment** and cannot be changed or reset from
+the in-game UI.
 
 Every world share starts the existing Connect watch/libp2p connector runtime
 with this identity and stops it with the share. No share or world identifier
@@ -185,9 +203,33 @@ rotation. The UI explains the mismatch and lets the user restore the token or
 explicitly choose **Reset Connect identity**. Resetting warns that it creates
 a new endpoint and invalidates the old local identity.
 
-Connect session proposals remain pending while the host approves the verified
-profile. Denial, timeout, world shutdown, and capacity exhaustion reject the
-proposal before a local tunnel is opened.
+The identity setup screen offers:
+
+1. **Create a Connect endpoint**, which generates and persists one local
+   endpoint identity using the normal connector behavior; and
+2. **Use an existing dashboard endpoint**, which accepts an endpoint name and
+   masked dashboard-issued token. The user may paste the token or select an
+   existing plugin-compatible `token.json`.
+
+Because a token is opaque and authorized for one endpoint in one Minekube
+organization, importing a token always requires its endpoint name. The mod
+stages the imported pair in memory, opens an authenticated Connect validation
+session that rejects every player proposal, and atomically replaces the
+persisted identity only after validation succeeds. This path also updates a
+stored token after the owner resets that same endpoint's token in the
+Dashboard. A mismatch, wrong organization, malformed token file, network
+failure, cancellation, or game crash leaves the previously working identity
+unchanged. Imported credentials are never regenerated by the mod.
+
+The import screen warns that an endpoint should not simultaneously route from
+another server or connector. If Connect reports a conflicting active
+connector, sharing fails closed instead of allowing ambiguous routing.
+
+Connect session proposals remain pending while the host approves the supplied
+profile and its displayed trust level. The connector advertises support for
+offline-mode players, as the Connect plugin can. Denial, timeout, world
+shutdown, and capacity exhaustion reject the proposal before a local tunnel
+is opened.
 
 ### DirectP2pIngress
 
@@ -203,10 +245,18 @@ correlated by a stable peer ID. The direct service supports:
 - coordinated QUIC hole punching when candidate exchange is available;
 - no circuit-relay candidates outside the managed Connect path.
 
-The direct stream carries ordinary Minecraft login bytes into the same local
-Minecraft initializer. Minecraft performs normal online-mode authentication
-for this path. The host admission hook runs after the profile is authenticated
-and before the player enters the world.
+The direct stream carries a small versioned preface followed by ordinary
+Minecraft login bytes into the same local Minecraft initializer. The preface
+declares the guest's requested authentication mode:
+
+- online guests complete normal Mojang/Microsoft authentication before
+  admission; and
+- offline guests receive Minecraft's deterministic offline profile and are
+  marked unverified before per-connection admission.
+
+The direct protocol never silently downgrades a failed online login to offline
+mode. The guest must already be operating in offline mode and explicitly
+declares it in the mod-to-mod preface.
 
 ### ShareInviteCodec
 
@@ -228,9 +278,9 @@ The signed payload contains:
 - the host peer signature over every preceding field.
 
 The capability authorizes requesting admission; it never bypasses host
-approval or Minecraft account authentication. Same-LAN discovery advertises
-the share ID, protocol version, peer ID, and a short display name, but not the
-internet capability or public candidates.
+approval and never changes the guest's displayed authentication status.
+Same-LAN discovery advertises the share ID, protocol version, peer ID, and a
+short display name, but not the internet capability or public candidates.
 
 An unmodified guest receives only the Connect hostname. A modded guest can
 paste the URI into the Join Share screen. Pasting the URI into Minecraft's
@@ -239,20 +289,28 @@ parser.
 
 ### AdmissionController
 
-Admission is keyed by authenticated Minecraft UUID, not username, IP address,
-or libp2p peer ID.
+Admission uses an explicit identity type:
 
-For a new UUID, the controller:
+```text
+AuthenticatedProfile(uuid, name, authSource = CONNECT | MOJANG)
+UnverifiedOffline(offlineUuid, claimedName, connectionId, ingress)
+```
+
+For a new identity, the controller:
 
 1. creates one pending request;
-2. shows the host the verified name, UUID, and ingress type;
+2. shows the host the name, UUID, authentication badge, and ingress type;
 3. offers **Allow** and **Deny** actions;
 4. expires the request after 30 seconds;
-5. remembers an allowed UUID until this share stops.
+5. remembers an allowed authenticated UUID until this share stops; or
+6. applies an unverified approval only to that connection.
 
-Duplicate requests for the same UUID share one decision. At most 16 requests
-may be pending. Excess requests are rejected. Denial and timeout are visible
-to the guest without exposing internal errors.
+Duplicate requests for the same authenticated UUID, or the same live offline
+connection ID, share one decision. An offline reconnect creates a new request
+even when its claimed name and deterministic offline UUID match. At most 16
+requests may be pending, with bounded attempts per Connect session or direct
+peer. Excess requests are rejected. Denial and timeout are visible to the
+guest without exposing internal errors.
 
 ### TransportSelector
 
@@ -292,6 +350,12 @@ While active, the screen shows:
 - pending approval cards;
 - **Stop Sharing**.
 
+Connect identity settings show the endpoint name, credential source
+(generated, imported, or environment), and a masked token status. They provide
+**Import existing endpoint** and the separately warned **Reset Connect
+identity** action. The token value is never displayed again after a successful
+import.
+
 The host receives a toast and chat action when an approval is pending. Closing
 the screen does not stop sharing.
 
@@ -299,20 +363,28 @@ the screen does not stop sharing.
 
 Vanilla guests add or directly connect to the host's Connect hostname. Modded
 guests can use **Join Share** or paste a `minekube://share/` invitation. The
-hostname is stable and is not treated as a secret; verified identity and host
-approval remain the authorization boundary.
+hostname is stable and is not treated as a secret; the displayed
+authentication level and host approval remain the authorization boundary.
 
 The guest sees which path won: **Direct LAN**, **Direct internet**, or
 **Minekube Connect**. Internet-direct confirmation explains that both peers
-will learn each other's IP address.
+will learn each other's IP address. Approval requests and the connected-player
+list show **Connect authenticated**, **Verified online**, or **Unverified
+offline**; the UI never presents a locally derived offline UUID or username as
+authenticated.
 
 ## Security and Privacy
 
 - Connect identity is accepted only from a session context produced by the
   managed Connect ingress.
-- Direct sessions complete normal Mojang/Microsoft online-mode authentication
-  in the integrated server before admission.
-- Every ingress requires host approval for a previously unseen UUID.
+- Profiles delivered by a non-passthrough managed Connect session are trusted
+  as Connect-authenticated whether the player uses a paid or non-paid account.
+- Direct online and Connect-passthrough online sessions complete normal
+  Mojang/Microsoft authentication before admission.
+- Locally accepted offline sessions are supported but explicitly marked
+  unverified. Their approval is bound to one connection and cannot be reused by
+  another client claiming the same username or deterministic offline UUID.
+- Every ingress requires host approval under the admission identity rules.
 - Approvals, share capabilities, and ephemeral peer identities die with the
   share. The Connect endpoint name and token persist across shares.
 - The persistent endpoint token is stored separately from ordinary settings,
@@ -322,7 +394,8 @@ will learn each other's IP address.
   the mod installed.
 - Direct P2P does not accept or advertise circuit-relay addresses.
 - The host limits the share to 16 guests, 16 pending approvals, and one active
-  share.
+  share. Admission attempts are additionally bounded per Connect session or
+  ephemeral direct peer.
 - Malformed, expired, unsupported-version, incorrectly signed, or
   capability-mismatched invitations are rejected before dialing.
 
@@ -348,14 +421,24 @@ will learn each other's IP address.
 - state-machine transitions and idempotent cleanup;
 - persistent endpoint creation, reload, environment override, redaction,
   cross-world reuse, and explicit-only reset;
-- admission allow, deny, duplicate, timeout, capacity, and share reset;
+- dashboard credential paste and `token.json` import, staged validation,
+  atomic replacement, rollback on every failure, and credential-source
+  precedence;
+- Connect-authenticated, Mojang-authenticated, and unverified admission allow,
+  deny, duplicate, reconnect, impersonated-name, timeout, capacity, rate-limit,
+  and share reset;
 - invitation round-trip, signature, expiry, version, capability, and redaction;
 - transport order, privacy opt-in, timeouts, and Connect fallback.
 
 ### Networking tests
 
 - local Connect channel preserves `ConnectPlayer` session context;
+- Connect ingress preserves passthrough/offloaded authentication semantics and
+  accepts both paid and non-paid account modes;
 - direct stream reaches the vanilla child initializer without a public bind;
+- direct online authentication never downgrades to offline after failure;
+- direct offline login creates an unverified profile and requires a fresh
+  approval after reconnect;
 - two loopback libp2p hosts exchange a Minecraft-shaped byte stream;
 - direct configuration contains no circuit-relay candidate;
 - failed direct dial selects Connect exactly once;
@@ -388,17 +471,27 @@ Before calling the feature complete:
 
 1. Share a 1.21.11 world and join from an unmodified client through Connect.
 2. Repeat on 26.2.
-3. Deny then approve a new UUID and verify approval resets after restart.
-4. Join automatically between two modded clients on one LAN with Connect
+3. Deny then approve an authenticated UUID and verify approval resets after
+   restart.
+4. Join from a vanilla offline-mode client through Connect, verify the host
+   sees **Connect authenticated**, and verify the connection succeeds.
+5. Join directly from a modded offline-mode client and verify the same
+   per-connection approval rule.
+6. Join automatically between two modded clients on one LAN with Connect
    unavailable.
-5. Verify internet direct is never attempted without confirmation on both
+7. Verify internet direct is never attempted without confirmation on both
    peers.
-6. Verify successful internet direct where NAT permits it.
-7. Verify a failed internet-direct attempt falls back to Connect.
-8. Stop sharing and prove the hostname no longer reaches the world.
-9. Start a different world and prove the same endpoint name and token are
+8. Verify successful internet direct where NAT permits it.
+9. Verify a failed internet-direct attempt falls back to Connect.
+10. Stop sharing and prove the hostname no longer reaches the world.
+11. Start a different world and prove the same endpoint name and token are
    reused while the old signed invitation is rejected.
-10. Confirm no LAN/WAN Minecraft listener is reachable from another machine.
+12. Import a dashboard-created endpoint and token, then prove its hostname and
+    attached dashboard configuration are used without creating another
+    endpoint.
+13. Reject a bad imported token and prove the prior working identity remains
+    intact.
+14. Confirm no LAN/WAN Minecraft listener is reachable from another machine.
 
 ## Delivery Sequence
 
