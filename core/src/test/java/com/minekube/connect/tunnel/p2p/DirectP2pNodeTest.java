@@ -45,8 +45,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class DirectP2pNodeTest {
+    @TempDir
+    java.nio.file.Path tempDir;
+
     private DirectP2pNode host;
     private DirectP2pNode guest;
 
@@ -140,6 +144,36 @@ class DirectP2pNodeTest {
                 new X509EncodedKeySpec(first.publicKey())));
         verifier.update(message);
         assertTrue(verifier.verify(signature));
+    }
+
+    @Test
+    void persistentIdentitySurvivesNodeRestarts() {
+        java.nio.file.Path identityFile = tempDir.resolve("share-peer.key");
+        String firstPeerId;
+
+        host = new DirectP2pNode(identityFile);
+        firstPeerId = host.startHost(
+                new DirectP2pHostConfig(
+                        "first-share",
+                        "first-capability",
+                        "First World",
+                        false),
+                ignored -> new Socket()).peerId();
+        host.close();
+        host = null;
+        Libp2pRuntime.close();
+
+        host = new DirectP2pNode(identityFile);
+        String restartedPeerId = host.startHost(
+                new DirectP2pHostConfig(
+                        "second-share",
+                        "second-capability",
+                        "Second World",
+                        false),
+                ignored -> new Socket()).peerId();
+
+        assertEquals(firstPeerId, restartedPeerId);
+        assertTrue(java.nio.file.Files.isRegularFile(identityFile));
     }
 
     @Test

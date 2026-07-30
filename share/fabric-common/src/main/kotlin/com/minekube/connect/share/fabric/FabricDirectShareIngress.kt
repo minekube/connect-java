@@ -16,6 +16,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketAddress
+import java.nio.file.Path
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.Base64
@@ -31,9 +32,14 @@ class FabricDirectShareIngress private constructor(
     private val localSocket: (SocketAddress, DirectP2pSession) -> Socket,
 ) : DirectShareIngress {
     constructor(
+        dataDirectory: Path,
         displayName: () -> String,
     ) : this(
-        nodeFactory = { CoreFabricDirectNode(DirectP2pNode()) },
+        nodeFactory = {
+            CoreFabricDirectNode(
+                DirectP2pNode(dataDirectory.resolve(IDENTITY_FILE_NAME)),
+            )
+        },
         now = Instant::now,
         shareId = UUID::randomUUID,
         capability = ::newCapability,
@@ -170,6 +176,7 @@ class FabricDirectShareIngress private constructor(
         }
 
         private const val DEFAULT_DISPLAY_NAME = "Minecraft world"
+        private const val IDENTITY_FILE_NAME = "share-libp2p-identity.key"
         private const val CAPABILITY_BYTES = 32
         private const val INVITATION_LIFETIME_SECONDS = 24 * 60 * 60L
         private const val LOCAL_CONNECT_TIMEOUT_MILLIS = 3_000

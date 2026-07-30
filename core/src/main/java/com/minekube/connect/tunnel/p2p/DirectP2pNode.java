@@ -24,6 +24,7 @@ package com.minekube.connect.tunnel.p2p;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Objects;
 
@@ -41,15 +42,26 @@ public final class DirectP2pNode implements AutoCloseable {
     private Method close;
 
     public DirectP2pNode() {
+        initialize(null);
+    }
+
+    public DirectP2pNode(Path identityFile) {
+        initialize(Objects.requireNonNull(identityFile, "identityFile"));
+    }
+
+    private void initialize(Path identityFile) {
         try {
             Class<?> runtimeClass = Class.forName(
                     "com.minekube.connect.tunnel.p2p.DirectP2pNodeRuntime",
                     true,
                     Libp2pRuntimeLoader.classLoader());
-            java.lang.reflect.Constructor<?> constructor =
-                    runtimeClass.getDeclaredConstructor();
+            java.lang.reflect.Constructor<?> constructor = identityFile == null
+                    ? runtimeClass.getDeclaredConstructor()
+                    : runtimeClass.getDeclaredConstructor(Path.class);
             constructor.setAccessible(true);
-            runtime = constructor.newInstance();
+            runtime = identityFile == null
+                    ? constructor.newInstance()
+                    : constructor.newInstance(identityFile);
             startHost = accessible(runtimeClass.getDeclaredMethod(
                     "startHost",
                     DirectP2pHostConfig.class,

@@ -57,6 +57,7 @@ import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -109,6 +110,12 @@ final class DirectP2pNodeRuntime {
     DirectP2pNodeRuntime() {
         Pair<PrivKey, ?> pair = KeyKt.generateKeyPair(KeyType.ED25519);
         this.privateKey = pair.getFirst();
+    }
+
+    DirectP2pNodeRuntime(Path identityFile) throws IOException {
+        this.privateKey = EndpointPeerIdentity
+                .loadOrCreate(Objects.requireNonNull(identityFile, "identityFile"))
+                .privateKey();
     }
 
     synchronized DirectP2pHostInfo startHost(
@@ -301,7 +308,7 @@ final class DirectP2pNodeRuntime {
                 host,
                 MDNS_SERVICE,
                 MDNS_QUERY_INTERVAL_SECONDS,
-                null);
+                MdnsAddressSelector.systemAddress());
         discovery.addHandler(peer -> {
             onMdnsPeer(peer);
             return Unit.INSTANCE;

@@ -70,6 +70,7 @@ object FabricShareBootstrap {
             scope = scope,
         )
         val directIngress = FabricDirectShareIngress(
+            dataDirectory = dataDirectory,
             displayName = worldDisplayName,
         )
         val coordinator = ShareCoordinator(

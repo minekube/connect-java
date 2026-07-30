@@ -8,7 +8,9 @@ import com.minekube.connect.share.direct.SignedShareInvite
 import com.minekube.connect.tunnel.p2p.DirectP2pHostConfig
 import com.minekube.connect.tunnel.p2p.DirectP2pHostHandler
 import com.minekube.connect.tunnel.p2p.DirectP2pHostInfo
+import com.minekube.connect.tunnel.p2p.Libp2pRuntime
 import java.net.InetSocketAddress
+import java.nio.file.Path
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.Signature
@@ -19,8 +21,12 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.io.TempDir
 
 class FabricDirectShareIngressTest {
+    @TempDir
+    lateinit var tempDir: Path
+
     @Test
     fun `publishes a signed invitation with Connect fallback and opted-in candidates`() =
         runTest {
@@ -121,6 +127,37 @@ class FabricDirectShareIngressTest {
         }
 
         assertTrue(node.closed)
+    }
+
+    @Test
+    fun `production ingress keeps its peer identity across share restarts`() = runTest {
+        val target = InetSocketAddress(
+            java.net.InetAddress.getLoopbackAddress(),
+            25_565,
+        )
+        val firstIngress = FabricDirectShareIngress(
+            dataDirectory = tempDir,
+            displayName = { "First World" },
+        )
+        val first = firstIngress.start(OPTIONS, target, null)
+        val firstPeerId = assertIs<Either.Right<SignedShareInvite>>(
+            ShareInviteCodec.decode(first.invitation),
+        ).value.payload.peerId
+        first.close()
+        Libp2pRuntime.close()
+
+        val secondIngress = FabricDirectShareIngress(
+            dataDirectory = tempDir,
+            displayName = { "Second World" },
+        )
+        val second = secondIngress.start(OPTIONS, target, null)
+        val secondPeerId = assertIs<Either.Right<SignedShareInvite>>(
+            ShareInviteCodec.decode(second.invitation),
+        ).value.payload.peerId
+
+        assertEquals(firstPeerId, secondPeerId)
+        second.close()
+        Libp2pRuntime.close()
     }
 
     private class FakeDirectNode(
