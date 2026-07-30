@@ -540,7 +540,7 @@ Run:
 
 Expected: identity and validation tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add share/common/src/main/kotlin/com/minekube/connect/share/identity share/common/src/test/kotlin/com/minekube/connect/share/identity share/fabric-common/src/main/kotlin/com/minekube/connect/share/fabric/WatchEndpointCredentialValidator.kt share/fabric-common/src/main/kotlin/com/minekube/connect/share/fabric/RandomEndpointNameSource.kt share/fabric-common/src/test/kotlin/com/minekube/connect/share/fabric/WatchEndpointCredentialValidatorTest.kt share/fabric-common/src/test/kotlin/com/minekube/connect/share/fabric/RandomEndpointNameSourceTest.kt
@@ -581,7 +581,7 @@ enum class Ingress { CONNECT, DIRECT_LAN, DIRECT_INTERNET }
 enum class AdmissionAnswer { ALLOW, DENY, TIMEOUT, STOPPED, CAPACITY }
 ```
 
-- [ ] **Step 1: Write failing admission tests**
+- [x] **Step 1: Write failing admission tests**
 
 Cover:
 
@@ -597,7 +597,7 @@ Cover:
 
 Use `kotlinx.coroutines.test.runTest` and a test scheduler for the 30-second timeout.
 
-- [ ] **Step 2: Run and observe failure**
+- [x] **Step 2: Run and observe failure**
 
 Run:
 
@@ -607,7 +607,7 @@ Run:
 
 Expected: missing admission types.
 
-- [ ] **Step 3: Implement AdmissionController**
+- [x] **Step 3: Implement AdmissionController**
 
 Expose:
 
@@ -628,7 +628,7 @@ class AdmissionController(
 
 Key authenticated approvals by UUID. Key unverified requests by `connectionId`. Never key offline approval by name or deterministic offline UUID. Complete deferred results outside the controller mutex. `resetShare()` returns `STOPPED` to pending callers and clears remembered authenticated UUIDs.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
