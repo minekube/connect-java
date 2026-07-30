@@ -723,7 +723,7 @@ Run:
 
 Expected: focused tests pass and existing plugin behavior remains immediate-allow.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core/src/main/java/com/minekube/connect/watch core/src/main/java/com/minekube/connect/register/WatcherRegister.java core/src/main/java/com/minekube/connect/module/CommonModule.java core/src/test/java/com/minekube/connect/watch core/src/test/java/com/minekube/connect/register/WatcherRegisterTest.java
@@ -770,7 +770,7 @@ data class ConnectShareHandle(
 )
 ```
 
-- [ ] **Step 1: Write state and cleanup tests**
+- [x] **Step 1: Write state and cleanup tests**
 
 Prove:
 
@@ -781,9 +781,10 @@ Prove:
 @Test fun `stop is idempotent`()
 @Test fun `world replacement stops active share`()
 @Test fun `capacity outside one through sixteen is rejected`()
+@Test fun `start cancellation releases the bridge and remains cancellation`()
 ```
 
-- [ ] **Step 2: Run and observe missing production types**
+- [x] **Step 2: Run and observe missing production types**
 
 Run:
 
@@ -793,7 +794,7 @@ Run:
 
 Expected: compilation failure.
 
-- [ ] **Step 3: Implement the coordinator**
+- [x] **Step 3: Implement the coordinator**
 
 `ShareState` is:
 
@@ -807,9 +808,20 @@ sealed interface ShareState {
 }
 ```
 
-`ShareCoordinator.start` runs under a mutex, creates the bridge, loads identity, starts Connect, and publishes `Sharing`. `stop` snapshots handles under the mutex, publishes `Stopping`, closes ingress, closes bridge, resets admission, then publishes `Idle`. Every close runs even when a previous close throws; aggregate failures into logs but keep UI messages sanitized.
+`ShareCoordinator.start` runs under a mutex, creates the bridge, loads identity,
+starts Connect, and publishes `Sharing`. It returns
+`Either<ShareLifecycleError, ShareState.Sharing>`. Model the bridge and ingress
+as one Arrow `Resource`; the coordinator's carefully bounded `allocate`
+interop keeps that resource alive across UI events while explicitly releasing
+partially acquired resources on every failed or cancelled start.
 
-- [ ] **Step 4: Run tests and commit**
+`stop` snapshots the release handle under the mutex, publishes `Stopping`,
+releases the Arrow resource (ingress then bridge), resets admission, then
+publishes `Idle`. Arrow runs every finalizer and combines cleanup failures.
+Return a typed `StopFailed`, report only a fixed safe summary, and never convert
+coroutine cancellation into a domain failure.
+
+- [x] **Step 4: Run tests and commit**
 
 Run:
 
