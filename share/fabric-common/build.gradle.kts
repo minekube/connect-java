@@ -20,6 +20,7 @@ dependencies {
     implementation(platform("io.arrow-kt:arrow-stack:${Versions.arrowVersion}"))
     implementation("io.arrow-kt:arrow-core")
     implementation("io.arrow-kt:arrow-fx-coroutines")
+    implementation("com.google.protobuf:protobuf-java:${Versions.protocVersion}")
     implementation("com.squareup.okhttp3:okhttp:4.9.3")
 
     testImplementation(kotlin("test"))

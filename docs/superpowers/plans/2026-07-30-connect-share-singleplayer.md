@@ -401,15 +401,23 @@ fun interface EndpointNameSource {
     suspend fun create(): String
 }
 fun interface EndpointCredentialValidator {
-    suspend fun validate(identity: EndpointIdentity): CredentialValidation
+    suspend fun validate(
+        identity: EndpointIdentity,
+    ): Either<CredentialValidationError, Unit>
 }
-sealed interface CredentialValidation {
-    data object Valid : CredentialValidation
-    data class Invalid(val safeMessage: String) : CredentialValidation
+sealed interface CredentialValidationError {
+    val safeMessage: String
+    data class InvalidInput(override val safeMessage: String) : CredentialValidationError
+    data class Rejected(override val safeMessage: String) : CredentialValidationError
+    data class Network(override val safeMessage: String) : CredentialValidationError
+    data class ManagedByEnvironment(
+        val fields: NonEmptyList<String>,
+        override val safeMessage: String,
+    ) : CredentialValidationError
 }
 ```
 
-- [ ] **Step 1: Write the identity-store tests**
+- [x] **Step 1: Write the identity-store tests**
 
 Tests must prove:
 
@@ -422,11 +430,13 @@ Tests must prove:
 @Test fun `plugin token json can be imported`()
 @Test fun `reset is explicit and creates one replacement identity`()
 @Test fun `logs and toString never contain token`()
+@Test fun `second file failure restores the prior identity`()
+@Test fun `interrupted transaction rolls back on next load`()
 ```
 
 Use a deterministic `EndpointNameSource { "amber-fox" }` and token source returning `T-AAAAAAAAAAAAAAAAAAAA`.
 
-- [ ] **Step 2: Run and observe the missing-type failure**
+- [x] **Step 2: Run and observe the missing-type failure**
 
 Run:
 
@@ -436,7 +446,7 @@ Run:
 
 Expected: compilation fails on `EndpointIdentityStore`.
 
-- [ ] **Step 3: Implement exact persistence semantics**
+- [x] **Step 3: Implement exact persistence semantics**
 
 `EndpointIdentityStore` has this constructor and public API:
 
@@ -452,33 +462,39 @@ class EndpointIdentityStore(
         endpoint: String,
         token: String,
         validator: EndpointCredentialValidator,
-    ): CredentialValidation
+    ): Either<CredentialValidationError, EndpointIdentity>
     suspend fun importTokenFile(
         endpoint: String,
         tokenFile: Path,
         validator: EndpointCredentialValidator,
-    ): CredentialValidation
-    suspend fun resetConfirmed(): EndpointIdentity
+    ): Either<CredentialValidationError, EndpointIdentity>
+    suspend fun resetConfirmed(): Either<CredentialValidationError, EndpointIdentity>
 }
 ```
 
 Use `config.json` with:
 
 ```json
-{"endpoint":"amber-fox","credentialSource":"IMPORTED"}
+{"endpoint":"amber-fox","endpointSource":"IMPORTED","tokenSource":"IMPORTED"}
 ```
 
-Validate endpoint names with `^[a-z0-9][a-z0-9-]{2,62}$`. Treat tokens as secrets and override `EndpointIdentity.toString()` to print `token=<redacted>`. Import writes neither file until `CredentialValidation.Valid`, then atomically replaces token first and config second while retaining backups until both moves succeed. Restore both backups when the second move fails.
+Validate endpoint names with `^[a-z0-9][a-z0-9-]{2,62}$`. Treat tokens as secrets and override `EndpointIdentity.toString()` to print `token=<redacted>`. Import writes neither file until validation returns `Either.Right(Unit)`, then atomically replaces token first and config second while retaining backups until both moves succeed. Restore both backups when the second move fails.
+
+Use Arrow `either`, `ensure`, `ensureNotNull`, `bind`, and `NonEmptyList` for
+the validation workflow and its typed failures. Environment management is
+tracked independently for endpoint and token so a field supplied by
+`CONNECT_ENDPOINT` or `CONNECT_TOKEN` is never silently overwritten.
 
 Before either move, write `identity-transaction.json` containing the old and
-new endpoint names plus both backup file names. `currentOrCreate()` calls
-`recoverInterruptedTransaction()` before reading identity files. When the
-journal exists, restore both backups, or remove both partially created files
-when no prior identity existed, then delete the journal. Delete backups and the
-journal only after both final files are durable. A process crash during either
-move therefore rolls back on the next load.
+new endpoint names plus both backup and staged file names. `currentOrCreate()`
+calls `recoverInterruptedTransaction()` before reading identity files. When
+the journal exists without a committed marker, restore both backups, or remove
+both partially created files when no prior identity existed, then delete the
+journal. When the committed marker is durable, retain the new pair and only
+clean staged and backup files. Delete backups and the journal only after both
+final files are durable.
 
-- [ ] **Step 4: Write validator tests against MockWebServer**
+- [x] **Step 4: Write validator tests against MockWebServer**
 
 Assert that a validation request sends:
 
@@ -488,9 +504,13 @@ Connect-Endpoint: amber-fox
 Connect-Platform: Fabric
 ```
 
-The WebSocket listener must close immediately after HTTP 101 and reject any binary `WatchResponse` proposal without creating a local tunnel. HTTP 401 returns a sanitized `CredentialValidation.Invalid`; transport failure returns a safe network message.
+The WebSocket listener must close immediately after HTTP 101 and reject any
+binary `WatchResponse` proposal without creating a local tunnel. HTTP 401
+returns a sanitized `CredentialValidationError.Rejected`; transport failure
+and timeout return `CredentialValidationError.Network`. Caller cancellation
+must remain cancellation.
 
-- [ ] **Step 5: Implement the Watch validator**
+- [x] **Step 5: Implement the Watch validator**
 
 Expose:
 
@@ -510,7 +530,7 @@ Step 3. On timeout, non-200, empty body, or invalid body, return five lowercase
 letters from `SecureRandom`; do not fail identity creation and do not include
 network response bodies in logs.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run:
 
