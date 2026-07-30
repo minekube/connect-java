@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/minekube/connect-java/compare/0.13.3...0.14.0) (2026-07-30)
+
+
+### Features
+
+* **core:** enable zero-config Bedrock identity defaults ([#90](https://github.com/minekube/connect-java/issues/90)) ([d381f42](https://github.com/minekube/connect-java/commit/d381f429d8a9f211f8eac46edddfb09b2bb313cf))
+
 ## [0.13.3](https://github.com/minekube/connect-java/compare/0.13.2...0.13.3) (2026-07-30)
 
 
