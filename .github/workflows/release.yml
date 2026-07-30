@@ -284,6 +284,9 @@ jobs:
         env:
           HANGAR_API_TOKEN: ${{ secrets.HANGAR_API_TOKEN }}
           RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+          # The checkout may be an old release tag that predates the Hangar
+          # page source. Read it from the exact commit supplying this workflow.
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
           set -euo pipefail
 
@@ -294,6 +297,10 @@ jobs:
           fi
           if [ -z "${RELEASE_TAG:-}" ]; then
             echo "::error::Release tag is empty; cannot publish a Hangar version."
+            exit 1
+          fi
+          if [ -z "${WORKFLOW_SHA:-}" ]; then
+            echo "::error::Workflow commit is empty; cannot load the authoritative Hangar page."
             exit 1
           fi
 
@@ -333,7 +340,16 @@ jobs:
 
           # Sync the public resource page before creating an immutable version.
           # If the token lacks edit_page, fail before partially publishing.
-          jq -n --rawfile content .github/hangar-description.md \
+          # Backfills check out the release tag, which may predate this file,
+          # so fetch it from the immutable commit that supplied the workflow.
+          curl -sS --fail -A "$UA" \
+            "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$WORKFLOW_SHA/.github/hangar-description.md" \
+            -o "$TMP/hangar-description.md"
+          if [ ! -s "$TMP/hangar-description.md" ]; then
+            echo "::error::The authoritative Hangar resource page is empty."
+            exit 1
+          fi
+          jq -n --rawfile content "$TMP/hangar-description.md" \
             '{path: "", content: $content}' > "$TMP/page.json"
           PAGE_CODE="$(api "$TMP/page-response.json" \
             -X PATCH "$API/pages/edit/$PROJECT" \

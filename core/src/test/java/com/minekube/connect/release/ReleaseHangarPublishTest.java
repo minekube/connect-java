@@ -179,6 +179,28 @@ class ReleaseHangarPublishTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void hangarDescriptionComesFromTheWorkflowCommitWhenBackfillingAnOldTag() throws Exception {
+        List<Map<String, Object>> steps = readBuildJobSteps();
+        Map<String, Object> step = hangarStep(steps);
+
+        Object env = step.get("env");
+        assertTrue(env instanceof Map, "\"" + HANGAR_STEP + "\" declares no env block");
+        Object workflowSha = ((Map<String, Object>) env).get("WORKFLOW_SHA");
+        assertTrue(workflowSha instanceof String
+                        && ((String) workflowSha).contains("github.workflow_sha"),
+                "\"" + HANGAR_STEP + "\" does not identify the commit containing its workflow");
+
+        String script = hangarScript(steps);
+        assertTrue(script.contains("$GITHUB_REPOSITORY/$WORKFLOW_SHA/"
+                        + ".github/hangar-description.md"),
+                "Hangar description is not loaded from the exact workflow commit");
+        assertTrue(script.contains("--rawfile content \"$TMP/hangar-description.md\""),
+                "Hangar page sync still reads the checked-out release tag, where a backfill file "
+                        + "may not exist");
+    }
+
+    @Test
     void hangarPublishVerifiesStoredDigestsAndJarMagic() throws Exception {
         String script = hangarScript(readBuildJobSteps());
 
