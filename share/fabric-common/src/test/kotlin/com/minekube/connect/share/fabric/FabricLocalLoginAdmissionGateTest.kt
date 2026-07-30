@@ -3,6 +3,7 @@ package com.minekube.connect.share.fabric
 import com.minekube.connect.share.admission.AdmissionAnswer
 import com.minekube.connect.share.admission.AdmissionController
 import com.minekube.connect.share.admission.AdmissionIdentity
+import com.minekube.connect.share.admission.Ingress
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,12 +28,14 @@ class FabricLocalLoginAdmissionGateTest {
             uuid = PLAYER_UUID,
             connectionId = "connection-1",
             minecraftAuthenticated = false,
+            ingress = Ingress.DIRECT_LAN,
         ).toCompletableFuture()
         runCurrent()
 
         val pending = admission.pending.value.single()
         val identity = assertIs<AdmissionIdentity.UnverifiedOffline>(pending.identity)
         assertEquals("connection-1", identity.connectionId)
+        assertEquals(Ingress.DIRECT_LAN, identity.ingress)
         admission.answer(pending.requestId, allow = true)
         runCurrent()
 

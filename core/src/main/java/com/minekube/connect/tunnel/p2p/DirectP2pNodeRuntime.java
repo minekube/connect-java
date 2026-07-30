@@ -224,20 +224,29 @@ final class DirectP2pNodeRuntime {
         }
 
         ensureGuestHost(false);
+        ProxyRuntime proxy = null;
         try {
-            ProxyRuntime proxy = new ProxyRuntime(
+            proxy = new ProxyRuntime(
                     host,
                     address,
                     new DirectPreface(shareId, capability, authMode),
                     timeout);
-            proxies.add(proxy);
             proxy.start();
+            proxies.add(proxy);
+            ProxyRuntime active = proxy;
             return new DirectP2pProxy(proxy.localAddress(), () -> {
-                proxy.close();
-                proxies.remove(proxy);
+                active.close();
+                proxies.remove(active);
             });
-        } catch (IOException e) {
-            throw new IllegalStateException("Could not bind the direct Minecraft proxy", e);
+        } catch (Exception e) {
+            if (proxy != null) {
+                proxy.close();
+            }
+            throw e instanceof RuntimeException
+                    ? (RuntimeException) e
+                    : new IllegalStateException(
+                            "Could not bind the direct Minecraft proxy",
+                            e);
         }
     }
 
@@ -346,6 +355,7 @@ final class DirectP2pNodeRuntime {
             DirectP2pSession session = new DirectP2pSession(
                     stream.remotePeerId().toBase58(),
                     preface.authMode,
+                    route(stream),
                     UUID.randomUUID().toString());
             Socket socket = handler.openLocalSession(session);
             if (socket == null || !socket.isConnected() || socket.isClosed()) {
@@ -373,6 +383,27 @@ final class DirectP2pNodeRuntime {
             }
         }
         throw new IllegalStateException("Connect Share direct host has no TCP listener");
+    }
+
+    private static DirectP2pRoute route(Stream stream) {
+        Multiaddr remote = stream.getConnection().remoteAddress();
+        MultiaddrComponent ip = remote.getFirstComponent(Protocol.IP4);
+        if (ip == null) {
+            ip = remote.getFirstComponent(Protocol.IP6);
+        }
+        if (ip == null) {
+            return DirectP2pRoute.INTERNET;
+        }
+        try {
+            InetAddress address = InetAddress.getByName(ip.getStringValue());
+            return address.isLoopbackAddress()
+                    || address.isLinkLocalAddress()
+                    || address.isSiteLocalAddress()
+                    ? DirectP2pRoute.LAN
+                    : DirectP2pRoute.INTERNET;
+        } catch (IOException ignored) {
+            return DirectP2pRoute.INTERNET;
+        }
     }
 
     private static List<String> addresses(int port, String peerId, boolean internetOnly) {
@@ -812,36 +843,37 @@ final class DirectP2pNodeRuntime {
         }
 
         private void start() {
-            Thread thread = new Thread(this::acceptAndDial, "connect-share-direct-guest");
+            Multiaddr multiaddr = Multiaddr.fromString(address);
+            PeerId peerId = multiaddr.getPeerId();
+            if (peerId == null) {
+                throw new IllegalArgumentException(
+                        "direct address must include /p2p/<peer-id>");
+            }
+            Connection connection = await(
+                    host.getNetwork().connect(peerId, multiaddr),
+                    timeout,
+                    "dial the Connect Share host");
+            StreamPromise<Object> promise = host.newStream(
+                    Collections.singletonList(TUNNEL_PROTOCOL_ID),
+                    connection);
+            stream = await(
+                    promise.getStream(),
+                    timeout,
+                    "open the Connect Share direct stream");
+            await(
+                    stream.getProtocol(),
+                    timeout,
+                    "negotiate the Connect Share direct protocol");
+
+            Thread thread = new Thread(this::acceptAndBridge, "connect-share-direct-guest");
             thread.setDaemon(true);
             thread.start();
         }
 
-        private void acceptAndDial() {
+        private void acceptAndBridge() {
             try {
                 client = listener.accept();
                 listener.close();
-                Multiaddr multiaddr = Multiaddr.fromString(address);
-                PeerId peerId = multiaddr.getPeerId();
-                if (peerId == null) {
-                    throw new IllegalArgumentException(
-                            "direct address must include /p2p/<peer-id>");
-                }
-                Connection connection = await(
-                        host.getNetwork().connect(peerId, multiaddr),
-                        timeout,
-                        "dial the Connect Share host");
-                StreamPromise<Object> promise = host.newStream(
-                        Collections.singletonList(TUNNEL_PROTOCOL_ID),
-                        connection);
-                stream = await(
-                        promise.getStream(),
-                        timeout,
-                        "open the Connect Share direct stream");
-                await(
-                        stream.getProtocol(),
-                        timeout,
-                        "negotiate the Connect Share direct protocol");
                 SocketBridge.install(
                         stream,
                         client,

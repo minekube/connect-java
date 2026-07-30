@@ -3,6 +3,8 @@ package com.minekube.connect.share
 import arrow.core.Either
 import arrow.core.left
 import arrow.core.right
+import com.minekube.connect.share.direct.DirectSessionAttributes
+import com.minekube.connect.share.direct.DirectSessionRegistry
 import io.netty.channel.Channel
 import io.netty.channel.ChannelInitializer
 import io.netty.channel.EventLoopGroup
@@ -29,12 +31,20 @@ object CapturedServerTransport {
     fun captureChildInitializer(
         initializer: ChannelInitializer<Channel>,
     ): ChannelInitializer<Channel> {
+        val wrapped = object : ChannelInitializer<Channel>() {
+            override fun initChannel(channel: Channel) {
+                DirectSessionRegistry.claim(channel.remoteAddress())?.let {
+                    channel.attr(DirectSessionAttributes.SESSION).set(it)
+                }
+                channel.pipeline().addLast(initializer)
+            }
+        }
         synchronized(captureLock) {
             armed
                 ?.takeIf { it.owner === Thread.currentThread() }
-                ?.childInitializer = initializer
+                ?.childInitializer = wrapped
         }
-        return initializer
+        return wrapped
     }
 
     @JvmStatic

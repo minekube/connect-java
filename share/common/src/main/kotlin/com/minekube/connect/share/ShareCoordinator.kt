@@ -23,6 +23,7 @@ class ShareCoordinator(
     private val ingress: ConnectShareIngress,
     private val identityProvider: suspend () -> EndpointIdentity,
     private val admission: AdmissionController,
+    private val directIngress: DirectShareIngress? = null,
     private val failureReporter: (String) -> Unit = {},
 ) {
     private val lifecycleMutex = Mutex()
@@ -49,17 +50,57 @@ class ShareCoordinator(
                     acquire = { bridge.open(options) },
                     release = { acquired, _ -> acquired.close() },
                 )
-                val identity = identityProvider()
-                val connect = install(
-                    acquire = { ingress.start(identity, target.address) },
-                    release = { acquired, _ -> acquired.close() },
-                )
-                AcquiredShare(target, connect)
+                var connectFailed = false
+                val connect = try {
+                    val identity = identityProvider()
+                    install(
+                        acquire = { ingress.start(identity, target.address) },
+                        release = { acquired, _ -> acquired.close() },
+                    )
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    connectFailed = true
+                    null
+                }
+                var directFailed = false
+                val direct = try {
+                    directIngress?.let {
+                        install(
+                            acquire = {
+                                it.start(
+                                    options = options,
+                                    target = target.address,
+                                    connectAddress = connect?.publicAddress,
+                                )
+                            },
+                            release = { acquired, _ -> acquired.close() },
+                        )
+                    }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    directFailed = true
+                    null
+                }
+                check(connect != null || direct != null) {
+                    "Connect Share has no usable ingress"
+                }
+                when {
+                    connectFailed -> reportFailure(CONNECT_DEGRADED_REPORT)
+                    directFailed -> reportFailure(DIRECT_DEGRADED_REPORT)
+                }
+                AcquiredShare(target, connect, direct)
             }
             val (acquired, release) = managedShare.allocateSafely()
             val sharing = ShareState.Sharing(
-                endpoint = acquired.connect.endpoint,
-                address = acquired.connect.publicAddress,
+                endpoint = acquired.connect?.endpoint,
+                address = acquired.connect?.publicAddress,
+                invitation = acquired.direct?.invitation,
+                connectAvailable = acquired.connect != null,
+                lanDirectAvailable = acquired.direct?.lanAvailable == true,
+                internetDirectAvailable =
+                    acquired.direct?.internetAvailable == true,
             )
             active = ActiveShare(release)
             mutableState.value = sharing
@@ -123,7 +164,8 @@ class ShareCoordinator(
 
     private data class AcquiredShare(
         val target: LocalShareTarget,
-        val connect: ConnectShareHandle,
+        val connect: ConnectShareHandle?,
+        val direct: DirectShareHandle?,
     )
 
     private data class ActiveShare(
@@ -163,5 +205,9 @@ class ShareCoordinator(
     private companion object {
         const val START_FAILURE_REPORT = "Connect Share start failed"
         const val STOP_FAILURE_REPORT = "Connect Share cleanup failed"
+        const val CONNECT_DEGRADED_REPORT =
+            "Connect Share started without Minekube Connect ingress"
+        const val DIRECT_DEGRADED_REPORT =
+            "Connect Share started without direct P2P ingress"
     }
 }

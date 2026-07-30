@@ -99,6 +99,11 @@ sealed interface ShareInviteError {
     data object RelayCandidateForbidden : ShareInviteError {
         override val safeMessage = "Direct Connect Share invitations cannot use a relay"
     }
+
+    data object PeerMismatch : ShareInviteError {
+        override val safeMessage =
+            "A direct Connect Share route does not match the signed host"
+    }
 }
 
 object ShareInviteCodec {
@@ -153,6 +158,13 @@ object ShareInviteCodec {
             ensure(parsed.payload.directCandidates.none(::isRelayAddress)) {
                 ShareInviteError.RelayCandidateForbidden
             }
+            ensure(
+                parsed.payload.directCandidates.all {
+                    candidatePeerId(it) == parsed.payload.peerId
+                },
+            ) {
+                ShareInviteError.PeerMismatch
+            }
             parsed
         }
     }
@@ -173,6 +185,13 @@ object ShareInviteCodec {
     private fun isRelayAddress(candidate: String): Boolean =
         candidate.contains("/p2p-circuit") ||
             candidate.contains("/circuit/")
+
+    private fun candidatePeerId(candidate: String): String? {
+        val segments = candidate.split('/')
+        val marker = segments.indexOfLast { it == "p2p" }
+        if (marker < 0) return null
+        return segments.getOrNull(marker + 1)?.takeIf(String::isNotBlank)
+    }
 
     private fun CborWriter.invitePayload(payload: ShareInvitePayload) {
         unsigned(payload.wireVersion.toLong())

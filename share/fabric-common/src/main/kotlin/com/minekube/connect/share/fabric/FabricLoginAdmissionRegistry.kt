@@ -1,6 +1,7 @@
 package com.minekube.connect.share.fabric
 
 import com.minekube.connect.share.admission.AdmissionAnswer
+import com.minekube.connect.share.admission.Ingress
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
@@ -26,6 +27,7 @@ object FabricLoginAdmissionRegistry {
         uuid: UUID,
         connectionId: String,
         minecraftAuthenticated: Boolean,
+        ingress: Ingress,
     ): CompletionStage<AdmissionAnswer> {
         val gate = installed.get()
         if (gate == null) {
@@ -36,6 +38,7 @@ object FabricLoginAdmissionRegistry {
             uuid = uuid,
             connectionId = connectionId,
             minecraftAuthenticated = minecraftAuthenticated,
+            ingress = ingress,
         )
     }
 }

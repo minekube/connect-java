@@ -175,6 +175,12 @@ class ShareViewModel(
         }
     }
 
+    fun setAllowInternetDirect(allowed: Boolean) {
+        update {
+            copy(options = options.copy(allowInternetDirect = allowed))
+        }
+    }
+
     fun start() {
         if (!state.value.startEnabled) return
         scope.launch(start = CoroutineStart.UNDISPATCHED) {

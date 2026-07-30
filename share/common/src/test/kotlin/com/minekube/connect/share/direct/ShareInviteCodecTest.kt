@@ -85,6 +85,23 @@ class ShareInviteCodecTest {
         assertIs<Either.Left<ShareInviteError.RelayCandidateForbidden>>(decoded)
     }
 
+    @Test
+    fun `direct candidates must name the signed host peer`() {
+        val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+        val mismatched = payload(
+            directCandidates = listOf(
+                "/ip4/203.0.113.8/tcp/4001/p2p/12D3KooWAttacker",
+            ),
+        ).signWith(keyPair)
+
+        val decoded = ShareInviteCodec.decode(
+            ShareInviteCodec.encode(mismatched),
+            Instant.ofEpochMilli(NOW),
+        )
+
+        assertIs<Either.Left<ShareInviteError.PeerMismatch>>(decoded)
+    }
+
     private fun payload(
         wireVersion: Int = ShareInviteCodec.WIRE_VERSION,
         expiresAt: Long = NOW + 60_000,

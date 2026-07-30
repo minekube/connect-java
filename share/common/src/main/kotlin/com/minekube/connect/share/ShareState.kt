@@ -5,9 +5,20 @@ sealed interface ShareState {
     data object Starting : ShareState
 
     data class Sharing(
-        val endpoint: String,
-        val address: String,
-    ) : ShareState
+        val endpoint: String?,
+        val address: String?,
+        val invitation: String? = null,
+        val connectAvailable: Boolean = true,
+        val lanDirectAvailable: Boolean = false,
+        val internetDirectAvailable: Boolean = false,
+    ) : ShareState {
+        override fun toString(): String =
+            "Sharing(endpoint=$endpoint, address=$address, " +
+                "invitation=<redacted>, " +
+                "connectAvailable=$connectAvailable, " +
+                "lanDirectAvailable=$lanDirectAvailable, " +
+                "internetDirectAvailable=$internetDirectAvailable)"
+    }
 
     data object Stopping : ShareState
 

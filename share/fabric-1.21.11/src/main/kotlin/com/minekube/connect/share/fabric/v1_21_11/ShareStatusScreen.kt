@@ -18,34 +18,68 @@ class ShareStatusScreen(
     override fun init() {
         val state = viewModel.state.value
         fingerprint = state.hashCode()
-        addRenderableWidget(centered(title, 18))
+        addRenderableWidget(centered(title, 14))
 
         val sharing = state.shareState as? ShareState.Sharing
-        val address = sharing?.address
-            ?: Component.translatable(statusKey(state.shareState)).string
+        val publicAddress = sharing?.address
+        val summary = when {
+            publicAddress != null ->
+                Component.translatable(
+                    "connect_share.status.address",
+                    publicAddress,
+                )
+
+            sharing != null ->
+                Component.translatable("connect_share.status.direct_only")
+
+            else -> Component.translatable(statusKey(state.shareState))
+        }
         addRenderableWidget(
-            centered(
-                Component.translatable("connect_share.status.address", address),
-                38,
-            ),
+            centered(summary, 32),
         )
-        val copy = addRenderableWidget(
-            Button.builder(Component.translatable("connect_share.status.copy")) {
+        val copyInvitation = addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.status.copy_invitation"),
+            ) {
+                sharing?.invitation?.let(
+                    minecraft!!.keyboardHandler::setClipboard,
+                )
+            }.bounds(width / 2 - 155, 48, 150, 20).build(),
+        )
+        copyInvitation.active = sharing?.invitation != null
+        val copyAddress = addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.status.copy_address"),
+            ) {
                 sharing?.address?.let(minecraft!!.keyboardHandler::setClipboard)
-            }.bounds(width / 2 - 50, 54, 100, 20).build(),
+            }.bounds(width / 2 + 5, 48, 150, 20).build(),
         )
-        copy.active = sharing != null
+        copyAddress.active = sharing?.address != null
+
+        sharing?.let {
+            addRenderableWidget(
+                centered(
+                    Component.translatable(
+                        "connect_share.status.routes",
+                        availability(it.connectAvailable),
+                        availability(it.lanDirectAvailable),
+                        availability(it.internetDirectAvailable),
+                    ),
+                    76,
+                ).setMaxWidth(310),
+            )
+        }
 
         addRenderableWidget(
             Button.builder(Component.translatable("connect_share.identity.manage")) {
                 minecraft?.setScreen(EndpointIdentityScreen(this))
-            }.bounds(width / 2 - 100, 80, 200, 20).build(),
+            }.bounds(width / 2 - 100, 92, 200, 20).build(),
         )
 
         val pending = state.pendingAdmissions
-        val visibleRows = ((height - 154) / 38).coerceIn(1, 4)
+        val visibleRows = ((height - 166) / 38).coerceIn(1, 3)
         pending.take(visibleRows).forEachIndexed { index, request ->
-            val y = 108 + index * 38
+            val y = 120 + index * 38
             val identity = request.identity
             val badge = when (identity) {
                 is AdmissionIdentity.Authenticated ->
@@ -87,14 +121,14 @@ class ShareStatusScreen(
                         "connect_share.status.more",
                         pending.size - visibleRows,
                     ),
-                    108 + visibleRows * 38,
+                    120 + visibleRows * 38,
                 ),
             )
         } else if (pending.isEmpty()) {
             addRenderableWidget(
                 centered(
                     Component.translatable("connect_share.status.waiting"),
-                    116,
+                    128,
                 ),
             )
         }
@@ -128,6 +162,9 @@ class ShareStatusScreen(
         val textWidth = font.width(message)
         return StringWidget(width / 2 - textWidth / 2, y, textWidth, 9, message, font)
     }
+
+    private fun availability(available: Boolean): Component =
+        Component.translatable(if (available) "options.on" else "options.off")
 
     private fun statusKey(state: ShareState): String = when (state) {
         ShareState.Idle -> "connect_share.status.idle"

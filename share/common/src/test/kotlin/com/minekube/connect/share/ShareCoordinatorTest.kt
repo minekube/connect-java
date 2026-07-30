@@ -72,6 +72,90 @@ class ShareCoordinatorTest {
     }
 
     @Test
+    fun `direct sharing remains available when Connect fails`() = runTest {
+        val events = mutableListOf<String>()
+        val fixture = fixture(
+            events = events,
+            ingressStart = { _, _ ->
+                events += "ingress-start"
+                error("Connect unavailable")
+            },
+            directStart = { _, _, connectAddress ->
+                events += "direct-start"
+                assertEquals(null, connectAddress)
+                DIRECT_HANDLE
+            },
+        )
+
+        val result = fixture.coordinator.start(
+            OPTIONS.copy(allowInternetDirect = true),
+        )
+
+        val sharing = assertIs<Either.Right<ShareState.Sharing>>(result).value
+        assertEquals(null, sharing.address)
+        assertEquals(DIRECT_HANDLE.invitation, sharing.invitation)
+        assertFalse(sharing.connectAvailable)
+        assertTrue(sharing.lanDirectAvailable)
+        assertTrue(sharing.internetDirectAvailable)
+        assertEquals(
+            listOf("bridge-open", "ingress-start", "direct-start"),
+            events,
+        )
+    }
+
+    @Test
+    fun `Connect sharing remains available when direct setup fails`() = runTest {
+        val events = mutableListOf<String>()
+        val fixture = fixture(
+            events = events,
+            directStart = { _, _, _ ->
+                events += "direct-start"
+                error("direct candidate secret")
+            },
+        )
+
+        val result = fixture.coordinator.start(OPTIONS)
+
+        val sharing = assertIs<Either.Right<ShareState.Sharing>>(result).value
+        assertEquals("amber-fox.play.minekube.net", sharing.address)
+        assertTrue(sharing.connectAvailable)
+        assertFalse(sharing.lanDirectAvailable)
+        assertEquals(
+            listOf("bridge-open", "ingress-start", "direct-start"),
+            events,
+        )
+    }
+
+    @Test
+    fun `both ingress failures close the bridge and fail the share`() = runTest {
+        val events = mutableListOf<String>()
+        val fixture = fixture(
+            events = events,
+            ingressStart = { _, _ ->
+                events += "ingress-start"
+                error("Connect unavailable")
+            },
+            directStart = { _, _, _ ->
+                events += "direct-start"
+                error("Direct unavailable")
+            },
+        )
+
+        val result = fixture.coordinator.start(OPTIONS)
+
+        assertIs<Either.Left<ShareLifecycleError.StartFailed>>(result)
+        assertEquals(
+            listOf(
+                "bridge-open",
+                "ingress-start",
+                "direct-start",
+                "bridge-close",
+            ),
+            events,
+        )
+    }
+
+    @Test
     fun `stop closes ingress then bridge and clears admission`() = runTest {
         val events = mutableListOf<String>()
         val fixture = fixture(events)
@@ -105,6 +189,37 @@ class ShareCoordinatorTest {
         assertEquals(AdmissionAnswer.STOPPED, waiting.await())
         assertTrue(fixture.admission.pending.value.isEmpty())
         assertEquals(ShareState.Idle, fixture.coordinator.state.value)
+    }
+
+    @Test
+    fun `stop closes direct before Connect and the bridge`() = runTest {
+        val events = mutableListOf<String>()
+        val fixture = fixture(
+            events = events,
+            directStart = { _, _, _ ->
+                events += "direct-start"
+                DIRECT_HANDLE.copy(
+                    close = {
+                        events += "direct-close"
+                    },
+                )
+            },
+        )
+        fixture.coordinator.start(OPTIONS)
+
+        fixture.coordinator.stop()
+
+        assertEquals(
+            listOf(
+                "bridge-open",
+                "ingress-start",
+                "direct-start",
+                "direct-close",
+                "ingress-close",
+                "bridge-close",
+            ),
+            events,
+        )
     }
 
     @Test
@@ -213,6 +328,11 @@ class ShareCoordinatorTest {
         ingressClose: suspend () -> Unit = {
             events += "ingress-close"
         },
+        directStart: (suspend (
+            ShareOptions,
+            java.net.SocketAddress,
+            String?,
+        ) -> DirectShareHandle)? = null,
         failureReporter: (String) -> Unit = {},
     ): Fixture {
         val admission = AdmissionController(
@@ -235,12 +355,18 @@ class ShareCoordinatorTest {
             val handle = ingressStart(identity, target)
             handle.copy(close = ingressClose)
         }
+        val direct = directStart?.let { start ->
+            DirectShareIngress { options, target, connectAddress ->
+                start(options, target, connectAddress)
+            }
+        }
         return Fixture(
             coordinator = ShareCoordinator(
                 bridge = bridge,
                 ingress = ingress,
                 identityProvider = identityProvider,
                 admission = admission,
+                directIngress = direct,
                 failureReporter = failureReporter,
             ),
             admission = admission,
@@ -257,6 +383,12 @@ class ShareCoordinatorTest {
             gameMode = ShareGameMode.SURVIVAL,
             allowCheats = false,
             maxGuests = 8,
+        )
+        val DIRECT_HANDLE = DirectShareHandle(
+            invitation = "minekube://share/signed-invitation",
+            lanAvailable = true,
+            internetAvailable = true,
+            close = {},
         )
         val IDENTITY = EndpointIdentity(
             endpoint = "amber-fox",

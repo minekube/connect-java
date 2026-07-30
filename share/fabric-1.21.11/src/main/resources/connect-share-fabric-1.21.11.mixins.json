@@ -13,7 +13,8 @@
     "IntegratedServerAccessor",
     "IntegratedServerMixin",
     "LanServerPingerAccessor",
-    "PauseScreenMixin"
+    "PauseScreenMixin",
+    "TitleScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1

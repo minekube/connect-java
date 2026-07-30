@@ -3,8 +3,10 @@ package com.minekube.connect.share.fabric.v1_21_11
 import com.minekube.connect.share.ShareGameMode
 import com.minekube.connect.share.fabric.ConnectShareClient
 import net.minecraft.client.gui.components.Button
+import net.minecraft.client.gui.components.Checkbox
 import net.minecraft.client.gui.components.CycleButton
 import net.minecraft.client.gui.components.StringWidget
+import net.minecraft.client.gui.components.Tooltip
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.network.chat.CommonComponents
 import net.minecraft.network.chat.Component
@@ -66,6 +68,24 @@ class ShareSetupScreen(
                     20,
                     Component.translatable("connect_share.setup.max_guests"),
                 ) { _, guests -> viewModel.setMaxGuests(guests) },
+        )
+        addRenderableWidget(
+            Checkbox.builder(
+                Component.translatable("connect_share.setup.internet"),
+                font,
+            ).pos(width / 2 - 155, 138)
+                .selected(current.options.allowInternetDirect)
+                .onValueChange { _, allowed ->
+                    viewModel.setAllowInternetDirect(allowed)
+                }
+                .tooltip(
+                    Tooltip.create(
+                        Component.translatable(
+                            "connect_share.setup.internet.tooltip",
+                        ),
+                    ),
+                )
+                .build(),
         )
         startButton = addRenderableWidget(
             Button.builder(
