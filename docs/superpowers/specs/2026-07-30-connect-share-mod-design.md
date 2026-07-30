@@ -225,11 +225,15 @@ The import screen warns that an endpoint should not simultaneously route from
 another server or connector. If Connect reports a conflicting active
 connector, sharing fails closed instead of allowing ambiguous routing.
 
-Connect session proposals remain pending while the host approves the supplied
-profile and its displayed trust level. The connector advertises support for
-offline-mode players, as the Connect plugin can. Denial, timeout, world
-shutdown, and capacity exhaustion reject the proposal before a local tunnel
-is opened.
+For a non-passthrough Connect session, the proposal remains pending while the
+host approves the Connect-authenticated profile; denial happens before a local
+tunnel is opened. A passthrough session must open a bounded local tunnel so
+Minecraft can perform online or offline login. That login is paused after its
+profile is resolved and before the player enters the world, then presented for
+host approval with its resulting trust level. The connector advertises support
+for offline-mode players, as the Connect plugin can. Denial, timeout, world
+shutdown, and capacity exhaustion fail closed at the earliest stage where the
+session's identity is available.
 
 ### DirectP2pIngress
 
