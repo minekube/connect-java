@@ -8,9 +8,9 @@
 
 Connect Share is a client-side Minecraft mod that lets a player share the
 singleplayer world they are currently playing. The host installs the mod.
-Vanilla guests can join through a temporary Minekube Connect address. Guests
-with the mod can additionally use a direct libp2p connection when both sides
-permit it.
+Vanilla guests can join through the host's Minekube Connect endpoint while the
+share is active. Guests with the mod can additionally use a direct libp2p
+connection when both sides permit it.
 
 Connect is the private default and the only relay fallback. The mod does not
 operate, recommend, or configure an independent public relay. Same-LAN direct
@@ -26,9 +26,12 @@ logic is written in Kotlin and shared across both versions.
 - The host starts sharing from a dedicated **Share with Connect** pause-menu
   action; they do not press Minecraft's Open to LAN button.
 - No listener is exposed on a LAN or WAN interface.
-- Every share creates a new temporary Connect address. Stopping the share or
-  leaving the world makes that address unreachable, and a later share receives
-  a different address.
+- The mod creates one Connect endpoint identity per Minecraft installation and
+  persists its endpoint name and token like the Connect plugin. Every world
+  reuses that identity, so repeated shares do not create control-plane endpoint
+  records.
+- Stopping the share or leaving the world makes the stable endpoint
+  unreachable until the host explicitly starts another share.
 - Connect authenticates vanilla guests at the edge. The mod preserves the
   resulting verified player context when it injects the session locally.
 - The host must approve every new verified Minecraft UUID. An approval is
@@ -48,7 +51,8 @@ logic is written in Kotlin and shared across both versions.
 
 1. Let a host share an integrated singleplayer server without port forwarding
    or a publicly bound LAN listener.
-2. Let an unmodified Java client join through a temporary Connect hostname.
+2. Let an unmodified Java client join through the host's Connect hostname
+   while sharing is active.
 3. Reuse Connect's authenticated session and tunnel semantics instead of
    creating a parallel public ingress service.
 4. Let two modded clients connect directly on the same LAN without Connect.
@@ -154,21 +158,32 @@ login until `AdmissionController` accepts or rejects it.
 
 ### ConnectShareIngress
 
-Creates a fresh random endpoint name and endpoint token for each share. It
-starts the existing Connect watch/libp2p connector runtime against the local
-server address and stops it with the share.
+Loads or creates one persistent Connect identity for the Minecraft
+installation:
 
-The first implementation treats the endpoint as ephemeral by lifetime:
+```text
+config/minekube-connect-share/config.json
+config/minekube-connect-share/token.json
+```
 
-- credentials live only in the active share object;
-- credentials are never written to the normal persistent plugin config;
-- a later share never reuses them;
-- stopping the watch/registration makes the address unreachable.
+`config.json` stores the endpoint name and non-secret user settings.
+`token.json` stores the endpoint token using the same `{"token":"T-..."}`
+shape as the Connect plugin. The token is created once, written with
+owner-only permissions where the operating system supports them, and redacted
+from logs and UI. `CONNECT_SHARE_ENDPOINT` and `CONNECT_SHARE_TOKEN` override
+the files for development and managed launchers without colliding with a
+server plugin in the same process.
 
-The endpoint record may remain reserved in the Connect control plane after it
-goes offline. Control-plane deletion or a first-class expiring lease is an
-additive service improvement and is not required for the address to be
-unreachable or non-reusable by this mod.
+Every world share starts the existing Connect watch/libp2p connector runtime
+with this identity and stops it with the share. No share or world identifier
+is used as an endpoint name. The database therefore contains at most one
+endpoint per mod installation unless the user explicitly resets their
+identity.
+
+An endpoint-token mismatch never triggers automatic endpoint or token
+rotation. The UI explains the mismatch and lets the user restore the token or
+explicitly choose **Reset Connect identity**. Resetting warns that it creates
+a new endpoint and invalidates the old local identity.
 
 Connect session proposals remain pending while the host approves the verified
 profile. Denial, timeout, world shutdown, and capacity exhaustion reject the
@@ -206,7 +221,7 @@ The signed payload contains:
 - wire protocol version;
 - share ID;
 - expiry;
-- temporary Connect hostname when Connect is available;
+- persistent Connect hostname when Connect is available;
 - ephemeral host peer ID;
 - direct candidates only when the host enabled internet P2P;
 - an unguessable per-share capability;
@@ -270,7 +285,7 @@ The pause menu contains **Share with Connect**. The setup screen shows:
 
 While active, the screen shows:
 
-- temporary Connect address and copy button;
+- Connect address and copy button;
 - copyable full mod invitation;
 - Connect, LAN direct, and internet direct status separately;
 - connected and approved players;
@@ -282,8 +297,10 @@ the screen does not stop sharing.
 
 ### Guest
 
-Vanilla guests add or directly connect to the temporary hostname. Modded
-guests can use **Join Share** or paste a `minekube://share/` invitation.
+Vanilla guests add or directly connect to the host's Connect hostname. Modded
+guests can use **Join Share** or paste a `minekube://share/` invitation. The
+hostname is stable and is not treated as a secret; verified identity and host
+approval remain the authorization boundary.
 
 The guest sees which path won: **Direct LAN**, **Direct internet**, or
 **Minekube Connect**. Internet-direct confirmation explains that both peers
@@ -296,8 +313,10 @@ will learn each other's IP address.
 - Direct sessions complete normal Mojang/Microsoft online-mode authentication
   in the integrated server before admission.
 - Every ingress requires host approval for a previously unseen UUID.
-- Approvals, endpoint credentials, share capabilities, and ephemeral peer
-  identities die with the share.
+- Approvals, share capabilities, and ephemeral peer identities die with the
+  share. The Connect endpoint name and token persist across shares.
+- The persistent endpoint token is stored separately from ordinary settings,
+  never included in invitations, and redacted from logs and UI.
 - Secrets and direct candidate addresses are redacted from normal logs.
 - Internet P2P is opt-in on both peers and never inferred from merely having
   the mod installed.
@@ -315,8 +334,9 @@ will learn each other's IP address.
 - If direct setup fails, Connect sharing remains active.
 - A failed direct guest attempt falls back to Connect when the invitation
   contains a Connect hostname.
-- If Connect authentication rejects the temporary endpoint, the UI shows the
-  sanitized watch-service reason and offers retry with fresh credentials.
+- If Connect authentication rejects the endpoint identity, the UI shows the
+  sanitized watch-service reason and offers token recovery or an explicit,
+  warned identity reset. It never creates another endpoint automatically.
 - All partial startup paths run the same idempotent stop sequence.
 - Minecraft-version hook drift fails at startup with the affected version and
   mixin/accessor name; it never exposes a partially initialized share.
@@ -326,7 +346,8 @@ will learn each other's IP address.
 ### Common unit tests
 
 - state-machine transitions and idempotent cleanup;
-- temporary credential non-reuse;
+- persistent endpoint creation, reload, environment override, redaction,
+  cross-world reuse, and explicit-only reset;
 - admission allow, deny, duplicate, timeout, capacity, and share reset;
 - invitation round-trip, signature, expiry, version, capability, and redaction;
 - transport order, privacy opt-in, timeouts, and Connect fallback.
@@ -374,9 +395,10 @@ Before calling the feature complete:
    peers.
 6. Verify successful internet direct where NAT permits it.
 7. Verify a failed internet-direct attempt falls back to Connect.
-8. Stop sharing and prove the old hostname and invitation no longer reach the
-   world.
-9. Confirm no LAN/WAN Minecraft listener is reachable from another machine.
+8. Stop sharing and prove the hostname no longer reaches the world.
+9. Start a different world and prove the same endpoint name and token are
+   reused while the old signed invitation is rejected.
+10. Confirm no LAN/WAN Minecraft listener is reachable from another machine.
 
 ## Delivery Sequence
 
@@ -385,7 +407,7 @@ final scope:
 
 1. Kotlin/Fabric multi-version build, share state, admission, invitations, and
    version adapters.
-2. Integrated-server local bridge and temporary Connect ingress for vanilla
+2. Integrated-server local bridge and persistent Connect ingress for vanilla
    guests.
 3. Same-LAN direct libp2p.
 4. Opt-in internet direct attempts and Connect fallback.
