@@ -5,6 +5,7 @@ import arrow.core.left
 import arrow.core.right
 import com.minekube.connect.share.direct.DirectSessionAttributes
 import com.minekube.connect.share.direct.DirectSessionRegistry
+import com.minekube.connect.share.friend.FriendControlChannelRegistry
 import io.netty.channel.Channel
 import io.netty.channel.ChannelInitializer
 import io.netty.channel.EventLoopGroup
@@ -35,6 +36,12 @@ object CapturedServerTransport {
             override fun initChannel(channel: Channel) {
                 DirectSessionRegistry.claim(channel.remoteAddress())?.let {
                     channel.attr(DirectSessionAttributes.SESSION).set(it)
+                }
+                FriendControlChannelRegistry.createHandler()?.let {
+                    channel.pipeline().addLast(
+                        "connect-share-friend-control",
+                        it,
+                    )
                 }
                 channel.pipeline().addLast(initializer)
             }

@@ -34,6 +34,11 @@ class FabricSessionAdmissionGate(
     override fun request(
         proposal: SessionProposal,
     ): CompletionStage<SessionAdmissionDecision> {
+        if (proposal.isStatusProbe()) {
+            return CompletableFuture.completedFuture(
+                SessionAdmissionDecision.allow(),
+            )
+        }
         if (proposal.session.auth.passthrough) {
             return CompletableFuture.completedFuture(
                 SessionAdmissionDecision.deferToLocalLogin(),
@@ -83,6 +88,13 @@ class FabricSessionAdmissionGate(
             job.start()
         }
         return future
+    }
+
+    private fun SessionProposal.isStatusProbe(): Boolean {
+        val session = session
+        return !session.hasPlayer() ||
+            !session.player.hasProfile() ||
+            session.player.profile.name.isBlank()
     }
 
     fun stop() {

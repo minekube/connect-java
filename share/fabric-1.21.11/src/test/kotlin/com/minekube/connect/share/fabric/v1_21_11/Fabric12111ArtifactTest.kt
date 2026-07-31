@@ -67,21 +67,26 @@ class Fabric12111ArtifactTest {
     @Test
     fun `friend removal confirmation stays inside the friends screen`() {
         JarFile(artifact().toFile()).use { jar ->
-            val screen = jar.getJarEntry(
-                "com/minekube/connect/share/fabric/v1_21_11/" +
-                    "ShareJoinScreen.class",
-            )
-            assertNotNull(screen)
-            val bytecode = jar.getInputStream(screen).use {
-                it.readBytes().toString(Charsets.ISO_8859_1)
-            }
+            val bytecode = jar.entries().asSequence()
+                .filter {
+                    it.name.startsWith(
+                        "com/minekube/connect/share/fabric/v1_21_11/" +
+                            "ShareJoinScreen",
+                    ) && it.name.endsWith(".class")
+                }
+                .joinToString {
+                    jar.getInputStream(it).use { stream ->
+                        stream.readBytes().toString(Charsets.ISO_8859_1)
+                    }
+                }
 
             assertFalse("net/minecraft/class_410" in bytecode)
             assertTrue(
                 "connect_share.friends.remove_confirm.confirm" in bytecode,
             )
             assertTrue("sendRequest" in bytecode)
-            assertTrue("joinOutgoing" in bytecode)
+            assertTrue("FriendRequestClient" in bytecode)
+            assertTrue("joinOutgoing" !in bytecode)
             assertFalse("connect_share.friends.accept_request" in bytecode)
         }
     }

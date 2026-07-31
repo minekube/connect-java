@@ -33,19 +33,30 @@ class AdmissionController(
         require(maxPending > 0) { "Maximum pending admissions must be positive" }
     }
 
-    suspend fun request(identity: AdmissionIdentity): AdmissionAnswer {
+    suspend fun request(
+        identity: AdmissionIdentity,
+        purpose: AdmissionPurpose = AdmissionPurpose.JOIN,
+    ): AdmissionAnswer {
         val lookup = synchronized(lock) {
-            val key = identity.admissionKey()
+            val key = identity.admissionKey(purpose)
             requests[key]?.let {
+                it.waiters++
                 return@synchronized RequestLookup.Await(it, startTimeout = false)
             }
-            if (connectedCount() >= maxGuests()) {
+            if (
+                purpose == AdmissionPurpose.JOIN &&
+                connectedCount() >= maxGuests()
+            ) {
                 return@synchronized RequestLookup.Immediate(AdmissionAnswer.CAPACITY)
             }
-            if (autoApprove(identity)) {
+            if (
+                purpose == AdmissionPurpose.JOIN &&
+                autoApprove(identity)
+            ) {
                 return@synchronized RequestLookup.Immediate(AdmissionAnswer.ALLOW)
             }
             if (
+                purpose == AdmissionPurpose.JOIN &&
                 identity is AdmissionIdentity.Authenticated &&
                 identity.uuid in authenticatedApprovals
             ) {
@@ -60,6 +71,7 @@ class AdmissionController(
                 pending = PendingAdmission(
                     requestId = UUID.randomUUID(),
                     identity = identity,
+                    purpose = purpose,
                 ),
             )
             requests[key] = request
@@ -73,7 +85,11 @@ class AdmissionController(
                 if (lookup.startTimeout) {
                     startTimeout(lookup.request)
                 }
-                lookup.request.answer.await()
+                try {
+                    lookup.request.answer.await()
+                } finally {
+                    releaseWaiter(lookup.request)
+                }
             }
         }
     }
@@ -85,7 +101,10 @@ class AdmissionController(
                 it.value.pending.requestId == requestId
             } ?: return
             requests.remove(entry.key)
-            if (allow) {
+            if (
+                allow &&
+                entry.value.pending.purpose == AdmissionPurpose.JOIN
+            ) {
                 val identity = entry.value.pending.identity
                 if (identity is AdmissionIdentity.Authenticated) {
                     authenticatedApprovals += identity.uuid
@@ -139,18 +158,51 @@ class AdmissionController(
         request.answer.complete(answer)
     }
 
+    private fun releaseWaiter(request: PendingRequest) {
+        val abandoned = synchronized(lock) {
+            request.waiters--
+            check(request.waiters >= 0) {
+                "Admission request waiter count became negative"
+            }
+            if (
+                request.waiters == 0 &&
+                !request.answer.isCompleted &&
+                requests[request.key] === request
+            ) {
+                requests.remove(request.key)
+                publishPending()
+                request
+            } else {
+                null
+            }
+        }
+        abandoned?.timeoutJob?.get()?.cancel()
+    }
+
     private fun publishPending() {
         mutablePending.value = requests.values.map(PendingRequest::pending)
     }
 
-    private fun AdmissionIdentity.admissionKey(): AdmissionKey = when (this) {
-        is AdmissionIdentity.Authenticated -> AdmissionKey.Authenticated(uuid)
-        is AdmissionIdentity.UnverifiedOffline -> AdmissionKey.Unverified(connectionId)
+    private fun AdmissionIdentity.admissionKey(
+        purpose: AdmissionPurpose,
+    ): AdmissionKey = when (this) {
+        is AdmissionIdentity.Authenticated ->
+            AdmissionKey.Authenticated(uuid, purpose)
+
+        is AdmissionIdentity.UnverifiedOffline ->
+            AdmissionKey.Unverified(connectionId, purpose)
     }
 
     private sealed interface AdmissionKey {
-        data class Authenticated(val uuid: UUID) : AdmissionKey
-        data class Unverified(val connectionId: String) : AdmissionKey
+        data class Authenticated(
+            val uuid: UUID,
+            val purpose: AdmissionPurpose,
+        ) : AdmissionKey
+
+        data class Unverified(
+            val connectionId: String,
+            val purpose: AdmissionPurpose,
+        ) : AdmissionKey
     }
 
     private class PendingRequest(
@@ -158,6 +210,7 @@ class AdmissionController(
         val pending: PendingAdmission,
         val answer: CompletableDeferred<AdmissionAnswer> = CompletableDeferred(),
         val timeoutJob: AtomicReference<Job?> = AtomicReference(),
+        var waiters: Int = 1,
     )
 
     private sealed interface RequestLookup {

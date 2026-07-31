@@ -91,6 +91,24 @@ class FriendsViewModelTest {
     }
 
     @Test
+    fun `unchanged presence ticks do not erase an operation error`() {
+        val viewModel = FriendsViewModel(FriendStore(tempDir))
+        viewModel.sendRequest(
+            "minekube://share/not-a-valid-link",
+            "Robin",
+            NOW,
+        )
+        val message = viewModel.state.value.safeMessage
+
+        repeat(20) {
+            viewModel.updatePresence(emptyList())
+            viewModel.updateRemotePresence(emptyMap())
+        }
+
+        assertEquals(message, viewModel.state.value.safeMessage)
+    }
+
+    @Test
     fun `saved friend can be renamed configured and removed`() {
         val store = FriendStore(tempDir)
         store.accept(signedLink(), "Robin", NOW)
@@ -235,7 +253,7 @@ class FriendsViewModelTest {
         val viewModel = FriendsViewModel(FriendStore(tempDir))
         viewModel.sendRequest(link, "Robin", NOW)
 
-        val result = viewModel.joinOutgoing(
+        val result = viewModel.routeOutgoing(
             peerId = PEER_ID,
             browser = browser,
             authMode = DirectP2pAuthMode.OFFLINE,

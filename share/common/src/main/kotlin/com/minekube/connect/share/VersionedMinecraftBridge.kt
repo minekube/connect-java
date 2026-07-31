@@ -47,7 +47,10 @@ open class VersionedMinecraftBridge(
             val acquired = ActiveTransport(published, local, admission)
             active = acquired
             serverSocketAddress = local.address
-            LocalShareTarget(local.address) {
+            LocalShareTarget(
+                address = local.address,
+                directAddress = published.address,
+            ) {
                 close(acquired)
             }
         } catch (failure: Throwable) {

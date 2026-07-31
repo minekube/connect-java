@@ -24,6 +24,28 @@ import minekube.connect.v1alpha1.WatchServiceOuterClass.Session
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class FabricSessionAdmissionGateTest {
     @Test
+    fun `status probe bypasses player admission for control routing`() = runTest {
+        val admission = admission()
+        val gate = FabricSessionAdmissionGate(admission, backgroundScope)
+        val ping = Session.newBuilder()
+            .setId("status-session")
+            .setAuth(Authentication.newBuilder().setPassthrough(false))
+            .setPlayer(
+                Player.newBuilder()
+                    .setAddr("127.0.0.1")
+                    .setProfile(GameProfile.getDefaultInstance()),
+            )
+            .build()
+
+        val decision = gate.request(SessionProposal(ping) {})
+            .toCompletableFuture()
+            .getNow(null)
+
+        assertTrue(decision.isAllowed)
+        assertTrue(admission.pending.value.isEmpty())
+    }
+
+    @Test
     fun `Connect authenticated profile waits for host approval`() = runTest {
         val admission = admission()
         val approvedJoins = ApprovedJoinTracker()

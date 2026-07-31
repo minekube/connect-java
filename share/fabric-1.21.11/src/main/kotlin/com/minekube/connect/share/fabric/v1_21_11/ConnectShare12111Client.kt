@@ -1,6 +1,7 @@
 package com.minekube.connect.share.fabric.v1_21_11
 
 import com.minekube.connect.share.admission.NewAdmissionTracker
+import com.minekube.connect.share.admission.AdmissionPurpose
 import com.minekube.connect.share.fabric.ConnectShareClient
 import com.minekube.connect.share.fabric.FabricLocalLoginAdmission
 import com.minekube.connect.share.fabric.FabricLocalLoginAdmissionGate
@@ -47,7 +48,9 @@ class ConnectShare12111Client : ClientModInitializer {
             scope = scope,
             dataDirectory = dataDirectory,
             minecraftVersion = SharedConstants.getCurrentVersion().name(),
+            minecraftProtocolVersion = SharedConstants.getProtocolVersion(),
             worldAvailable = client.hasSingleplayerServer(),
+            friendStore = friendStore,
             playerCount = {
                 client.singleplayerServer?.playerList?.playerCount ?: 0
             },
@@ -97,7 +100,7 @@ class ConnectShare12111Client : ClientModInitializer {
         FriendCardNetworking.install(
             scope = scope,
             issuer = installation.friendCardIssuer,
-            receiver = FriendCardReceiver(friendStore),
+            receiver = installation.friendCardReceiver,
             approvedJoins = installation.approvedJoins,
         )
         ConnectShareClient.install(installation)
@@ -121,10 +124,18 @@ class ConnectShare12111Client : ClientModInitializer {
                     minecraft.toastManager,
                     admissionToastId,
                     Component.translatable(
-                        "connect_share.notification.join_request",
+                        if (request.purpose == AdmissionPurpose.FRIEND) {
+                            "connect_share.notification.friend_request"
+                        } else {
+                            "connect_share.notification.join_request"
+                        },
                     ),
                     Component.translatable(
-                        "connect_share.notification.join_request_detail",
+                        if (request.purpose == AdmissionPurpose.FRIEND) {
+                            "connect_share.notification.friend_request_detail"
+                        } else {
+                            "connect_share.notification.join_request_detail"
+                        },
                         request.identity.name,
                     ),
                 )

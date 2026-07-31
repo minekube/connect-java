@@ -26,6 +26,36 @@ import kotlinx.coroutines.test.runTest
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ShareCoordinatorTest {
     @Test
+    fun `Connect uses the private local target while direct uses loopback TCP`() = runTest {
+        val events = mutableListOf<String>()
+        val connectTarget =
+            io.netty.channel.local.LocalAddress("connect-share-test")
+        val directTarget = InetSocketAddress("127.0.0.1", 41_234)
+        val fixture = fixture(
+            events = events,
+            connectTarget = connectTarget,
+            directTarget = directTarget,
+            ingressStart = { identity, target ->
+                assertEquals(connectTarget, target)
+                ConnectShareHandle(
+                    endpoint = identity.endpoint,
+                    publicAddress =
+                        "${identity.endpoint}.play.minekube.net",
+                    close = {},
+                )
+            },
+            directStart = { _, target, _ ->
+                assertEquals(directTarget, target)
+                DIRECT_HANDLE
+            },
+        )
+
+        assertIs<Either.Right<ShareState.Sharing>>(
+            fixture.coordinator.start(OPTIONS),
+        )
+    }
+
+    @Test
     fun `start orders bridge before ingress`() = runTest {
         val events = mutableListOf<String>()
         val fixture = fixture(
@@ -311,6 +341,9 @@ class ShareCoordinatorTest {
 
     private fun kotlinx.coroutines.test.TestScope.fixture(
         events: MutableList<String>,
+        connectTarget: java.net.SocketAddress =
+            InetSocketAddress.createUnresolved("127.0.0.1", 25565),
+        directTarget: java.net.SocketAddress = connectTarget,
         identityProvider: suspend () -> EndpointIdentity = { IDENTITY },
         ingressStart: suspend (
             EndpointIdentity,
@@ -345,7 +378,8 @@ class ShareCoordinatorTest {
         val bridge = MinecraftShareBridge {
             events += "bridge-open"
             LocalShareTarget(
-                address = InetSocketAddress.createUnresolved("127.0.0.1", 25565),
+                address = connectTarget,
+                directAddress = directTarget,
                 close = {
                     events += "bridge-close"
                 },
