@@ -314,6 +314,39 @@ class FriendsViewModelTest {
     }
 
     @Test
+    fun `shared singleplayer world exposes request to join when ready`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        val viewModel = FriendsViewModel(store)
+        viewModel.updateRemotePresence(
+            mapOf(
+                PEER_ID to RemoteFriendPresence(
+                    peerId = PEER_ID,
+                    displayName = "Robin",
+                    online = true,
+                    description = "Survival",
+                    notifyWhenOnline = true,
+                    route = ShareRoute.DIRECT_LAN,
+                ),
+            ),
+        )
+        viewModel.updateActivities(
+            mapOf(
+                PEER_ID to FriendActivity(
+                    FriendActivityKind.HOSTING_WORLD,
+                    "Survival",
+                ),
+            ),
+        )
+
+        val friend = viewModel.state.value.friends.single()
+        assertEquals(FriendActivityKind.HOSTING_WORLD, friend.activityKind)
+        assertEquals("Survival", friend.activityDescription)
+        assertTrue(friend.canRequestJoin)
+        assertFalse(friend.canJoinNow)
+    }
+
+    @Test
     fun `joining a saved friend does not expose its stored capability`() = runTest {
         val link = signedLink()
         val invitation = ShareInviteCodec.decode(link, NOW).getOrNull()!!

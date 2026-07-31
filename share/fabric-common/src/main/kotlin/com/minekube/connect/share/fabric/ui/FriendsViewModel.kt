@@ -294,9 +294,12 @@ class FriendsViewModel(
             activityKind = activity?.kind,
             activityDescription = activity?.description,
             canRequestJoin =
-                activity?.kind == FriendActivityKind.PLAYING_SERVER,
+                activity?.kind == FriendActivityKind.PLAYING_SERVER ||
+                    activity?.kind == FriendActivityKind.HOSTING_WORLD &&
+                    remote != null,
             canJoinNow = remote != null &&
-                activity?.kind != FriendActivityKind.PLAYING_SERVER,
+                activity?.kind != FriendActivityKind.PLAYING_SERVER &&
+                activity?.kind != FriendActivityKind.HOSTING_WORLD,
         )
     }
 

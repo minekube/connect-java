@@ -9,10 +9,12 @@ import com.minekube.connect.share.fabric.FabricLocalLoginAdmissionGate
 import com.minekube.connect.share.fabric.FabricShareBootstrap
 import com.minekube.connect.share.fabric.FabricShareBrowser
 import com.minekube.connect.share.fabric.FriendCardReceiver
+import com.minekube.connect.share.fabric.FriendActivityResolver
 import com.minekube.connect.share.fabric.SocialEvent
 import com.minekube.connect.share.fabric.SocialEventTracker
 import com.minekube.connect.share.fabric.FriendPresenceMonitor
 import com.minekube.connect.share.fabric.MinecraftStatusProbe
+import com.minekube.connect.share.ShareState
 import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.share.friend.FriendActivity
 import com.minekube.connect.share.friend.FriendActivityKind
@@ -182,7 +184,7 @@ class ConnectShare262Client : ClientModInitializer {
                 installationReference.get()
                     ?: return@register
             val server = minecraft.singleplayerServer
-            val worldAvailable = minecraft.hasSingleplayerServer()
+            val worldAvailable = server != null && minecraft.connection != null
             worldAvailableSnapshot.set(worldAvailable)
             playerCountSnapshot.set(
                 server?.playerList?.playerCount ?: 0,
@@ -195,14 +197,13 @@ class ConnectShare262Client : ClientModInitializer {
                 ?.takeIf { !worldAvailable }
             joinTargetSnapshot.set(externalServer?.ip)
             activitySnapshot.set(
-                if (externalServer != null) {
-                    FriendActivity(
-                        FriendActivityKind.PLAYING_SERVER,
-                        externalServer.name,
-                    )
-                } else {
-                    FriendActivity(FriendActivityKind.ONLINE)
-                },
+                FriendActivityResolver.resolve(
+                    worldAvailable = worldAvailable,
+                    worldSharingActive = installation.viewModel.state.value
+                        .shareState is ShareState.Sharing,
+                    worldName = worldNameSnapshot.get(),
+                    externalServerName = externalServer?.name,
+                ),
             )
             ConnectShareClient.integratedWorldChanged(
                 worldAvailable,
@@ -264,7 +265,7 @@ class ConnectShare262Client : ClientModInitializer {
     }
 
     private companion object {
-        const val PRESENCE_REFRESH_MILLIS = 30_000L
+        const val PRESENCE_REFRESH_MILLIS = 10_000L
         val LOGGER: Logger = Logger.getLogger("Connect")
     }
 
@@ -298,6 +299,7 @@ class ConnectShare262Client : ClientModInitializer {
         is SocialEvent.WorldReady -> Component.translatable(
             "connect_share.notification.friend_online_detail",
             displayName,
+            worldName ?: "Minecraft world",
         )
     }
 }

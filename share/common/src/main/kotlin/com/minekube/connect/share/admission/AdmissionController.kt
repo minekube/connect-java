@@ -24,6 +24,7 @@ class AdmissionController(
     private val lock = Any()
     private val requests = linkedMapOf<AdmissionKey, PendingRequest>()
     private val authenticatedApprovals = mutableSetOf<UUID>()
+    private val preapprovedJoins = mutableSetOf<PreapprovedJoin>()
     private val mutablePending = MutableStateFlow<List<PendingAdmission>>(emptyList())
 
     val pending: StateFlow<List<PendingAdmission>> = mutablePending.asStateFlow()
@@ -48,6 +49,17 @@ class AdmissionController(
                 connectedCount() >= maxGuests()
             ) {
                 return@synchronized RequestLookup.Immediate(AdmissionAnswer.CAPACITY)
+            }
+            if (purpose == AdmissionPurpose.JOIN) {
+                val preapproved = preapprovedJoins.firstOrNull {
+                    it.matches(identity)
+                }
+                if (preapproved != null) {
+                    preapprovedJoins.remove(preapproved)
+                    return@synchronized RequestLookup.Immediate(
+                        AdmissionAnswer.ALLOW,
+                    )
+                }
             }
             if (
                 purpose == AdmissionPurpose.JOIN &&
@@ -121,6 +133,7 @@ class AdmissionController(
         purpose: AdmissionPurpose,
     ): Int {
         val denied = synchronized(lock) {
+            preapprovedJoins.removeIf { it.directPeerId == peerId }
             val matches = requests.entries.filter { entry ->
                 entry.value.pending.purpose == purpose &&
                     entry.value.pending.identity.directPeerId == peerId
@@ -138,11 +151,21 @@ class AdmissionController(
             val current = requests.values.toList()
             requests.clear()
             authenticatedApprovals.clear()
+            preapprovedJoins.clear()
             publishPending()
             current
         }
         stopped.forEach {
             complete(it, AdmissionAnswer.STOPPED)
+        }
+    }
+
+    fun approveNextJoin(identity: AdmissionIdentity) {
+        synchronized(lock) {
+            preapprovedJoins += PreapprovedJoin(
+                directPeerId = identity.directPeerId,
+                minecraftUuid = identity.uuid,
+            )
         }
     }
 
@@ -220,6 +243,15 @@ class AdmissionController(
             val connectionId: String,
             val purpose: AdmissionPurpose,
         ) : AdmissionKey
+    }
+
+    private data class PreapprovedJoin(
+        val directPeerId: String?,
+        val minecraftUuid: UUID,
+    ) {
+        fun matches(identity: AdmissionIdentity): Boolean =
+            (directPeerId != null && directPeerId == identity.directPeerId) ||
+                minecraftUuid == identity.uuid
     }
 
     private class PendingRequest(

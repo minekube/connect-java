@@ -7,6 +7,7 @@ import com.minekube.connect.share.admission.AdmissionAnswer
 import com.minekube.connect.share.admission.Ingress
 import com.minekube.connect.share.direct.DirectSessionAttributes
 import com.minekube.connect.share.fabric.DirectOnlineAuthenticationRequired
+import com.minekube.connect.share.fabric.DirectMinecraftAuthentication
 import com.minekube.connect.share.fabric.FabricDirectAuthenticationPolicy
 import com.minekube.connect.share.fabric.FabricLoginAdmissionRegistry
 import com.minekube.connect.tunnel.p2p.DirectP2pRoute
@@ -16,6 +17,8 @@ import java.util.function.Consumer
 import net.minecraft.network.Connection
 import net.minecraft.network.chat.Component
 import net.minecraft.server.MinecraftServer
+import net.minecraft.core.UUIDUtil
+import net.minecraft.util.StringUtil
 
 object Minecraft12111LoginBridge {
     @JvmStatic
@@ -49,6 +52,19 @@ object Minecraft12111LoginBridge {
     @JvmStatic
     fun hasDirectSession(connection: Connection): Boolean =
         directSession(connection) != null
+
+    @JvmStatic
+    fun shouldUseOfflineDirectProfile(connection: Connection): Boolean =
+        directSession(connection)?.let {
+            FabricDirectAuthenticationPolicy.minecraftAuthentication(
+                it.authMode(),
+            ) == DirectMinecraftAuthentication.OFFLINE_PROFILE
+        } == true
+
+    @JvmStatic
+    fun offlineProfile(requestedName: String): GameProfile? =
+        requestedName.takeIf(StringUtil::isValidPlayerName)
+            ?.let(UUIDUtil::createOfflineProfile)
 
     @JvmStatic
     fun requestPassthroughAdmission(

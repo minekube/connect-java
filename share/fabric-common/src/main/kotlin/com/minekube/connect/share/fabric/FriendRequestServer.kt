@@ -115,21 +115,33 @@ class FriendRequestServer(
     ): CompletionStage<FriendControlResponse> = launchResponse {
         val friend = authenticatedFriend(context)
             ?: return@launchResponse FriendControlResponse.Invalid
-        if (activity().kind != FriendActivityKind.PLAYING_SERVER) {
+        if (!friend.permissions.canSeeMyWorlds) {
             return@launchResponse FriendControlResponse.Invalid
         }
+        val currentActivity = activity()
+        if (
+            currentActivity.kind != FriendActivityKind.HOSTING_WORLD &&
+            currentActivity.kind != FriendActivityKind.PLAYING_SERVER
+        ) return@launchResponse FriendControlResponse.Invalid
         val identity = AdmissionIdentity.UnverifiedOffline(
-            name = friend.displayName,
-            uuid = friend.shareId,
+            name = request.playerName,
+            uuid = request.playerUuid,
             connectionId = "friend-join:${request.requestId}",
             ingress = context.ingress,
             directPeerId = context.directPeerId,
         )
         when (admission.request(identity, AdmissionPurpose.JOIN)) {
-            AdmissionAnswer.ALLOW -> joinTarget()
-                ?.takeIf(String::isNotBlank)
-                ?.let(FriendControlResponse::JoinAccepted)
-                ?: FriendControlResponse.Invalid
+            AdmissionAnswer.ALLOW -> when (currentActivity.kind) {
+                FriendActivityKind.HOSTING_WORLD -> {
+                    admission.approveNextJoin(identity)
+                    FriendControlResponse.SharedWorldJoinAccepted
+                }
+                FriendActivityKind.PLAYING_SERVER -> joinTarget()
+                    ?.takeIf(String::isNotBlank)
+                    ?.let(FriendControlResponse::JoinAccepted)
+                    ?: FriendControlResponse.Invalid
+                FriendActivityKind.ONLINE -> FriendControlResponse.Invalid
+            }
             AdmissionAnswer.DENY -> FriendControlResponse.Declined
             AdmissionAnswer.TIMEOUT -> FriendControlResponse.TimedOut
             AdmissionAnswer.STOPPED,

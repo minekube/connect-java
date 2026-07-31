@@ -253,6 +253,52 @@ class AdmissionControllerTest {
         assertEquals(AdmissionAnswer.STOPPED, unknown.await())
     }
 
+    @Test
+    fun `approved friend request authorizes exactly one following gameplay join`() = runTest {
+        val controller = controller()
+        val requestedIdentity = offline("RoboFlax2", "friend-request").copy(
+            directPeerId = "12D3KooWFriend",
+            ingress = Ingress.DIRECT_LAN,
+        )
+        controller.approveNextJoin(requestedIdentity)
+
+        assertEquals(
+            AdmissionAnswer.ALLOW,
+            controller.request(
+                requestedIdentity.copy(connectionId = "gameplay-1"),
+            ),
+        )
+        val second = async {
+            controller.request(
+                requestedIdentity.copy(connectionId = "gameplay-2"),
+            )
+        }
+        runCurrent()
+
+        assertEquals(1, controller.pending.value.size)
+        controller.resetShare()
+        assertEquals(AdmissionAnswer.STOPPED, second.await())
+    }
+
+    @Test
+    fun `approved friend request also authorizes Connect fallback by player UUID`() = runTest {
+        val controller = controller()
+        val requestedIdentity = offline("RoboFlax2", "friend-request").copy(
+            uuid = AUTHENTICATED_UUID,
+            directPeerId = "12D3KooWFriend",
+            ingress = Ingress.DIRECT_LAN,
+        )
+        controller.approveNextJoin(requestedIdentity)
+
+        assertEquals(
+            AdmissionAnswer.ALLOW,
+            controller.request(
+                authenticated("RoboFlax2", AUTHENTICATED_UUID),
+            ),
+        )
+        assertTrue(controller.pending.value.isEmpty())
+    }
+
     private fun kotlinx.coroutines.test.TestScope.controller(
         connectedCount: () -> Int = { 0 },
         maxGuests: () -> Int = { 8 },

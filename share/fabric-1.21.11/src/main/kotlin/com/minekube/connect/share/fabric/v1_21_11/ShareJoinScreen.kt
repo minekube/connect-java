@@ -3,6 +3,7 @@ package com.minekube.connect.share.fabric.v1_21_11
 import com.minekube.connect.share.fabric.ConnectShareClient
 import com.minekube.connect.share.fabric.FabricShareBrowser
 import com.minekube.connect.share.fabric.FriendCardExchangeConsent
+import com.minekube.connect.share.fabric.FriendJoinApproval
 import com.minekube.connect.share.fabric.FriendPresenceMonitor
 import com.minekube.connect.share.fabric.FriendActivityMonitor
 import com.minekube.connect.share.fabric.GuestJoinTarget
@@ -686,18 +687,38 @@ class ShareJoinScreen(
             }
             ConnectShareClient.friendRequestClient().requestJoin(
                 target,
-                FriendJoinRequest(UUID.randomUUID()),
+                FriendJoinRequest(
+                    requestId = UUID.randomUUID(),
+                    playerName = minecraft.user.name,
+                    playerUuid = minecraft.user.profileId,
+                ),
             ).fold(
                 ifLeft = { failure ->
                     joining = false
                     safeMessage = failure.safeMessage
                     rebuildWidgets()
                 },
-                ifRight = { address ->
-                    connect(GuestJoinTarget.Connect(address))
+                ifRight = { approval ->
+                    when (approval) {
+                        is FriendJoinApproval.ExternalServer ->
+                            connect(GuestJoinTarget.Connect(approval.address))
+                        FriendJoinApproval.SharedWorld -> joinApprovedWorld(peerId)
+                    }
                 },
             )
         }
+    }
+
+    private suspend fun joinApprovedWorld(peerId: String) {
+        friends.join(
+            peerId = peerId,
+            browser = browser,
+            authMode = authMode(),
+            ownConnectAddress = ConnectShareClient.connectPublicAddress(),
+        ).fold(
+            ifLeft = ::joinFailed,
+            ifRight = ::connect,
+        )
     }
 
     private fun createFriendRequest() {
@@ -943,6 +964,13 @@ class ShareJoinScreen(
     }
 
     private fun friendLabel(friend: FriendSummary): Component = when {
+        friend.activityKind == FriendActivityKind.HOSTING_WORLD ->
+            Component.translatable(
+                "connect_share.friends.hosting_world",
+                friend.displayName,
+                friend.activityDescription ?: "Minecraft world",
+            )
+
         friend.activityKind == FriendActivityKind.PLAYING_SERVER ->
             Component.translatable(
                 "connect_share.friends.playing_server",

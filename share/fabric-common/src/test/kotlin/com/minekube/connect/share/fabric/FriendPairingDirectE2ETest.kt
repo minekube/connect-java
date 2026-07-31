@@ -4,6 +4,10 @@ import com.minekube.connect.share.ShareConnectionGateway
 import com.minekube.connect.share.ShareGameMode
 import com.minekube.connect.share.ShareOptions
 import com.minekube.connect.share.admission.AdmissionController
+import com.minekube.connect.share.admission.AdmissionAnswer
+import com.minekube.connect.share.admission.AdmissionIdentity
+import com.minekube.connect.share.admission.AdmissionPurpose
+import com.minekube.connect.share.admission.Ingress
 import com.minekube.connect.share.direct.DirectSessionRegistry
 import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.share.friend.FriendRemovalRequest
@@ -59,6 +63,12 @@ class FriendPairingDirectE2ETest {
                 connectedCount = { 0 },
                 maxGuests = { 8 },
             )
+            val hostActivity = AtomicReference(
+                FriendActivity(
+                    FriendActivityKind.PLAYING_SERVER,
+                    "Hypixel",
+                ),
+            )
             val hostServer = FriendRequestServer(
                 scope = this,
                 admission = admission,
@@ -69,12 +79,7 @@ class FriendPairingDirectE2ETest {
                 friendStore = hostStore,
                 now = { now },
                 ioDispatcher = Dispatchers.IO,
-                activity = {
-                    FriendActivity(
-                        FriendActivityKind.PLAYING_SERVER,
-                        "Hypixel",
-                    )
-                },
+                activity = hostActivity::get,
                 joinTarget = { "mc.hypixel.net" },
             )
 
@@ -195,7 +200,11 @@ class FriendPairingDirectE2ETest {
                         val requestedJoin = async {
                             requestClient.requestJoin(
                                 joinTarget,
-                                FriendJoinRequest(java.util.UUID.randomUUID()),
+                                FriendJoinRequest(
+                                    java.util.UUID.randomUUID(),
+                                    "bob",
+                                    java.util.UUID.randomUUID(),
+                                ),
                             )
                         }
                         val joinAdmission = withTimeout(5.seconds) {
@@ -206,9 +215,57 @@ class FriendPairingDirectE2ETest {
                         }
                         admission.answer(joinAdmission.requestId, allow = true)
                         assertEquals(
-                            "mc.hypixel.net",
+                            FriendJoinApproval.ExternalServer("mc.hypixel.net"),
                             requestedJoin.await().getOrNull(),
                         )
+
+                        hostActivity.set(
+                            FriendActivity(
+                                FriendActivityKind.HOSTING_WORLD,
+                                "Survival",
+                            ),
+                        )
+                        val playerUuid = java.util.UUID.randomUUID()
+                        val worldJoinTarget = browser.join(
+                            invitationUri = direct.invitation,
+                            lanAddress = hostInfo.get().lanAddresses().first(),
+                            internetOptIn = false,
+                            authMode = DirectP2pAuthMode.OFFLINE,
+                        ).getOrNull() as GuestJoinTarget.Direct
+                        val requestedWorldJoin = async {
+                            requestClient.requestJoin(
+                                worldJoinTarget,
+                                FriendJoinRequest(
+                                    java.util.UUID.randomUUID(),
+                                    "bob",
+                                    playerUuid,
+                                ),
+                            )
+                        }
+                        val worldAdmission = withTimeout(5.seconds) {
+                            admission.pending.first {
+                                it.singleOrNull()?.purpose ==
+                                    AdmissionPurpose.JOIN
+                            }.single()
+                        }
+                        admission.answer(worldAdmission.requestId, allow = true)
+                        assertEquals(
+                            FriendJoinApproval.SharedWorld,
+                            requestedWorldJoin.await().getOrNull(),
+                        )
+                        assertEquals(
+                            AdmissionAnswer.ALLOW,
+                            admission.request(
+                                AdmissionIdentity.UnverifiedOffline(
+                                    name = "bob",
+                                    uuid = playerUuid,
+                                    connectionId = "connect-gameplay",
+                                    ingress = Ingress.CONNECT,
+                                ),
+                                AdmissionPurpose.JOIN,
+                            ),
+                        )
+                        assertTrue(admission.pending.value.isEmpty())
 
                         val hostPeerId = senderStore.all().single().peerId
                         assertTrue(senderStore.remove(hostPeerId, now))

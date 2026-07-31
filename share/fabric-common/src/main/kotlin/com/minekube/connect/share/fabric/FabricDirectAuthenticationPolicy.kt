@@ -10,7 +10,20 @@ data object DirectOnlineAuthenticationRequired {
         "This direct guest requested online authentication, but Minecraft did not verify it"
 }
 
+enum class DirectMinecraftAuthentication {
+    MOJANG,
+    OFFLINE_PROFILE,
+}
+
 object FabricDirectAuthenticationPolicy {
+    fun minecraftAuthentication(
+        requestedMode: DirectP2pAuthMode,
+    ): DirectMinecraftAuthentication = when (requestedMode) {
+        DirectP2pAuthMode.ONLINE -> DirectMinecraftAuthentication.MOJANG
+        DirectP2pAuthMode.OFFLINE ->
+            DirectMinecraftAuthentication.OFFLINE_PROFILE
+    }
+
     fun validate(
         requestedMode: DirectP2pAuthMode,
         minecraftAuthenticated: Boolean,

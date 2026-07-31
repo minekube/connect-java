@@ -38,6 +38,16 @@ public abstract class ServerLoginPacketListenerMixin {
             ServerboundHelloPacket hello,
             CallbackInfo callback) {
         if (!Minecraft262LoginBridge.hasConnectIdentity(connection)) {
+            if (Minecraft262LoginBridge.shouldUseOfflineDirectProfile(connection)) {
+                GameProfile profile = Minecraft262LoginBridge.offlineProfile(hello.name());
+                if (profile == null) {
+                    disconnect(Component.literal("Invalid characters in username"));
+                } else {
+                    requestedUsername = profile.name();
+                    startClientVerification(profile);
+                }
+                callback.cancel();
+            }
             return;
         }
 
