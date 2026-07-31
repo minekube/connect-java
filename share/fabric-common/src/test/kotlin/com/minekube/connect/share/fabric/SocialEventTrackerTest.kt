@@ -46,6 +46,29 @@ class SocialEventTrackerTest {
         )
     }
 
+    @Test
+    fun `shared world becoming reachable emits one ready notification`() {
+        val tracker = SocialEventTracker()
+        val online = FriendsUiState(friends = listOf(friend()))
+        tracker.update(online)
+
+        val hosting = FriendsUiState(
+            friends = listOf(
+                friend().copy(
+                    activityKind = FriendActivityKind.HOSTING_WORLD,
+                    activityDescription = "Survival",
+                    canRequestJoin = true,
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf(SocialEvent.WorldReady("Robin", "Survival")),
+            tracker.update(hosting),
+        )
+        assertTrue(tracker.update(hosting).isEmpty())
+    }
+
     private fun friend() = FriendSummary(
         peerId = "peer",
         displayName = "Robin",

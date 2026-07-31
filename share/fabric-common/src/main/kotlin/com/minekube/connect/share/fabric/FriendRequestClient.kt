@@ -49,6 +49,12 @@ sealed interface FriendRequestFailure {
     }
 }
 
+sealed interface FriendJoinApproval {
+    data object SharedWorld : FriendJoinApproval
+
+    data class ExternalServer(val address: String) : FriendJoinApproval
+}
+
 class FriendRequestClient(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val connectTimeout: Duration = Duration.ofSeconds(5),
@@ -112,6 +118,7 @@ class FriendRequestClient(
 
                         is FriendControlResponse.Activity,
                         is FriendControlResponse.JoinAccepted,
+                        FriendControlResponse.SharedWorldJoinAccepted,
                         -> outcome =
                             FriendRequestFailure.InvalidResponse.left()
                     }
@@ -162,6 +169,7 @@ class FriendRequestClient(
                         is FriendControlResponse.Accepted,
                         is FriendControlResponse.Activity,
                         is FriendControlResponse.JoinAccepted,
+                        FriendControlResponse.SharedWorldJoinAccepted,
                         -> return@withContext FriendRequestFailure.InvalidResponse.left()
                     }
                 }
@@ -199,13 +207,16 @@ class FriendRequestClient(
     suspend fun requestJoin(
         target: GuestJoinTarget.Direct,
         request: FriendJoinRequest,
-    ): Either<FriendRequestFailure, String> =
+    ): Either<FriendRequestFailure, FriendJoinApproval> =
         exchangeControl(
             target,
             FriendControlWire.encodeJoinRequest(request),
         ).flatMap { response ->
             when (response) {
-                is FriendControlResponse.JoinAccepted -> response.address.right()
+                is FriendControlResponse.JoinAccepted ->
+                    FriendJoinApproval.ExternalServer(response.address).right()
+                FriendControlResponse.SharedWorldJoinAccepted ->
+                    FriendJoinApproval.SharedWorld.right()
                 FriendControlResponse.Declined -> FriendRequestFailure.Declined.left()
                 FriendControlResponse.TimedOut -> FriendRequestFailure.TimedOut.left()
                 else -> FriendRequestFailure.InvalidResponse.left()

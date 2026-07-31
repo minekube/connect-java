@@ -18,6 +18,7 @@ import java.time.Instant
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
@@ -74,7 +75,7 @@ class FriendRequestServerTest {
             ShareInviteCodec.decode(accepted.invitation, NOW).isRight(),
         )
         assertEquals(senderPeerId, hostStore.all().single().peerId)
-        assertTrue(hostStore.all().single().permissions.canJoinAutomatically)
+        assertFalse(hostStore.all().single().permissions.canJoinAutomatically)
     }
 
     @Test
@@ -149,7 +150,7 @@ class FriendRequestServerTest {
             assertTrue(admission.pending.value.isEmpty())
             val confirmed = hostStore.all().single()
             assertEquals(senderPeerId, confirmed.peerId)
-            assertTrue(confirmed.permissions.canJoinAutomatically)
+            assertFalse(confirmed.permissions.canJoinAutomatically)
             assertTrue(hostStore.outgoingRequests().isEmpty())
             assertEquals(1, relationshipsChanged)
         }
@@ -262,18 +263,66 @@ class FriendRequestServerTest {
         )
         val response = server.handleJoin(
             FriendControlContext(Ingress.DIRECT_LAN, senderPeerId),
-            FriendJoinRequest(UUID.randomUUID()),
+            FriendJoinRequest(
+                UUID.randomUUID(),
+                "RoboFlax2",
+                PLAYER_UUID,
+            ),
         ).toCompletableFuture()
         runCurrent()
 
         val pending = admission.pending.value.single()
         assertEquals(AdmissionPurpose.JOIN, pending.purpose)
-        assertEquals("bob", pending.identity.name)
+        assertEquals("RoboFlax2", pending.identity.name)
+        assertEquals(PLAYER_UUID, pending.identity.uuid)
         admission.answer(pending.requestId, allow = true)
         runCurrent()
 
         assertEquals(
             FriendControlResponse.JoinAccepted("mc.hypixel.net"),
+            response.getNow(null),
+        )
+    }
+
+    @Test
+    fun `confirmed friend can request to join a shared singleplayer world`() = runTest {
+        val senderCard = issuer("sender").issue(NOW).getOrNull()!!
+        val senderPeerId = ShareInviteCodec.decode(senderCard, NOW)
+            .getOrNull()!!.payload.peerId
+        val admission = admission()
+        val hostStore = FriendStore(tempDir.resolve("host-store"))
+        hostStore.accept(senderCard, "bob", NOW)
+        val server = FriendRequestServer(
+            scope = backgroundScope,
+            admission = admission,
+            issuer = issuer("host"),
+            receiver = FriendCardReceiver(hostStore),
+            friendStore = hostStore,
+            activity = {
+                FriendActivity(
+                    FriendActivityKind.HOSTING_WORLD,
+                    "Survival",
+                )
+            },
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val response = server.handleJoin(
+            FriendControlContext(Ingress.DIRECT_LAN, senderPeerId),
+            FriendJoinRequest(
+                UUID.randomUUID(),
+                "RoboFlax2",
+                PLAYER_UUID,
+            ),
+        ).toCompletableFuture()
+        runCurrent()
+
+        val pending = admission.pending.value.single()
+        assertEquals(AdmissionPurpose.JOIN, pending.purpose)
+        admission.answer(pending.requestId, allow = true)
+        runCurrent()
+
+        assertEquals(
+            FriendControlResponse.SharedWorldJoinAccepted,
             response.getNow(null),
         )
     }
@@ -302,5 +351,7 @@ class FriendRequestServerTest {
 
     private companion object {
         val NOW: Instant = Instant.parse("2026-07-31T00:00:00Z")
+        val PLAYER_UUID: UUID =
+            UUID.fromString("11111111-2222-3333-4444-555555555555")
     }
 }

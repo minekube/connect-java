@@ -153,7 +153,15 @@ class ShareConnectionGateway private constructor(
             }
             val pipeline = context.pipeline()
             pipeline.remove(this)
+            pipeline.addLast(
+                MINECRAFT_LIFECYCLE_REPLAY,
+                ChannelInboundHandlerAdapter(),
+            )
             pipeline.addLast(MINECRAFT_INITIALIZER, initializer)
+            checkNotNull(
+                pipeline.context(MINECRAFT_LIFECYCLE_REPLAY),
+            ).fireChannelActive()
+            pipeline.remove(MINECRAFT_LIFECYCLE_REPLAY)
             pipeline.fireChannelRead(message)
         }
     }
@@ -180,5 +188,7 @@ class ShareConnectionGateway private constructor(
             "connect-share-minecraft-dispatch"
         private const val MINECRAFT_INITIALIZER =
             "connect-share-minecraft-initializer"
+        private const val MINECRAFT_LIFECYCLE_REPLAY =
+            "connect-share-minecraft-lifecycle-replay"
     }
 }

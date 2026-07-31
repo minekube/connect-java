@@ -45,6 +45,7 @@ class FriendControlWireTest {
                 ),
             ),
             FriendControlResponse.JoinAccepted("mc.hypixel.net"),
+            FriendControlResponse.SharedWorldJoinAccepted,
         )
 
         responses.forEach { response ->
@@ -60,7 +61,11 @@ class FriendControlWireTest {
     @Test
     fun `activity and join requests round trip without exposing a server address`() {
         val activity = FriendActivityRequest(REQUEST_ID)
-        val join = FriendJoinRequest(REQUEST_ID)
+        val join = FriendJoinRequest(
+            requestId = REQUEST_ID,
+            playerName = "RoboFlax2",
+            playerUuid = PLAYER_UUID,
+        )
 
         assertEquals(
             activity,
@@ -122,5 +127,7 @@ class FriendControlWireTest {
     private companion object {
         val REQUEST_ID: UUID =
             UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+        val PLAYER_UUID: UUID =
+            UUID.fromString("11111111-2222-3333-4444-555555555555")
     }
 }

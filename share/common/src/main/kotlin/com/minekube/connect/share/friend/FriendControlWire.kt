@@ -17,7 +17,11 @@ data class FriendRemovalRequest(
 
 data class FriendActivityRequest(val requestId: UUID)
 
-data class FriendJoinRequest(val requestId: UUID)
+data class FriendJoinRequest(
+    val requestId: UUID,
+    val playerName: String,
+    val playerUuid: UUID,
+)
 
 enum class FriendActivityKind {
     ONLINE,
@@ -56,6 +60,8 @@ sealed interface FriendControlResponse {
     data class Activity(val activity: FriendActivity) : FriendControlResponse
 
     data class JoinAccepted(val address: String) : FriendControlResponse
+
+    data object SharedWorldJoinAccepted : FriendControlResponse
 }
 
 sealed interface FriendControlDecode<out A> {
@@ -84,6 +90,7 @@ object FriendControlWire {
     private const val MAX_INVITATION_BYTES = 32_768
     private const val MAX_ACTIVITY_BYTES = 512
     private const val MAX_SERVER_ADDRESS_BYTES = 1_024
+    private const val MAX_PLAYER_NAME_BYTES = 64
 
     fun encodeRequest(
         request: FriendControlRequest,
@@ -182,15 +189,41 @@ object FriendControlWire {
             FriendActivityRequest(it)
         }
 
-    fun encodeJoinRequest(request: FriendJoinRequest): ByteArray =
-        encodeIdRequest(CONTROL_JOIN_PACKET_ID, request.requestId)
+    fun encodeJoinRequest(request: FriendJoinRequest): ByteArray {
+        val playerName = request.playerName.trim()
+        require(
+            playerName.isNotEmpty() &&
+                playerName.toByteArray(StandardCharsets.UTF_8).size <=
+                MAX_PLAYER_NAME_BYTES,
+        ) { "Player name is invalid" }
+        val output = ByteArrayOutputStream()
+        output.writePacket {
+            writeVarInt(CONTROL_JOIN_PACKET_ID)
+            writeLong(request.requestId.mostSignificantBits)
+            writeLong(request.requestId.leastSignificantBits)
+            writeString(playerName)
+            writeLong(request.playerUuid.mostSignificantBits)
+            writeLong(request.playerUuid.leastSignificantBits)
+        }
+        return output.toByteArray()
+    }
 
     fun decodeJoinRequest(
         bytes: ByteArray,
-    ): FriendControlDecode<FriendJoinRequest> =
-        decodeIdRequest(bytes, CONTROL_JOIN_PACKET_ID) {
-            FriendJoinRequest(it)
+    ): FriendControlDecode<FriendJoinRequest> {
+        if (bytes.size > MAX_REQUEST_BYTES) return FriendControlDecode.Invalid
+        return decode(bytes) {
+            val control = readPacket()
+            ensure(control.readVarInt() == CONTROL_JOIN_PACKET_ID)
+            val request = FriendJoinRequest(
+                requestId = UUID(control.readLong(), control.readLong()),
+                playerName = control.readString(MAX_PLAYER_NAME_BYTES),
+                playerUuid = UUID(control.readLong(), control.readLong()),
+            )
+            control.ensureFinished()
+            request
         }
+    }
 
     private fun encodeIdRequest(packetId: Int, id: UUID): ByteArray {
         val output = ByteArrayOutputStream()
@@ -275,6 +308,7 @@ object FriendControlWire {
                     write(7)
                     writeString(response.address)
                 }
+                FriendControlResponse.SharedWorldJoinAccepted -> write(8)
             }
         }
         return output.toByteArray()
@@ -310,6 +344,7 @@ object FriendControlWire {
             7 -> FriendControlResponse.JoinAccepted(
                 response.readString(MAX_SERVER_ADDRESS_BYTES),
             )
+            8 -> FriendControlResponse.SharedWorldJoinAccepted
             else -> invalid()
         }
         response.ensureFinished()

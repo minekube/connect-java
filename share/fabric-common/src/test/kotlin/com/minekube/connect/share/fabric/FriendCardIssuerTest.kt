@@ -77,6 +77,7 @@ class FriendCardIssuerTest {
                 invitation = card,
                 displayName = "Robin",
                 authenticatedMinecraftUuid = minecraftUuid,
+                allowAutomaticJoin = true,
                 now = NOW,
             )
 

@@ -49,6 +49,14 @@ class SocialEventTracker {
                         friend.activityDescription ?: "Minecraft server",
                     )
 
+                friend.activityKind == FriendActivityKind.HOSTING_WORLD &&
+                    friend.canRequestJoin &&
+                    !old.canRequestJoin ->
+                    events += SocialEvent.WorldReady(
+                        friend.displayName,
+                        friend.activityDescription,
+                    )
+
                 friend.canJoinNow && !old.canJoinNow ->
                     events += SocialEvent.WorldReady(
                         friend.displayName,

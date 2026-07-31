@@ -181,7 +181,11 @@ class FriendRequestClientTest {
 
     @Test
     fun `join request returns address only after remote acceptance`() = runBlocking {
-        val request = FriendJoinRequest(UUID.randomUUID())
+        val request = FriendJoinRequest(
+            UUID.randomUUID(),
+            "RoboFlax2",
+            PLAYER_UUID,
+        )
         val server = responseServer(
             FriendControlWire.encodeJoinRequest(request),
             FriendControlResponse.JoinAccepted("mc.hypixel.net"),
@@ -190,7 +194,31 @@ class FriendRequestClientTest {
         val result = FriendRequestClient(ioDispatcher = Dispatchers.IO)
             .requestJoin(directTarget(server), request)
 
-        assertEquals("mc.hypixel.net", assertIs<Either.Right<String>>(result).value)
+        assertEquals(
+            FriendJoinApproval.ExternalServer("mc.hypixel.net"),
+            assertIs<Either.Right<FriendJoinApproval>>(result).value,
+        )
+    }
+
+    @Test
+    fun `shared world approval does not expose or require a server address`() = runBlocking {
+        val request = FriendJoinRequest(
+            UUID.randomUUID(),
+            "RoboFlax2",
+            PLAYER_UUID,
+        )
+        val server = responseServer(
+            FriendControlWire.encodeJoinRequest(request),
+            FriendControlResponse.SharedWorldJoinAccepted,
+        )
+
+        val result = FriendRequestClient(ioDispatcher = Dispatchers.IO)
+            .requestJoin(directTarget(server), request)
+
+        assertEquals(
+            FriendJoinApproval.SharedWorld,
+            assertIs<Either.Right<FriendJoinApproval>>(result).value,
+        )
     }
 
     private fun responseServer(
@@ -257,5 +285,7 @@ class FriendRequestClientTest {
             invitation = "minekube://share/sender-card",
         )
         const val HOST_CARD = "minekube://share/host-card"
+        val PLAYER_UUID: UUID =
+            UUID.fromString("11111111-2222-3333-4444-555555555555")
     }
 }

@@ -85,11 +85,19 @@ class ShareConnectionGatewayTest {
             CompletableFuture.completedFuture(FriendControlResponse.Invalid)
         }.use { gateway ->
             val received = CompletableFuture<ByteArray>()
+            val activated = CompletableFuture<Unit>()
             val world = gateway.activateMinecraft(
                 object : ChannelInitializer<Channel>() {
                     override fun initChannel(channel: Channel) {
                         channel.pipeline().addLast(
                             object : ChannelInboundHandlerAdapter() {
+                                override fun channelActive(
+                                    context: ChannelHandlerContext,
+                                ) {
+                                    activated.complete(Unit)
+                                    context.fireChannelActive()
+                                }
+
                                 override fun channelRead(
                                     context: ChannelHandlerContext,
                                     message: Any,
@@ -128,6 +136,7 @@ class ShareConnectionGatewayTest {
                     ORDINARY_MINECRAFT_BYTES,
                     received.get(2, TimeUnit.SECONDS),
                 )
+                assertEquals(Unit, activated.get(2, TimeUnit.SECONDS))
             }
 
             Socket().use { socket ->

@@ -41,6 +41,7 @@ object FriendCardNetworking {
                     displayName = player.gameProfile.name(),
                     authenticatedMinecraftUuid =
                         proof.authenticatedMinecraftUuid,
+                    allowAutomaticJoin = true,
                 )
             }
         }

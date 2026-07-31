@@ -64,3 +64,46 @@ redesigned for Kotlin.
   cancellation.
 - For retries or parallel operators, use deterministic virtual-time tests; no
   real sleeps.
+
+## Prism Two-Client E2E
+
+- Prism can drive the live flow without UI automation. Launch the host with
+  `prismlauncher --launch <instance> --profile <account> --world <world>` and a
+  distinct offline guest with
+  `prismlauncher --launch <instance> --offline <name> --server <host:port>`.
+  `--offline <name>` is authoritative; editing `InstanceAccountId` while Prism
+  runs is not, because Prism rewrites it.
+- Prove the flow in layers: mDNS discovery, authenticated friend activity,
+  Minecraft status, then a real login whose host log contains
+  `<name> joined the game`. Control-plane reachability or a status response does
+  not prove that the world is joinable. `dns-sd -B
+  _minekube-connect-share._tcp local` and `jcmd <pid> GC.class_histogram` are
+  useful diagnostics for discovery and live `ShareState`/transport objects.
+- Run only one Gradle invocation at a time in a worktree. Concurrent test tasks
+  share `build/test-results` and can delete one another's in-progress binary
+  results, producing a false infrastructure failure.
+- A `DirectP2pProxy` target is currently one-shot. A status probe consumes it;
+  open a separate target for gameplay and keep that target alive until the
+  Minecraft connection finishes. Never reuse the friend-control target for a
+  status probe or login.
+- An integrated server object exists before its local player connection is
+  ready. Publish only after both exist, and advertise `HOSTING_WORLD` only from
+  an actual `ShareState.Sharing`; otherwise friends see a world that cannot yet
+  accept them.
+- `ShareConnectionGateway` installs Minecraft's captured Netty initializer
+  after its accepted channel is already active. Any change to that dispatch
+  must preserve a focused test proving newly installed handlers receive the
+  required active lifecycle before the first Minecraft bytes.
+- A direct session negotiated as `OFFLINE` must create Minecraft's standard
+  offline profile in `handleHello`, before vanilla starts Mojang session
+  authentication. Otherwise an offline Prism friend is rejected as "Invalid
+  session" before admission runs. `ONLINE` direct sessions must never silently
+  downgrade.
+- For no-click friend-request E2E, temporarily enable automatic joins only for
+  the confirmed test friend, send the real libp2p join request, and restore the
+  permission afterwards. Keep machine-specific instance paths and credentials
+  in environment variables, never in committed tests or scripts.
+- `PrismFriendJoinE2ETest` is the opt-in live harness. Start the host first,
+  supply `LIVE_DATA`, `LIVE_PORT_FILE`, and `LIVE_HOST_LOG`, then launch the
+  guest against the port written to `LIVE_PORT_FILE`. The test succeeds only
+  after the host logs a new `<name> joined the game` line.
