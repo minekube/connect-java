@@ -10,17 +10,18 @@ import com.minekube.connect.share.fabric.ui.FriendsViewModel
 import com.minekube.connect.share.friend.FriendPermissions
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.components.Checkbox
 import net.minecraft.client.gui.components.EditBox
 import net.minecraft.client.gui.components.StringWidget
 import net.minecraft.client.gui.components.Tooltip
 import net.minecraft.client.gui.screens.ConnectScreen
-import net.minecraft.client.gui.screens.ConfirmScreen
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.multiplayer.ServerData
 import net.minecraft.client.multiplayer.resolver.ServerAddress
@@ -52,6 +53,8 @@ class ShareJoinScreen(
     private var joiningPeerId: String? = null
     private var reciprocalPairing = false
     private var transferred = false
+    private var removeConfirmation = false
+    private var friendLinkState = FriendLinkState.IDLE
 
     override fun init() {
         if (scope == null) {
@@ -88,6 +91,11 @@ class ShareJoinScreen(
     }
 
     override fun onClose() {
+        if (mode == Mode.MANAGE && removeConfirmation) {
+            removeConfirmation = false
+            rebuildWidgets()
+            return
+        }
         when (mode) {
             Mode.FRIENDS -> minecraft.setScreen(parent)
             Mode.ADD,
@@ -159,11 +167,26 @@ class ShareJoinScreen(
         safeMessage().let { message ->
             if (message != null) {
                 addRenderableWidget(
-                    centered(Component.literal(message), height - 54)
+                    centered(Component.literal(message), height - 76)
                         .setMaxWidth(CONTENT_WIDTH),
                 )
             }
         }
+        primaryButton = addRenderableWidget(
+            Button.builder(
+                Component.translatable(friendLinkState.translationKey),
+            ) {
+                copyMyFriendLink()
+            }.bounds(width / 2 - 155, height - 52, 150, 20)
+                .tooltip(
+                    Tooltip.create(
+                        Component.translatable(
+                            "connect_share.friends.copy_my_link.tooltip",
+                        ),
+                    ),
+                )
+                .build(),
+        )
         addRenderableWidget(
             Button.builder(
                 Component.translatable("connect_share.friends.add"),
@@ -171,11 +194,11 @@ class ShareJoinScreen(
                 mode = Mode.ADD
                 safeMessage = null
                 rebuildWidgets()
-            }.bounds(width / 2 - 155, height - 28, 150, 20).build(),
+            }.bounds(width / 2 + 5, height - 52, 150, 20).build(),
         )
         addRenderableWidget(
-            Button.builder(CommonComponents.GUI_CANCEL) { onClose() }
-                .bounds(width / 2 + 5, height - 28, 150, 20)
+            Button.builder(CommonComponents.GUI_BACK) { onClose() }
+                .bounds(width / 2 - 75, height - 28, 150, 20)
                 .build(),
         )
     }
@@ -316,6 +339,10 @@ class ShareJoinScreen(
             rebuildWidgets()
             return
         }
+        if (removeConfirmation) {
+            buildRemoveFriendConfirmation(friend)
+            return
+        }
         addRenderableWidget(
             centered(
                 Component.translatable(
@@ -396,25 +423,8 @@ class ShareJoinScreen(
             Button.builder(
                 Component.translatable("connect_share.friends.remove"),
             ) {
-                minecraft.setScreen(
-                    ConfirmScreen(
-                        { confirmed ->
-                            if (confirmed) {
-                                friends.remove(friend.peerId)
-                                mode = Mode.FRIENDS
-                                selectedPeerId = null
-                            }
-                            minecraft.setScreen(this)
-                        },
-                        Component.translatable(
-                            "connect_share.friends.remove_confirm.title",
-                            friend.displayName,
-                        ),
-                        Component.translatable(
-                            "connect_share.friends.remove_confirm.message",
-                        ),
-                    ),
-                )
+                removeConfirmation = true
+                rebuildWidgets()
             }.bounds(width / 2 + 5, height - 52, 150, 20).build(),
         )
         addRenderableWidget(
@@ -423,6 +433,70 @@ class ShareJoinScreen(
                 .build(),
         )
         refresh()
+    }
+
+    private fun buildRemoveFriendConfirmation(friend: FriendSummary) {
+        addRenderableWidget(
+            centered(
+                Component.translatable(
+                    "connect_share.friends.remove_confirm.title",
+                    friend.displayName,
+                ),
+                30,
+            ),
+        )
+        addRenderableWidget(
+            centered(
+                Component.translatable(
+                    "connect_share.friends.remove_confirm.message",
+                ),
+                58,
+            ).setMaxWidth(CONTENT_WIDTH),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable(
+                    "connect_share.friends.remove_confirm.confirm",
+                ),
+            ) {
+                friends.remove(friend.peerId)
+                removeConfirmation = false
+                mode = Mode.FRIENDS
+                selectedPeerId = null
+                nameValue = ""
+                rebuildWidgets()
+            }.bounds(width / 2 - 155, height - 28, 150, 20).build(),
+        )
+        addRenderableWidget(
+            Button.builder(CommonComponents.GUI_CANCEL) {
+                removeConfirmation = false
+                rebuildWidgets()
+            }.bounds(width / 2 + 5, height - 28, 150, 20).build(),
+        )
+    }
+
+    private fun copyMyFriendLink() {
+        val activeScope = scope ?: return
+        if (friendLinkState == FriendLinkState.COPYING) {
+            return
+        }
+        friendLinkState = FriendLinkState.COPYING
+        rebuildWidgets()
+        activeScope.launch {
+            val invitation = withContext(Dispatchers.IO) {
+                ConnectShareClient.friendCardIssuer().issue()
+            }
+            invitation.fold(
+                ifLeft = {
+                    friendLinkState = FriendLinkState.FAILED
+                },
+                ifRight = { link ->
+                    minecraft.keyboardHandler.setClipboard(link)
+                    friendLinkState = FriendLinkState.COPIED
+                },
+            )
+            rebuildWidgets()
+        }
     }
 
     private fun joinSaved(peerId: String) {
@@ -518,7 +592,8 @@ class ShareJoinScreen(
 
     private fun refresh() {
         val inputReady = invitationValue.isNotBlank()
-        primaryButton?.active = !joining &&
+        primaryButton?.active =
+            !joining && friendLinkState != FriendLinkState.COPYING &&
             when (mode) {
                 Mode.ADD -> inputReady && nameValue.isNotBlank()
                 Mode.MANAGE -> nameValue.isNotBlank()
@@ -593,6 +668,15 @@ class ShareJoinScreen(
         FRIENDS,
         ADD,
         MANAGE,
+    }
+
+    private enum class FriendLinkState(
+        val translationKey: String,
+    ) {
+        IDLE("connect_share.friends.copy_my_link"),
+        COPYING("connect_share.friends.copying_my_link"),
+        COPIED("connect_share.friends.my_link_copied"),
+        FAILED("connect_share.friends.copy_my_link_failed"),
     }
 
     private companion object {
