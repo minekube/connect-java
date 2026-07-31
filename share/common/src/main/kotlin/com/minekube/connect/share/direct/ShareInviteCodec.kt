@@ -20,6 +20,7 @@ class ShareInvitePayload(
     val internetDirectEnabled: Boolean,
     val directCandidates: List<String>,
     val capability: String,
+    val displayName: String? = null,
 ) {
     override fun equals(other: Any?): Boolean =
         other is ShareInvitePayload &&
@@ -30,7 +31,8 @@ class ShareInvitePayload(
             peerId == other.peerId &&
             internetDirectEnabled == other.internetDirectEnabled &&
             directCandidates == other.directCandidates &&
-            capability == other.capability
+            capability == other.capability &&
+            displayName == other.displayName
 
     override fun hashCode(): Int {
         var result = wireVersion
@@ -41,6 +43,7 @@ class ShareInvitePayload(
         result = 31 * result + internetDirectEnabled.hashCode()
         result = 31 * result + directCandidates.hashCode()
         result = 31 * result + capability.hashCode()
+        result = 31 * result + (displayName?.hashCode() ?: 0)
         return result
     }
 
@@ -49,7 +52,8 @@ class ShareInvitePayload(
             "expiresAtEpochMillis=$expiresAtEpochMillis, " +
             "connectAddress=$connectAddress, peerId=$peerId, " +
             "internetDirectEnabled=$internetDirectEnabled, " +
-            "directCandidates=<redacted>, capability=<redacted>)"
+            "directCandidates=<redacted>, capability=<redacted>, " +
+            "displayName=$displayName)"
 }
 
 class SignedShareInvite(
@@ -107,16 +111,26 @@ sealed interface ShareInviteError {
 }
 
 object ShareInviteCodec {
-    const val WIRE_VERSION = 1
+    const val WIRE_VERSION = 2
     private const val URI_PREFIX = "minekube://share/"
     private const val MAX_URI_LENGTH = 32_768
     private const val MAX_TEXT_LENGTH = 8_192
-    private const val FIELD_COUNT = 10
-    private const val UNSIGNED_FIELD_COUNT = 9
+    private const val LEGACY_WIRE_VERSION = 1
+    private const val LEGACY_FIELD_COUNT = 10
+    private const val FIELD_COUNT = 11
+    private const val LEGACY_UNSIGNED_FIELD_COUNT = 9
+    private const val UNSIGNED_FIELD_COUNT = 10
+    private const val MAX_DISPLAY_NAME_LENGTH = 64
 
     fun encode(invite: SignedShareInvite): String {
+        require(
+            invite.payload.wireVersion != LEGACY_WIRE_VERSION ||
+                invite.payload.displayName == null,
+        ) {
+            "Legacy invitations cannot contain a display name"
+        }
         val writer = CborWriter()
-        writer.array(FIELD_COUNT)
+        writer.array(fieldCount(invite.payload.wireVersion))
         writer.invitePayload(invite.payload)
         writer.bytes(invite.publicKey)
         writer.bytes(invite.signature)
@@ -129,7 +143,13 @@ object ShareInviteCodec {
         payload: ShareInvitePayload,
         publicKey: ByteArray,
     ): ByteArray = CborWriter().apply {
-        array(UNSIGNED_FIELD_COUNT)
+        require(
+            payload.wireVersion != LEGACY_WIRE_VERSION ||
+                payload.displayName == null,
+        ) {
+            "Legacy invitations cannot contain a display name"
+        }
+        array(unsignedFieldCount(payload.wireVersion))
         invitePayload(payload)
         bytes(publicKey)
     }.toByteArray()
@@ -149,7 +169,10 @@ object ShareInviteCodec {
         }
         return either {
             ensure(verify(parsed)) { ShareInviteError.InvalidSignature }
-            ensure(parsed.payload.wireVersion == WIRE_VERSION) {
+            ensure(
+                parsed.payload.wireVersion == LEGACY_WIRE_VERSION ||
+                    parsed.payload.wireVersion == WIRE_VERSION,
+            ) {
                 ShareInviteError.UnsupportedVersion(parsed.payload.wireVersion)
             }
             ensure(parsed.payload.expiresAtEpochMillis >= now.toEpochMilli()) {
@@ -164,6 +187,14 @@ object ShareInviteCodec {
                 },
             ) {
                 ShareInviteError.PeerMismatch
+            }
+            ensure(
+                parsed.payload.displayName?.let { displayName ->
+                    displayName == displayName.trim() &&
+                        displayName.length in 1..MAX_DISPLAY_NAME_LENGTH
+                } != false,
+            ) {
+                ShareInviteError.Malformed
             }
             parsed
         }
@@ -203,7 +234,24 @@ object ShareInviteCodec {
         array(payload.directCandidates.size)
         payload.directCandidates.forEach(::text)
         text(payload.capability)
+        if (payload.wireVersion != LEGACY_WIRE_VERSION) {
+            nullableText(payload.displayName)
+        }
     }
+
+    private fun fieldCount(wireVersion: Int): Int =
+        if (wireVersion == LEGACY_WIRE_VERSION) {
+            LEGACY_FIELD_COUNT
+        } else {
+            FIELD_COUNT
+        }
+
+    private fun unsignedFieldCount(wireVersion: Int): Int =
+        if (wireVersion == LEGACY_WIRE_VERSION) {
+            LEGACY_UNSIGNED_FIELD_COUNT
+        } else {
+            UNSIGNED_FIELD_COUNT
+        }
 
     private class CborWriter {
         private val out = ByteArrayOutputStream()
@@ -279,9 +327,11 @@ object ShareInviteCodec {
         private var offset = 0
 
         fun readInvite(): SignedShareInvite {
-            require(readLength(4) == FIELD_COUNT)
+            val fields = readLength(4)
+            val wireVersion = unsigned().toInt()
+            require(fields == fieldCount(wireVersion))
             val payload = ShareInvitePayload(
-                wireVersion = unsigned().toInt(),
+                wireVersion = wireVersion,
                 shareId = UUID.fromString(text()),
                 expiresAtEpochMillis = unsigned(),
                 connectAddress = nullableText(),
@@ -289,6 +339,11 @@ object ShareInviteCodec {
                 internetDirectEnabled = bool(),
                 directCandidates = List(readLength(4)) { text() },
                 capability = text(),
+                displayName = if (wireVersion == LEGACY_WIRE_VERSION) {
+                    null
+                } else {
+                    nullableText()
+                },
             )
             val publicKey = byteString()
             val signature = byteString()

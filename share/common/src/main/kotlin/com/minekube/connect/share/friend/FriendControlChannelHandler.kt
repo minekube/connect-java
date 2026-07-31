@@ -58,7 +58,7 @@ class FriendControlChannelHandler(
         if (!controlHandshake) {
             when (
                 val inspected =
-                    FriendControlWire.inspectControlHandshake(accumulated)
+                    FriendControlWire.inspectControlRequest(accumulated)
             ) {
                 FriendControlDecode.Incomplete -> return
                 FriendControlDecode.Invalid -> {

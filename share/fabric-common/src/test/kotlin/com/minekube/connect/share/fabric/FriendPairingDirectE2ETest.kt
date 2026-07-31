@@ -109,7 +109,6 @@ class FriendPairingDirectE2ETest {
                             },
                             receiver = FriendCardReceiver(senderStore),
                             requestClient = FriendRequestClient(
-                                protocolVersion = 1_075,
                                 ioDispatcher = Dispatchers.IO,
                                 connectTimeout = Duration.ofSeconds(3),
                                 decisionTimeout = Duration.ofSeconds(5),

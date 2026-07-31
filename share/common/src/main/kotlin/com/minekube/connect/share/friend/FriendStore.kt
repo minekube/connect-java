@@ -1,8 +1,10 @@
 package com.minekube.connect.share.friend
 
 import arrow.core.Either
+import arrow.core.Option
 import arrow.core.raise.either
 import arrow.core.raise.ensure
+import arrow.core.toOption
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
@@ -99,6 +101,10 @@ class FriendStore(
         }
 
     @Synchronized
+    fun relationship(peerId: String): Option<SavedFriend> =
+        read().firstOrNull { it.peerId == peerId }.toOption()
+
+    @Synchronized
     fun accept(
         invitationUri: String,
         displayName: String,
@@ -108,6 +114,20 @@ class FriendStore(
             invitationUri = invitationUri,
             displayName = displayName,
             relationshipStatus = FriendRelationshipStatus.CONFIRMED,
+            now = now,
+        )
+
+    @Synchronized
+    fun acceptAndAllowJoin(
+        invitationUri: String,
+        displayName: String,
+        now: Instant = Instant.now(),
+    ): Either<FriendStoreError, SavedFriend> =
+        storeInvitation(
+            invitationUri = invitationUri,
+            displayName = displayName,
+            relationshipStatus = FriendRelationshipStatus.CONFIRMED,
+            allowAutomaticJoin = true,
             now = now,
         )
 
@@ -138,6 +158,7 @@ class FriendStore(
         invitationUri: String,
         displayName: String,
         relationshipStatus: FriendRelationshipStatus,
+        allowAutomaticJoin: Boolean = false,
         now: Instant,
     ): Either<FriendStoreError, SavedFriend> = either {
         val invite = ShareInviteCodec.decode(invitationUri.trim(), now)
@@ -171,7 +192,14 @@ class FriendStore(
             connectAddress = invite.payload.connectAddress,
             displayName = existing?.displayName ?: normalizedName,
             minecraftUuid = existing?.minecraftUuid,
-            permissions = existing?.permissions ?: FriendPermissions(),
+            permissions = (existing?.permissions ?: FriendPermissions())
+                .let { permissions ->
+                    if (allowAutomaticJoin) {
+                        permissions.copy(canJoinAutomatically = true)
+                    } else {
+                        permissions
+                    }
+                },
             relationshipStatus = effectiveRelationshipStatus,
         )
         write(

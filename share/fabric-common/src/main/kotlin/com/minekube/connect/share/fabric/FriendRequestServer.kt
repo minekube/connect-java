@@ -4,11 +4,13 @@ import com.minekube.connect.share.admission.AdmissionAnswer
 import com.minekube.connect.share.admission.AdmissionController
 import com.minekube.connect.share.admission.AdmissionIdentity
 import com.minekube.connect.share.admission.AdmissionPurpose
+import com.minekube.connect.share.admission.Ingress
 import com.minekube.connect.share.direct.ShareInviteCodec
 import com.minekube.connect.share.friend.FriendControlContext
 import com.minekube.connect.share.friend.FriendControlRequest
 import com.minekube.connect.share.friend.FriendControlResponse
 import com.minekube.connect.share.friend.FriendControlServer
+import com.minekube.connect.share.friend.FriendRelationshipStatus
 import com.minekube.connect.share.friend.FriendStore
 import java.time.Instant
 import java.util.Base64
@@ -54,26 +56,41 @@ class FriendRequestServer(
         context: FriendControlContext,
         request: FriendControlRequest,
     ): FriendControlResponse {
+        val authenticatedPeerId = context.directPeerId
+            ?: return FriendControlResponse.Invalid
+        if (context.ingress == Ingress.CONNECT) {
+            return FriendControlResponse.Invalid
+        }
         val instant = now()
         val invitation = ShareInviteCodec.decode(
             request.invitation,
             instant,
         ).getOrNull() ?: return FriendControlResponse.Invalid
         val senderPeerId = invitation.payload.peerId
-        if (
-            context.directPeerId != null &&
-            context.directPeerId != senderPeerId
-        ) {
+        if (authenticatedPeerId != senderPeerId) {
             return FriendControlResponse.Invalid
         }
         val senderKey = Base64.getEncoder()
             .encodeToString(invitation.publicKey)
-        val existing = friendStore.all().firstOrNull {
-            it.peerId == senderPeerId
-        }
+        val existing = friendStore.relationship(senderPeerId).getOrNull()
         if (existing != null) {
             if (existing.publicKeyBase64 != senderKey) {
                 return FriendControlResponse.Invalid
+            }
+            if (
+                existing.relationshipStatus ==
+                FriendRelationshipStatus.PENDING_OUTGOING
+            ) {
+                val accepted = receiver.receive(
+                    invitation = request.invitation,
+                    displayName = request.displayName,
+                    authenticatedMinecraftUuid = null,
+                    now = instant,
+                )
+                if (accepted.isLeft()) {
+                    return FriendControlResponse.Invalid
+                }
+                notifyRelationshipChanged()
             }
             return issueHostCard(instant)
         }

@@ -19,22 +19,7 @@ import kotlin.test.assertTrue
 class FriendControlChannelHandlerTest {
     @Test
     fun `ordinary Minecraft traffic passes through unchanged`() {
-        val ordinary = FriendControlWire.encodeRequest(
-            protocolVersion = 1_075,
-            serverAddress = "localhost",
-            request = REQUEST,
-        ).copyOf()
-        val controlHigh =
-            FriendControlWire.CONTROL_HANDSHAKE_PORT ushr 8
-        val controlLow =
-            FriendControlWire.CONTROL_HANDSHAKE_PORT and 0xff
-        val portIndex = ordinary.indices.first {
-            it + 1 < ordinary.size &&
-                ordinary[it].toInt() and 0xff == controlHigh &&
-                ordinary[it + 1].toInt() and 0xff == controlLow
-        }
-        ordinary[portIndex] = (25_565 ushr 8).toByte()
-        ordinary[portIndex + 1] = 25_565.toByte()
+        val ordinary = ORDINARY_MINECRAFT_HANDSHAKE
         val channel = EmbeddedChannel(
             FriendControlChannelHandler { _, _ ->
                 error("Ordinary traffic must not reach friend control")
@@ -67,8 +52,6 @@ class FriendControlChannelHandlerTest {
         )
         channel.attr(DirectSessionAttributes.SESSION).set(DIRECT_SESSION)
         val encoded = FriendControlWire.encodeRequest(
-            protocolVersion = 1_075,
-            serverAddress = "connect-share",
             request = REQUEST,
         )
 
@@ -118,8 +101,6 @@ class FriendControlChannelHandlerTest {
         channel.writeInbound(
             Unpooled.wrappedBuffer(
                 FriendControlWire.encodeRequest(
-                    protocolVersion = 1_075,
-                    serverAddress = "purple-del.play.minekube.net",
                     request = REQUEST,
                 ),
             ),
@@ -155,6 +136,17 @@ class FriendControlChannelHandlerTest {
             DirectP2pAuthMode.OFFLINE,
             DirectP2pRoute.LAN,
             "direct-control-session",
+        )
+        val ORDINARY_MINECRAFT_HANDSHAKE = byteArrayOf(
+            0x10,
+            0x00,
+            0xb3.toByte(),
+            0x08,
+            0x09,
+            *"localhost".toByteArray(),
+            0x63,
+            0xdd.toByte(),
+            0x02,
         )
     }
 }

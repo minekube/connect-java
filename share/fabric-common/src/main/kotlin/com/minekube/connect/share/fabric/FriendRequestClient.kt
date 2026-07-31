@@ -9,7 +9,6 @@ import com.minekube.connect.share.friend.FriendControlResponse
 import com.minekube.connect.share.friend.FriendControlWire
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.time.Duration
@@ -46,32 +45,28 @@ sealed interface FriendRequestFailure {
 }
 
 class FriendRequestClient(
-    private val protocolVersion: Int,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val connectTimeout: Duration = Duration.ofSeconds(5),
     private val decisionTimeout: Duration = Duration.ofSeconds(35),
 ) {
     suspend fun exchange(
-        target: GuestJoinTarget,
+        target: GuestJoinTarget.Direct,
         request: FriendControlRequest,
         onReceived: () -> Unit,
     ): Either<FriendRequestFailure, String> = withContext(ioDispatcher) {
         target.use {
-            val route = target.routeTarget()
             val socket = Socket()
             val cancellation = coroutineContext[Job]
                 ?.invokeOnCompletion { socket.close() }
             try {
                 socket.connect(
-                    route.socketAddress,
+                    target.localAddress,
                     connectTimeout.toMillis().toInt(),
                 )
                 socket.soTimeout = READ_POLL_MILLIS
                 socket.getOutputStream().apply {
                     write(
                         FriendControlWire.encodeRequest(
-                            protocolVersion = protocolVersion,
-                            serverAddress = route.handshakeAddress,
                             request = request,
                         ),
                     )
@@ -176,57 +171,7 @@ class FriendRequestClient(
         }
     }
 
-    private fun GuestJoinTarget.routeTarget(): RouteTarget = when (this) {
-        is GuestJoinTarget.Connect -> {
-            val parsed = parseAddress(publicAddress)
-            RouteTarget(
-                socketAddress = parsed,
-                handshakeAddress = parsed.hostString,
-            )
-        }
-
-        is GuestJoinTarget.Direct -> RouteTarget(
-            socketAddress = localAddress,
-            handshakeAddress = "connect-share",
-        )
-    }
-
-    private fun parseAddress(value: String): InetSocketAddress {
-        val trimmed = value.trim()
-        if (trimmed.startsWith("[")) {
-            val closing = trimmed.indexOf(']')
-            require(closing > 1) { "Friend address is invalid" }
-            val host = trimmed.substring(1, closing)
-            val port = trimmed.substring(closing + 1)
-                .removePrefix(":")
-                .takeIf(String::isNotEmpty)
-                ?.toInt()
-                ?: DEFAULT_MINECRAFT_PORT
-            return InetSocketAddress(host, port)
-        }
-        val colon = trimmed.lastIndexOf(':')
-        val hasSingleColon =
-            colon > 0 && trimmed.indexOf(':') == colon
-        val host = if (hasSingleColon) {
-            trimmed.substring(0, colon)
-        } else {
-            trimmed
-        }
-        val port = if (hasSingleColon) {
-            trimmed.substring(colon + 1).toInt()
-        } else {
-            DEFAULT_MINECRAFT_PORT
-        }
-        return InetSocketAddress(host, port)
-    }
-
-    private data class RouteTarget(
-        val socketAddress: InetSocketAddress,
-        val handshakeAddress: String,
-    )
-
     private companion object {
-        const val DEFAULT_MINECRAFT_PORT = 25_565
         const val READ_POLL_MILLIS = 250
     }
 }

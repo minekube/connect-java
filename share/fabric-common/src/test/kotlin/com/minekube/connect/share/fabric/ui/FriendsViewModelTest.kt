@@ -10,6 +10,7 @@ import com.minekube.connect.share.admission.PendingAdmission
 import com.minekube.connect.share.fabric.DiscoveredLanShare
 import com.minekube.connect.share.fabric.FabricGuestDirectNode
 import com.minekube.connect.share.fabric.FabricShareBrowser
+import com.minekube.connect.share.fabric.GuestJoinFailure
 import com.minekube.connect.share.fabric.GuestJoinTarget
 import com.minekube.connect.share.fabric.RemoteFriendPresence
 import com.minekube.connect.share.direct.ShareRoute
@@ -54,6 +55,18 @@ class FriendsViewModelTest {
         assertTrue(viewModel.state.value.friends.isEmpty())
         assertFalse(viewModel.state.value.toString().contains(CAPABILITY))
         assertEquals(null, viewModel.state.value.safeMessage)
+    }
+
+    @Test
+    fun `signed friend link suggests its sender username`() {
+        val viewModel = FriendsViewModel(FriendStore(tempDir))
+
+        val suggested = viewModel.suggestedDisplayName(
+            signedLink(displayName = "RoboFlax2"),
+            NOW,
+        )
+
+        assertEquals("RoboFlax2", suggested.getOrNull())
     }
 
     @Test
@@ -349,7 +362,30 @@ class FriendsViewModelTest {
         browser.close()
     }
 
-    private fun signedLink(): String {
+    @Test
+    fun `outgoing friend requests never use a Connect Minecraft endpoint`() = runTest {
+        val link = signedLink()
+        val browser = FabricShareBrowser.testing(
+            node = FakeGuestNode(),
+            now = { NOW },
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val viewModel = FriendsViewModel(FriendStore(tempDir))
+        viewModel.sendRequest(link, "Robin", NOW)
+
+        val result = viewModel.routeOutgoing(
+            peerId = PEER_ID,
+            browser = browser,
+            authMode = DirectP2pAuthMode.OFFLINE,
+        )
+
+        assertIs<arrow.core.Either.Left<GuestJoinFailure.NoRoute>>(result)
+        browser.close()
+    }
+
+    private fun signedLink(
+        displayName: String? = null,
+    ): String {
         val pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
         val payload = ShareInvitePayload(
             wireVersion = ShareInviteCodec.WIRE_VERSION,
@@ -362,6 +398,7 @@ class FriendsViewModelTest {
             internetDirectEnabled = false,
             directCandidates = emptyList(),
             capability = CAPABILITY,
+            displayName = displayName,
         )
         val unsigned = ShareInviteCodec.unsignedBytes(
             payload,

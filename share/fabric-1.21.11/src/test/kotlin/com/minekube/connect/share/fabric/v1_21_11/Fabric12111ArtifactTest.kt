@@ -89,6 +89,7 @@ class Fabric12111ArtifactTest {
                 "connect_share.friends.remove_confirm.confirm" in bytecode,
             )
             assertTrue("sendRequest" in bytecode)
+            assertTrue("suggestedDisplayName" in bytecode)
             assertTrue("FriendRequestClient" in bytecode)
             assertTrue("getIncomingRequests" in bytecode)
             assertTrue("connect_share.status.allow" in bytecode)
