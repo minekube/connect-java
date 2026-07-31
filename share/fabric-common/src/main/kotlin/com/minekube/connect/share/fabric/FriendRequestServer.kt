@@ -29,6 +29,7 @@ class FriendRequestServer(
     private val friendStore: FriendStore,
     private val now: () -> Instant = Instant::now,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val onRelationshipChanged: () -> Unit = {},
 ) : FriendControlServer {
     override fun handle(
         context: FriendControlContext,
@@ -100,6 +101,7 @@ class FriendRequestServer(
                 if (received.isLeft()) {
                     FriendControlResponse.Invalid
                 } else {
+                    notifyRelationshipChanged()
                     issueHostCard(instant)
                 }
             }
@@ -119,6 +121,14 @@ class FriendRequestServer(
             ifLeft = { FriendControlResponse.Invalid },
             ifRight = FriendControlResponse::Accepted,
         )
+
+    private fun notifyRelationshipChanged() {
+        try {
+            onRelationshipChanged()
+        } catch (_: RuntimeException) {
+            // A UI refresh must not undo an accepted friendship.
+        }
+    }
 
     private fun CompletableFuture<FriendControlResponse>.cancelJobWhenCancelled(
         job: Job,

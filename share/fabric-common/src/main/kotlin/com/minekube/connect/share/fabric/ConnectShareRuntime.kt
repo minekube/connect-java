@@ -1,16 +1,19 @@
 package com.minekube.connect.share.fabric
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 class ConnectShareRuntime(
     private val scope: CoroutineScope,
     private val stopShare: suspend () -> Unit,
     private val resumeShare: suspend () -> Unit = {},
     private val worldAvailabilityChanged: (Boolean) -> Unit = {},
+    private val lifecycleDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val lock = Any()
     private val lifecycle = Mutex()
@@ -37,7 +40,7 @@ class ConnectShareRuntime(
             worldAvailabilityChanged(worldAvailable)
             return
         }
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        scope.launch(lifecycleDispatcher) {
             lifecycle.withLock {
                 if (transition.stopPrevious) {
                     stopShare()
@@ -50,15 +53,15 @@ class ConnectShareRuntime(
         }
     }
 
-    fun shutdown() {
+    suspend fun shutdown() {
         val shouldStop = synchronized(lock) {
             (currentWorldIdentity != null).also {
                 currentWorldIdentity = null
             }
         }
-        worldAvailabilityChanged(false)
-        if (shouldStop) {
-            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        withContext(lifecycleDispatcher) {
+            worldAvailabilityChanged(false)
+            if (shouldStop) {
                 lifecycle.withLock {
                     stopShare()
                 }

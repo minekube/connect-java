@@ -24,6 +24,41 @@ import minekube.connect.v1alpha1.WatchServiceOuterClass.Session
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class FabricSessionAdmissionGateTest {
     @Test
+    fun `title control stays reachable while player sessions require a world`() =
+        runTest {
+            val admission = admission()
+            var worldAvailable = false
+            val gate = FabricSessionAdmissionGate(
+                admission = admission,
+                scope = backgroundScope,
+                worldAvailable = { worldAvailable },
+            )
+            val unavailable = gate.request(
+                proposal(passthrough = false),
+            ).toCompletableFuture().getNow(null)
+
+            assertFalse(unavailable.isAllowed)
+            assertEquals(
+                "No shared world is active",
+                unavailable.safeMessage,
+            )
+            assertTrue(admission.pending.value.isEmpty())
+
+            worldAvailable = true
+            val available = gate.request(
+                proposal(passthrough = false),
+            ).toCompletableFuture()
+            runCurrent()
+            assertEquals(1, admission.pending.value.size)
+            admission.answer(
+                admission.pending.value.single().requestId,
+                allow = false,
+            )
+            runCurrent()
+            assertFalse(available.getNow(null).isAllowed)
+        }
+
+    @Test
     fun `status probe bypasses player admission for control routing`() = runTest {
         val admission = admission()
         val gate = FabricSessionAdmissionGate(admission, backgroundScope)

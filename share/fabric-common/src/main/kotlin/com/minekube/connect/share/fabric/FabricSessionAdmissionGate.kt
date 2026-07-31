@@ -27,6 +27,7 @@ class FabricSessionAdmissionGate(
     private val scope: CoroutineScope,
     private val approvedJoins: ApprovedJoinTracker =
         ApprovedJoinTracker(),
+    private val worldAvailable: () -> Boolean = { true },
 ) : SessionAdmissionGate {
     private val stopped = AtomicBoolean()
     private val active = ConcurrentHashMap<CompletableFuture<SessionAdmissionDecision>, Job>()
@@ -37,6 +38,11 @@ class FabricSessionAdmissionGate(
         if (proposal.isStatusProbe()) {
             return CompletableFuture.completedFuture(
                 SessionAdmissionDecision.allow(),
+            )
+        }
+        if (!worldAvailable()) {
+            return CompletableFuture.completedFuture(
+                SessionAdmissionDecision.deny(NO_SHARED_WORLD),
             )
         }
         if (proposal.session.auth.passthrough) {
@@ -137,6 +143,7 @@ class FabricSessionAdmissionGate(
         data object InvalidProfile
         const val INVALID_PROFILE = "Connect profile is invalid"
         const val ADMISSION_FAILED = "Could not ask the host for approval"
+        const val NO_SHARED_WORLD = "No shared world is active"
     }
 }
 

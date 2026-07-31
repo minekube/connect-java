@@ -35,6 +35,7 @@ class FabricConnectIngress private constructor(
     private val admission: AdmissionController,
     private val approvedJoins: ApprovedJoinTracker,
     private val scope: CoroutineScope,
+    private val worldAvailable: () -> Boolean,
     private val runtimeFactory: FabricConnectRuntimeFactory,
 ) : ConnectShareIngress {
     constructor(
@@ -45,11 +46,13 @@ class FabricConnectIngress private constructor(
         admission: AdmissionController,
         approvedJoins: ApprovedJoinTracker,
         scope: CoroutineScope,
+        worldAvailable: () -> Boolean = { true },
     ) : this(
         dataDirectory = dataDirectory,
         admission = admission,
         approvedJoins = approvedJoins,
         scope = scope,
+        worldAvailable = worldAvailable,
         runtimeFactory = GuiceFabricConnectRuntimeFactory(
             dataDirectory = dataDirectory,
             platformInjector = platformInjector,
@@ -79,6 +82,7 @@ class FabricConnectIngress private constructor(
             admission,
             scope,
             approvedJoins,
+            worldAvailable,
         )
         val runtime = try {
             runtimeFactory.start(identity, target, gate)
@@ -107,11 +111,13 @@ class FabricConnectIngress private constructor(
             runtimeFactory: FabricConnectRuntimeFactory,
             approvedJoins: ApprovedJoinTracker =
                 ApprovedJoinTracker(),
+            worldAvailable: () -> Boolean = { true },
         ) = FabricConnectIngress(
             dataDirectory = dataDirectory,
             admission = admission,
             approvedJoins = approvedJoins,
             scope = scope,
+            worldAvailable = worldAvailable,
             runtimeFactory = runtimeFactory,
         )
     }

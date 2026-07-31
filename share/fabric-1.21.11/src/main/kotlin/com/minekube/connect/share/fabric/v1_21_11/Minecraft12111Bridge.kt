@@ -5,6 +5,7 @@ import com.minekube.connect.share.LocalShareChannelBinder as CommonLocalShareCha
 import com.minekube.connect.share.MinecraftVersionTransport
 import com.minekube.connect.share.NettyLocalShareChannelBinder
 import com.minekube.connect.share.PublishedMinecraftTransport as CommonPublishedMinecraftTransport
+import com.minekube.connect.share.ShareConnectionGateway
 import com.minekube.connect.share.VersionedMinecraftBridge
 import com.minekube.connect.share.CaptureLease as CommonCaptureLease
 import com.minekube.connect.share.CapturedServerTransport as CommonCapturedServerTransport
@@ -38,6 +39,19 @@ class Minecraft12111Bridge internal constructor(
         loginAdmissionFactory,
     )
 }
+
+internal class GatewayMinecraft12111Bridge(
+    gateway: ShareConnectionGateway,
+    loginAdmissionFactory: () -> FabricLocalLoginAdmissionGate,
+) : VersionedMinecraftBridge(
+    transport = VanillaMinecraft12111Transport(),
+    gateway = gateway,
+    loginAdmissionAcquire = {
+        FabricLoginAdmissionRegistry.install(
+            loginAdmissionFactory(),
+        )
+    },
+)
 
 internal typealias Minecraft12111Transport = MinecraftVersionTransport
 internal typealias PublishedMinecraftTransport = CommonPublishedMinecraftTransport

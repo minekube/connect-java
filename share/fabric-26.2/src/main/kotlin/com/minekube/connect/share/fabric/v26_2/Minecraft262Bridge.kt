@@ -5,6 +5,7 @@ import com.minekube.connect.share.LocalShareChannelBinder as CommonLocalShareCha
 import com.minekube.connect.share.MinecraftVersionTransport
 import com.minekube.connect.share.NettyLocalShareChannelBinder
 import com.minekube.connect.share.PublishedMinecraftTransport as CommonPublishedMinecraftTransport
+import com.minekube.connect.share.ShareConnectionGateway
 import com.minekube.connect.share.VersionedMinecraftBridge
 import com.minekube.connect.share.fabric.FabricLocalLoginAdmissionGate
 import com.minekube.connect.share.fabric.FabricLoginAdmissionRegistry
@@ -35,6 +36,19 @@ class Minecraft262Bridge internal constructor(
         loginAdmissionFactory,
     )
 }
+
+internal class GatewayMinecraft262Bridge(
+    gateway: ShareConnectionGateway,
+    loginAdmissionFactory: () -> FabricLocalLoginAdmissionGate,
+) : VersionedMinecraftBridge(
+    transport = VanillaMinecraft262Transport(),
+    gateway = gateway,
+    loginAdmissionAcquire = {
+        FabricLoginAdmissionRegistry.install(
+            loginAdmissionFactory(),
+        )
+    },
+)
 
 internal typealias Minecraft262Transport = MinecraftVersionTransport
 internal typealias PublishedMinecraftTransport = CommonPublishedMinecraftTransport

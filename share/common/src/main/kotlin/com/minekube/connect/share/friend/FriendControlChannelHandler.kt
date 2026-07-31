@@ -6,7 +6,6 @@ import com.minekube.connect.tunnel.p2p.DirectP2pRoute
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
 import io.netty.channel.ChannelFutureListener
-import io.netty.channel.ChannelHandler
 import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.ChannelInboundHandlerAdapter
 import io.netty.util.ReferenceCountUtil
@@ -168,20 +167,4 @@ class FriendControlChannelHandler(
             directPeerId = direct?.peerId(),
         )
     }
-}
-
-object FriendControlChannelRegistry {
-    private val installed = AtomicReference<FriendControlServer?>()
-
-    fun install(server: FriendControlServer): AutoCloseable {
-        check(installed.compareAndSet(null, server)) {
-            "A friend control server is already installed"
-        }
-        return AutoCloseable {
-            installed.compareAndSet(server, null)
-        }
-    }
-
-    fun createHandler(): ChannelHandler? =
-        installed.get()?.let(::FriendControlChannelHandler)
 }

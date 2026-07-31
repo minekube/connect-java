@@ -21,6 +21,7 @@ import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.logging.Logger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -86,17 +87,24 @@ sealed interface GuestJoinFailure {
     data object NoRoute : GuestJoinFailure {
         override val safeMessage: String = ShareJoinError.NoRoute.safeMessage
     }
+
+    data object EndpointConflict : GuestJoinFailure {
+        override val safeMessage =
+            "This profile uses the same Connect endpoint as your friend; reset one profile's Connect identity"
+    }
 }
 
 class FabricShareBrowser private constructor(
     private val node: FabricGuestDirectNode,
     private val now: () -> Instant,
     private val ioDispatcher: CoroutineDispatcher,
+    private val routeReporter: (String) -> Unit,
 ) : AutoCloseable {
     constructor() : this(
         node = CoreFabricGuestDirectNode(DirectP2pNode()),
         now = Instant::now,
         ioDispatcher = Dispatchers.IO,
+        routeReporter = LOGGER::info,
     )
 
     constructor(dataDirectory: Path) : this(
@@ -105,6 +113,7 @@ class FabricShareBrowser private constructor(
         ),
         now = Instant::now,
         ioDispatcher = Dispatchers.IO,
+        routeReporter = LOGGER::info,
     )
 
     private val mutableDiscovered =
@@ -159,29 +168,46 @@ class FabricShareBrowser private constructor(
                 when (route) {
                     ShareRoute.DIRECT_LAN -> {
                         val address = effectiveLanAddress ?: continue
-                        openDirect(
+                        val direct = openDirect(
                             route,
                             address,
                             invitation,
                             authMode,
                             LAN_TIMEOUT,
-                        )?.let { return@withContext it.right() }
+                        )
+                        if (direct != null) {
+                            reportRoute(ROUTE_DIRECT_LAN)
+                            return@withContext direct.right()
+                        }
+                        reportRoute(ROUTE_DIRECT_LAN_UNAVAILABLE)
                     }
 
                     ShareRoute.DIRECT_INTERNET -> {
+                        var attempted = false
                         for (address in payload.directCandidates) {
-                            openDirect(
+                            attempted = true
+                            val direct = openDirect(
                                 route,
                                 address,
                                 invitation,
                                 authMode,
                                 INTERNET_TIMEOUT,
-                            )?.let { return@withContext it.right() }
+                            )
+                            if (direct != null) {
+                                reportRoute(ROUTE_DIRECT_INTERNET)
+                                return@withContext direct.right()
+                            }
+                        }
+                        if (attempted) {
+                            reportRoute(
+                                ROUTE_DIRECT_INTERNET_UNAVAILABLE,
+                            )
                         }
                     }
 
                     ShareRoute.CONNECT -> {
                         payload.connectAddress?.let {
+                            reportRoute(ROUTE_CONNECT_FALLBACK)
                             return@withContext GuestJoinTarget.Connect(it).right()
                         }
                     }
@@ -194,23 +220,62 @@ class FabricShareBrowser private constructor(
     suspend fun join(
         friend: SavedFriend,
         authMode: DirectP2pAuthMode,
+        ownConnectAddress: String? = null,
     ): Either<GuestJoinFailure, GuestJoinTarget> =
         withContext(ioDispatcher) {
-            matchingLanShare(friend)?.let { discovered ->
-                openDirect(
+            val discovered = matchingLanShare(friend)
+            if (discovered != null) {
+                val direct = openDirect(
                     route = ShareRoute.DIRECT_LAN,
                     address = discovered.lanAddress,
                     shareId = friend.shareId.toString(),
                     capability = friend.capability,
                     authMode = authMode,
                     timeout = LAN_TIMEOUT,
-                )?.let { return@withContext it.right() }
+                )
+                if (direct != null) {
+                    reportRoute(ROUTE_DIRECT_LAN)
+                    return@withContext direct.right()
+                }
+                reportRoute(ROUTE_DIRECT_LAN_UNAVAILABLE)
+            } else {
+                reportRoute(ROUTE_DIRECT_LAN_UNAVAILABLE)
+            }
+            if (
+                connectAddressesMatch(
+                    friend.connectAddress,
+                    ownConnectAddress,
+                )
+            ) {
+                reportRoute(ROUTE_ENDPOINT_CONFLICT)
+                return@withContext GuestJoinFailure.EndpointConflict.left()
             }
             friend.connectAddress?.let {
+                reportRoute(ROUTE_CONNECT_FALLBACK)
                 return@withContext GuestJoinTarget.Connect(it).right()
             }
             GuestJoinFailure.NoRoute.left()
         }
+
+    suspend fun probeLan(
+        friend: SavedFriend,
+        authMode: DirectP2pAuthMode,
+        probe: FriendStatusProbe,
+    ): ServerPresence? = withContext(ioDispatcher) {
+        val discovered = matchingLanShare(friend)
+            ?: return@withContext null
+        val direct = openDirect(
+            route = ShareRoute.DIRECT_LAN,
+            address = discovered.lanAddress,
+            shareId = friend.shareId.toString(),
+            capability = friend.capability,
+            authMode = authMode,
+            timeout = LAN_TIMEOUT,
+        ) ?: return@withContext null
+        direct.use {
+            probe.probe(direct.localAddress.statusAddress()).getOrNull()
+        }
+    }
 
     override fun close() {
         if (closed.compareAndSet(false, true)) {
@@ -301,19 +366,72 @@ class FabricShareBrowser private constructor(
         null
     }
 
+    private fun reportRoute(message: String) {
+        try {
+            routeReporter(message)
+        } catch (_: RuntimeException) {
+            // Diagnostics must never alter route selection.
+        }
+    }
+
+    private fun InetSocketAddress.statusAddress(): String {
+        val host = hostString
+        return if (host.contains(':')) {
+            "[$host]:$port"
+        } else {
+            "$host:$port"
+        }
+    }
+
     companion object {
         internal fun testing(
             node: FabricGuestDirectNode,
             now: () -> Instant,
             ioDispatcher: CoroutineDispatcher,
-        ) = FabricShareBrowser(node, now, ioDispatcher)
+            routeReporter: (String) -> Unit = {},
+        ) = FabricShareBrowser(
+            node,
+            now,
+            ioDispatcher,
+            routeReporter,
+        )
 
         private val LAN_TIMEOUT = Duration.ofSeconds(3)
         private val INTERNET_TIMEOUT = Duration.ofSeconds(5)
         private const val MAX_DISCOVERED_SHARES = 32
         private const val IDENTITY_FILE_NAME = "share-libp2p-identity.key"
+        private val LOGGER = Logger.getLogger("Connect")
+        private const val ROUTE_DIRECT_LAN =
+            "Connect Share route: direct LAN"
+        private const val ROUTE_DIRECT_LAN_UNAVAILABLE =
+            "Connect Share route: direct LAN unavailable"
+        private const val ROUTE_DIRECT_INTERNET =
+            "Connect Share route: direct internet"
+        private const val ROUTE_DIRECT_INTERNET_UNAVAILABLE =
+            "Connect Share route: direct internet unavailable"
+        private const val ROUTE_CONNECT_FALLBACK =
+            "Connect Share route: using Connect fallback"
+        private const val ROUTE_ENDPOINT_CONFLICT =
+            "Connect Share route: blocked copied Connect endpoint"
     }
 }
+
+internal fun connectAddressesMatch(
+    first: String?,
+    second: String?,
+): Boolean {
+    val normalizedFirst = normalizeConnectAddress(first)
+    val normalizedSecond = normalizeConnectAddress(second)
+    return normalizedFirst != null && normalizedFirst == normalizedSecond
+}
+
+private fun normalizeConnectAddress(value: String?): String? =
+    value
+        ?.trim()
+        ?.lowercase()
+        ?.removeSuffix(".")
+        ?.removeSuffix(":25565")
+        ?.takeIf(String::isNotEmpty)
 
 internal interface FabricGuestDirectNode : AutoCloseable {
     fun peerId(): String
