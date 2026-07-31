@@ -233,6 +233,47 @@ class DirectP2pNodeTest {
     }
 
     @Test
+    void discoveryNodeCanBecomeThePublishedHostWithoutChangingItsPeer() {
+        host = new DirectP2pNode();
+        String peerId = host.peerId();
+        host.startDiscovery(ignored -> { });
+
+        DirectP2pHostInfo hostInfo = host.startHost(
+                new DirectP2pHostConfig(
+                        "shared-runtime",
+                        "shared-capability-123456789",
+                        "Shared runtime",
+                        false),
+                ignored -> new Socket());
+        host.publish("minekube://share/shared-runtime");
+
+        guest = new DirectP2pNode();
+        DirectP2pDiscoveredShare discovered = guest.inspect(
+                hostInfo.lanAddresses().get(0),
+                Duration.ofSeconds(3));
+
+        assertEquals(peerId, hostInfo.peerId());
+        assertEquals(peerId, discovered.peerId());
+        assertEquals(
+                "minekube://share/shared-runtime",
+                discovered.invitation());
+    }
+
+    @Test
+    void mdnsTxtLengthPrefixSupportsModernEd25519PeerIds() {
+        String peerId =
+                "12D3KooWEHeJnnq1Rfwt679bTyTxkEdtyTC8peAJWsWCxtAJ4s9y";
+        byte[] encodedPeerId = peerId.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] txtRecord = new byte[encodedPeerId.length + 1];
+        txtRecord[0] = (byte) encodedPeerId.length;
+        System.arraycopy(encodedPeerId, 0, txtRecord, 1, encodedPeerId.length);
+
+        assertEquals(
+                peerId,
+                DirectP2pNodeRuntime.decodeMdnsPeerId(txtRecord));
+    }
+
+    @Test
     void directNodeNeverAdvertisesOrAcceptsCircuitRelayAddresses() {
         host = new DirectP2pNode();
         DirectP2pHostInfo info = host.startHost(

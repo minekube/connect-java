@@ -116,6 +116,13 @@ class FabricShareBrowser private constructor(
         routeReporter = LOGGER::info,
     )
 
+    internal constructor(node: FabricGuestDirectNode) : this(
+        node = node,
+        now = Instant::now,
+        ioDispatcher = Dispatchers.IO,
+        routeReporter = LOGGER::info,
+    )
+
     private val mutableDiscovered =
         MutableStateFlow<List<DiscoveredLanShare>>(emptyList())
     private val started = AtomicBoolean()

@@ -36,7 +36,9 @@ import io.libp2p.core.multiformats.Multiaddr;
 import io.libp2p.core.multiformats.MultiaddrComponent;
 import io.libp2p.core.multiformats.Protocol;
 import io.libp2p.core.multistream.StrictProtocolBinding;
-import io.libp2p.discovery.MDnsDiscovery;
+import io.libp2p.discovery.mdns.JmDNS;
+import io.libp2p.discovery.mdns.ServiceInfo;
+import io.libp2p.discovery.mdns.impl.DNSRecord;
 import io.libp2p.protocol.ProtocolHandler;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
@@ -52,11 +54,13 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.net.Inet6Address;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -73,7 +77,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import kotlin.Pair;
-import kotlin.Unit;
 
 /**
  * Child-loaded implementation. No method signature may expose libp2p, Netty,
@@ -98,11 +101,13 @@ final class DirectP2pNodeRuntime {
     private final List<ProxyRuntime> proxies = new CopyOnWriteArrayList<>();
     private final java.util.Set<String> discoveredInvitations =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private final java.util.Set<String> mdnsInspections =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
     private Host host;
     private DirectP2pHostConfig hostConfig;
     private DirectP2pHostHandler hostHandler;
     private volatile String invitation;
-    private MDnsDiscovery discovery;
+    private JmDNS discovery;
     private DirectP2pDiscoveryListener discoveryListener;
     private boolean started;
     private boolean closed;
@@ -137,11 +142,19 @@ final class DirectP2pNodeRuntime {
         }
         hostConfig = Objects.requireNonNull(config, "config");
         hostHandler = Objects.requireNonNull(handler, "handler");
-        host = Libp2pTunnelTransportRuntime.createHost(
-                privateKey,
-                "/ip4/0.0.0.0/tcp/0");
-        installProtocols(host);
-        startHostIfNeeded();
+        if (host == null) {
+            host = Libp2pTunnelTransportRuntime.createHost(
+                    privateKey,
+                    "/ip4/0.0.0.0/tcp/0");
+            installProtocols(host);
+            startHostIfNeeded();
+        } else if (host.listenAddresses().isEmpty()) {
+            await(
+                    host.getNetwork().listen(
+                            Multiaddr.fromString("/ip4/0.0.0.0/tcp/0")),
+                    START_TIMEOUT_SECONDS,
+                    "listen for Connect Share direct hosting");
+        }
 
         int port = listenTcpPort(host);
         String peerId = host.getPeerId().toBase58();
@@ -270,7 +283,7 @@ final class DirectP2pNodeRuntime {
         }
         closed = true;
         if (discovery != null) {
-            await(discovery.stop(), START_TIMEOUT_SECONDS, "stop Connect Share LAN discovery");
+            discovery.stop();
             discovery = null;
         }
         for (ProxyRuntime proxy : proxies) {
@@ -311,16 +324,121 @@ final class DirectP2pNodeRuntime {
         if (discovery != null) {
             return;
         }
-        discovery = new MDnsDiscovery(
-                host,
-                MDNS_SERVICE,
-                MDNS_QUERY_INTERVAL_SECONDS,
-                MdnsAddressSelector.systemAddress());
-        discovery.addHandler(peer -> {
-            onMdnsPeer(peer);
-            return Unit.INSTANCE;
-        });
-        await(discovery.start(), START_TIMEOUT_SECONDS, "start Connect Share LAN discovery");
+        InetAddress address = MdnsAddressSelector.systemAddress();
+        JmDNS started = JmDNS.create(address);
+        try {
+            started.start();
+            List<Inet4Address> ipv4Addresses = address instanceof Inet4Address
+                    ? Collections.singletonList((Inet4Address) address)
+                    : Collections.emptyList();
+            List<Inet6Address> ipv6Addresses = address instanceof Inet6Address
+                    ? Collections.singletonList((Inet6Address) address)
+                    : Collections.emptyList();
+            String peerId = host.getPeerId().toBase58();
+            started.registerService(ServiceInfo.create(
+                    MDNS_SERVICE,
+                    peerId,
+                    listenTcpPort(host),
+                    peerId,
+                    ipv4Addresses,
+                    ipv6Addresses));
+            started.addAnswerListener(
+                    MDNS_SERVICE,
+                    MDNS_QUERY_INTERVAL_SECONDS,
+                    this::onMdnsAnswers);
+            discovery = started;
+        } catch (IOException | RuntimeException failure) {
+            started.stop();
+            throw new IllegalStateException(
+                    "Could not start Connect Share LAN discovery",
+                    failure);
+        }
+    }
+
+    private void onMdnsAnswers(List<DNSRecord> answers) {
+        Host current = host;
+        if (current == null) {
+            return;
+        }
+        String localPeerId = current.getPeerId().toBase58();
+        List<DNSRecord.Address> addresses = new ArrayList<>();
+        for (DNSRecord answer : answers) {
+            if (answer instanceof DNSRecord.Address) {
+                addresses.add((DNSRecord.Address) answer);
+            }
+        }
+        if (addresses.isEmpty()) {
+            return;
+        }
+        for (DNSRecord answer : answers) {
+            if (!(answer instanceof DNSRecord.Service)) {
+                continue;
+            }
+            DNSRecord.Service service = (DNSRecord.Service) answer;
+            for (DNSRecord candidate : answers) {
+                if (!(candidate instanceof DNSRecord.Text)
+                        || !candidate.getName().equalsIgnoreCase(service.getName())) {
+                    continue;
+                }
+                String peerId;
+                try {
+                    peerId = decodeMdnsPeerId(((DNSRecord.Text) candidate).getText());
+                } catch (RuntimeException ignored) {
+                    continue;
+                }
+                if (localPeerId.equals(peerId)) {
+                    continue;
+                }
+                String inspection = peerId + ':' + service.getPort();
+                if (!mdnsInspections.add(inspection)) {
+                    continue;
+                }
+                List<Multiaddr> candidates = new ArrayList<>();
+                for (DNSRecord.Address record : addresses) {
+                    InetAddress discoveredAddress = record.getAddress();
+                    String protocol = discoveredAddress instanceof Inet4Address
+                            ? "ip4"
+                            : "ip6";
+                    try {
+                        candidates.add(Multiaddr.fromString(
+                                "/" + protocol + "/" + discoveredAddress.getHostAddress()
+                                        + "/tcp/" + service.getPort()));
+                    } catch (RuntimeException ignored) {
+                        // Ignore unusable scoped or malformed answer records.
+                    }
+                }
+                if (candidates.isEmpty()) {
+                    mdnsInspections.remove(inspection);
+                    continue;
+                }
+                Thread inspectionThread = new Thread(() -> {
+                    try {
+                        onMdnsPeer(new PeerInfo(
+                                PeerId.fromBase58(peerId),
+                                candidates));
+                    } finally {
+                        mdnsInspections.remove(inspection);
+                    }
+                }, "connect-share-mdns-answer");
+                inspectionThread.setDaemon(true);
+                inspectionThread.start();
+            }
+        }
+    }
+
+    static String decodeMdnsPeerId(byte[] text) {
+        Objects.requireNonNull(text, "text");
+        if (text.length == 0) {
+            throw new IllegalArgumentException("mDNS peer ID is empty");
+        }
+        int offset = Byte.toUnsignedInt(text[0]) == text.length - 1 ? 1 : 0;
+        String peerId = new String(
+                text,
+                offset,
+                text.length - offset,
+                StandardCharsets.UTF_8);
+        PeerId.fromBase58(peerId);
+        return peerId;
     }
 
     private void onMdnsPeer(PeerInfo peer) {
