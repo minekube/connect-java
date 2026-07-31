@@ -47,6 +47,20 @@ class FabricDirectShareIngress private constructor(
         localSocket = ::openTaggedLoopbackSocket,
     )
 
+    internal constructor(
+        node: FabricDirectNode,
+        dataDirectory: Path,
+        displayName: () -> String,
+    ) : this(
+        nodeFactory = { node },
+        now = Instant::now,
+        accessIdentity = ShareAccessIdentityStore(
+            dataDirectory,
+        )::currentOrCreate,
+        displayName = displayName,
+        localSocket = ::openTaggedLoopbackSocket,
+    )
+
     override suspend fun start(
         options: ShareOptions,
         target: SocketAddress,

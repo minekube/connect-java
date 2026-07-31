@@ -114,7 +114,11 @@ object FabricShareBootstrap {
         val gateway = ShareConnectionGateway.bind(friendRequestServer)
         var browser: FabricShareBrowser? = null
         try {
-            val activeBrowser = FabricShareBrowser(dataDirectory)
+            val directPeer = FabricDirectPeerRuntime(
+                dataDirectory = dataDirectory,
+                displayName = worldDisplayName,
+            )
+            val activeBrowser = directPeer.browser
             browser = activeBrowser
             activeBrowser.start().leftOrNull()?.let {
                 logger.warn(it.safeMessage)
@@ -141,10 +145,7 @@ object FabricShareBootstrap {
                 ),
             )
             val directIngress = PersistentDirectIngress(
-                FabricDirectShareIngress(
-                    dataDirectory = dataDirectory,
-                    displayName = worldDisplayName,
-                ),
+                directPeer.ingress,
             )
             val coordinator = ShareCoordinator(
                 bridge = bridge,
