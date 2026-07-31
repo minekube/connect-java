@@ -22,13 +22,15 @@ the LAN or internet.
 
 The current implementation provides:
 
-- a native **Share with Connect** flow in the pause menu;
-- a native **Join Connect Share** flow on the title screen;
+- a native **Share with friends** flow in the pause menu;
+- a native **Friends** flow on the title screen, including **Join Connect Share**;
 - one persistent endpoint identity reused across worlds and restarts;
+- one authenticated libp2p friend identity, with presence and world details
+  visible only to confirmed friends;
 - import of an existing dashboard endpoint and token, including `token.json`;
 - `CONNECT_ENDPOINT` and `CONNECT_TOKEN` environment overrides;
 - a stable `*.play.minekube.net` address for unmodified Java clients;
-- signed, temporary invitations for modded clients;
+- signed friend links and temporary world invitations for modded clients;
 - automatic same-LAN discovery and direct libp2p transport;
 - optional internet-direct attempts only when host and guest both opt in;
 - exactly-once fallback to Connect, which is the only relay;

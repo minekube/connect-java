@@ -1,6 +1,6 @@
 # Connect Share Mod Design
 
-**Date:** 2026-07-30  
+**Date:** 2026-07-30
 **Status:** Approved for implementation
 **Epic:** [minekube/connect-java#83](https://github.com/minekube/connect-java/issues/83)
 
@@ -23,7 +23,7 @@ logic is written in Kotlin and shared across both versions.
 
 ## Product Decisions
 
-- The host starts sharing from a dedicated **Share with Connect** pause-menu
+- The host starts sharing from a dedicated **Share with friends** pause-menu
   action; they do not press Minecraft's Open to LAN button.
 - No listener is exposed on a LAN or WAN interface.
 - The mod creates one Connect endpoint identity per Minecraft installation and
@@ -66,8 +66,8 @@ logic is written in Kotlin and shared across both versions.
    falling back to Connect when available.
 6. Keep the Minecraft-version hooks small and keep lifecycle, admission,
    invitation, and transport selection independently testable.
-7. Let an endpoint owner reuse a dashboard-managed endpoint, token, public
-   hostname, and attached custom domains without creating a duplicate endpoint.
+7. Let an endpoint owner reuse a dashboard-managed endpoint, token, and public
+   hostname without creating a duplicate endpoint.
 8. Accept both online and offline-mode Java guests while presenting whether
    identity was authenticated by Connect, Mojang, or neither.
 
@@ -187,7 +187,7 @@ config/minekube-connect-share/config.json
 config/minekube-connect-share/token.json
 ```
 
-`config.json` stores the endpoint name and non-secret user settings.
+`config.json` stores the endpoint name and credential-source metadata.
 `token.json` stores the endpoint token using the same `{"token":"T-..."}`
 shape as the Connect plugin. The token is created once, written with
 owner-only permissions where the operating system supports them, and redacted
@@ -209,7 +209,7 @@ identity.
 
 An endpoint-token mismatch never triggers automatic endpoint or token
 rotation. The UI explains the mismatch and lets the user restore the token or
-explicitly choose **Reset Connect identity**. Resetting warns that it creates
+explicitly choose **Reset endpoint identity…**. Resetting warns that it creates
 a new endpoint and invalidates the old local identity.
 
 The identity setup screen offers:
@@ -250,8 +250,10 @@ Reuses Connect Java's isolated jvm-libp2p runtime. The reflective classloader
 boundary remains authoritative: `io.libp2p.*`, its Netty version, and its
 Kotlin runtime never leak into Minecraft- or parent-loaded public signatures.
 
-Every share creates an ephemeral libp2p identity so separate shares cannot be
-correlated by a stable peer ID. The direct service supports:
+The installation persists one libp2p identity for friend relationships and
+direct authentication, so confirmed friends can reconnect across worlds. Each
+active share publishes a signed, time-limited invitation. The direct service
+supports:
 
 - mDNS discovery and direct dialing on the same LAN;
 - directly dialable IPv6 or explicitly mapped candidates;
@@ -285,9 +287,9 @@ The signed payload contains:
 - share ID;
 - expiry;
 - persistent Connect hostname when Connect is available;
-- ephemeral host peer ID;
+- installation-scoped host peer ID;
 - direct candidates only when the host enabled internet P2P;
-- an unguessable per-share capability;
+- an unguessable persisted access capability;
 - the host peer signature over every preceding field.
 
 The capability authorizes requesting admission; it never bypasses host
@@ -296,7 +298,7 @@ Same-LAN discovery advertises the share ID, protocol version, peer ID, and a
 short display name, but not the internet capability or public candidates.
 
 An unmodified guest receives only the Connect hostname. A modded guest can
-paste the URI into the Join Share screen. Pasting the URI into Minecraft's
+paste the URI into the **Join Connect Share** screen. Pasting the URI into Minecraft's
 Direct Connection field is detected by the mod and routed through the same
 parser.
 
@@ -345,14 +347,14 @@ indicator; it does not spam chat.
 
 ### Host
 
-The pause menu contains **Share with Connect**. The setup screen shows:
+The pause menu contains **Share with friends**. The setup screen shows:
 
 - game mode;
 - allow-cheats option;
 - maximum guests, default 8 and range 1–16;
-- **Allow direct internet connections**, off by default, with an IP-disclosure
+- **Allow faster direct internet connections**, off by default, with an IP-disclosure
   warning;
-- **Start Sharing**.
+- **Share with friends**.
 
 While active, the screen shows:
 
@@ -361,13 +363,14 @@ While active, the screen shows:
 - Connect, LAN direct, and internet direct status separately;
 - connected and approved players;
 - pending approval cards;
-- **Stop Sharing**.
+- **Stop sharing with friends**.
 
 Connect identity settings show the endpoint name, credential source
 (generated, imported, or environment), and a masked token status. They provide
-**Import existing endpoint** and the separately warned **Reset Connect
-identity** action. The token value is never displayed again after a successful
-import.
+**Advanced settings…** opens the endpoint identity screen, which provides
+**Import token.json…**, **Validate and save**, and the separately warned
+**Reset endpoint identity…** action. The token value is never displayed again
+after a successful import.
 
 The host receives a toast and chat action when an approval is pending. Closing
 the screen does not stop sharing.
@@ -375,7 +378,8 @@ the screen does not stop sharing.
 ### Guest
 
 Vanilla guests add or directly connect to the host's Connect hostname. Modded
-guests can use **Join Share** or paste a `minekube://share/` invitation. The
+guests can open **Friends**, then **Join Connect Share**, or paste a
+`minekube://share/` invitation. The
 hostname is stable and is not treated as a secret; the displayed
 authentication level and host approval remain the authorization boundary.
 
@@ -398,8 +402,9 @@ authenticated.
   unverified. Their approval is bound to one connection and cannot be reused by
   another client claiming the same username or deterministic offline UUID.
 - Every ingress requires host approval under the admission identity rules.
-- Approvals, share capabilities, and ephemeral peer identities die with the
-  share. The Connect endpoint name and token persist across shares.
+- Active direct sessions and approvals end with the share. Invitations remain
+  time-limited and approval-bound, while the libp2p identity, access
+  capability, and Connect endpoint name and token persist across shares.
 - The persistent endpoint token is stored separately from ordinary settings,
   never included in invitations, and redacted from logs and UI.
 - Secrets and direct candidate addresses are redacted from normal logs.
@@ -408,7 +413,7 @@ authenticated.
 - Direct P2P does not accept or advertise circuit-relay addresses.
 - The host limits the share to 16 guests, 16 pending approvals, and one active
   share. Admission attempts are additionally bounded per Connect session or
-  ephemeral direct peer.
+  active direct peer.
 - Malformed, expired, unsupported-version, incorrectly signed, or
   capability-mismatched invitations are rejected before dialing.
 
@@ -497,11 +502,11 @@ Before calling the feature complete:
 8. Verify successful internet direct where NAT permits it.
 9. Verify a failed internet-direct attempt falls back to Connect.
 10. Stop sharing and prove the hostname no longer reaches the world.
-11. Start a different world and prove the same endpoint name and token are
-   reused while the old signed invitation is rejected.
-12. Import a dashboard-created endpoint and token, then prove its hostname and
-    attached dashboard configuration are used without creating another
-    endpoint.
+11. Start a different world and prove the same endpoint name, token, libp2p
+   identity, and access identity are reused; an old invitation must not bypass
+   host approval.
+12. Import a dashboard-created endpoint and token, then prove its hostname is
+    used without creating another endpoint.
 13. Reject a bad imported token and prove the prior working identity remains
     intact.
 14. Confirm no LAN/WAN Minecraft listener is reachable from another machine.

@@ -22,7 +22,7 @@ Install the matching Fabric Loader, Fabric API, and Fabric Language Kotlin.
 
 ## Identity reuse and import
 
-1. Start a singleplayer world and choose **Share with Connect**.
+1. Start a singleplayer world and choose **Share with friends**.
 2. Record the displayed endpoint and a cryptographic digest of
    `config/minekube-connect-share/token.json`. Do not copy the token into test
    notes or logs.
@@ -33,8 +33,7 @@ Install the matching Fabric Loader, Fabric API, and Fabric Language Kotlin.
    plugin-compatible `token.json`.
 6. Confirm a deliberately invalid endpoint or token is rejected and leaves the
    previous endpoint and token files unchanged.
-7. Confirm a valid import keeps the dashboard endpoint name, including any
-   hostname or custom-domain configuration attached to it.
+7. Confirm a valid import keeps the dashboard endpoint name.
 8. Start once with `CONNECT_ENDPOINT` and `CONNECT_TOKEN`. Confirm both fields
    are shown as environment-managed and cannot be edited or reset in the UI.
 
@@ -63,9 +62,9 @@ Connect may remain configured, but temporarily block the guest from reaching
 the host's `*.play.minekube.net` address so a successful join proves the direct
 route works.
 
-1. Start a host world, choose **Share with Connect**, and leave
-   **Allow direct internet connections** disabled.
-2. On the guest title screen, choose **Join Connect Share**.
+1. Start a host world, choose **Share with friends**, and leave
+   **Allow faster direct internet connections** disabled.
+2. On the guest title screen, choose **Friends**, then **Join Connect Share**.
 3. Confirm the host world appears automatically as a nearby share. The host
    must not use Minecraft's **Open to LAN** action.
 4. Choose the nearby world with the default online identity. Confirm the host
@@ -75,9 +74,9 @@ route works.
    an unverified identity and approval is not reused for a later connection.
 6. Confirm the guest joins while the Connect hostname remains blocked.
 7. Stop sharing and confirm discovery disappears and the old signed invitation
-   cannot create a usable direct session.
-8. Start sharing again. Confirm the libp2p peer identity, share capability, and
-   invitation changed while the persistent Connect endpoint did not.
+   cannot create a usable direct session while the host is stopped.
+8. Start sharing again. Confirm the saved libp2p peer identity and access
+   identity are reused while the persistent Connect endpoint remains unchanged.
 
 ## Invitation, internet-direct, and fallback behavior
 

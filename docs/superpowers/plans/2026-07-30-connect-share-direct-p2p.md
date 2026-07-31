@@ -22,8 +22,10 @@ classloader boundary.
 - Connect is the sole relay and the only fallback after a failed direct dial.
 - Direct online authentication never downgrades to offline. Offline identity is
   visibly unverified and approved per connection.
-- Peer identities, capabilities, invitations, and approvals are ephemeral per
-  share. The Connect endpoint token remains the only persistent network secret.
+- Friend peer identities and access capabilities persist so confirmed friends
+  can reconnect across worlds. Active direct sessions and approvals are scoped
+  to a share; invitations remain time-limited and approval-bound. The Connect
+  endpoint token remains persistent as well.
 
 ## Task 1: Common invitation and route policy
 
@@ -38,7 +40,7 @@ classloader boundary.
 ## Task 2: Isolated libp2p host, discovery, and guest proxy
 
 - Add failing Core tests for two loopback hosts exchanging a
-  Minecraft-shaped stream, mDNS metadata resolution, ephemeral identities,
+  Minecraft-shaped stream, mDNS metadata resolution, persistent identities,
   signed invitation validation, and classloader boundary safety.
 - Add parent-first JDK-only direct boundary types and a reflective
   `DirectP2pNode` facade.
@@ -62,9 +64,9 @@ classloader boundary.
 ## Task 4: Guest discovery, invitation join, and fallback
 
 - Add a shared browser/join service with bounded LAN and internet timeouts.
-- Start discovery when the multiplayer/Join Share UI is open and remove it on
+- Start discovery when the **Friends**/**Join Connect Share** UI is open and remove it on
   close.
-- Add native Minecraft Join Share UI to both Fabric versions, including paste
+- Add native Minecraft **Join Connect Share** UI to both Fabric versions, including paste
   handling, path status, internet IP-disclosure confirmation, and actionable
   no-route errors.
 - Route the successful local proxy address through each version's normal
