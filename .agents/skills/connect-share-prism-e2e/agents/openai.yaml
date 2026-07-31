@@ -1,0 +1,4 @@
+interface:
+  display_name: "Connect Share Prism E2E"
+  short_description: "Drive and diagnose two-client Prism join tests"
+  default_prompt: "Use $connect-share-prism-e2e to run and diagnose the Connect Share two-client Prism E2E."
