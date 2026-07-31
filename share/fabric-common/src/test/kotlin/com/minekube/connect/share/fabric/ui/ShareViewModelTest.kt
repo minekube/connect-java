@@ -237,7 +237,7 @@ class ShareViewModelTest {
         pending: MutableStateFlow<List<PendingAdmission>> =
             MutableStateFlow(emptyList()),
         worldAvailable: Boolean = true,
-        scope: CoroutineScope = backgroundScope,
+        scope: CoroutineScope = CoroutineScope(StandardTestDispatcher(testScheduler)),
         operationDispatcher: CoroutineDispatcher =
             StandardTestDispatcher(testScheduler),
         identityActions: EndpointIdentityUiActions =
