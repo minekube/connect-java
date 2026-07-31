@@ -103,15 +103,21 @@ class FriendsViewModel(
         )
 
     fun updatePresence(discovered: List<DiscoveredLanShare>) {
+        if (this.discovered == discovered) {
+            return
+        }
         this.discovered = discovered
-        refresh()
+        refresh(preserveSafeMessage = true)
     }
 
     fun updateRemotePresence(
         presence: Map<String, RemoteFriendPresence>,
     ) {
+        if (remotePresence == presence) {
+            return
+        }
         remotePresence = presence
-        refresh()
+        refresh(preserveSafeMessage = true)
     }
 
     suspend fun join(
@@ -124,7 +130,7 @@ class FriendsViewModel(
         return browser.join(friend, authMode)
     }
 
-    suspend fun joinOutgoing(
+    suspend fun routeOutgoing(
         peerId: String,
         browser: FabricShareBrowser,
         authMode: DirectP2pAuthMode,
@@ -132,6 +138,10 @@ class FriendsViewModel(
         val request = outgoingRequest(peerId)
             ?: return GuestJoinFailure.NoRoute.left()
         return browser.join(request, authMode)
+    }
+
+    fun reload() {
+        refresh()
     }
 
     internal fun savedFriend(peerId: String): SavedFriend? =
@@ -146,9 +156,20 @@ class FriendsViewModel(
             }
         }.getOrNull()
 
-    private fun refresh() {
+    private fun refresh(
+        preserveSafeMessage: Boolean = false,
+    ) {
         mutableState.value = try {
-            currentState()
+            currentState().let { next ->
+                if (preserveSafeMessage) {
+                    next.copy(
+                        safeMessage =
+                            mutableState.value.safeMessage,
+                    )
+                } else {
+                    next
+                }
+            }
         } catch (_: Exception) {
             mutableState.value.copy(
                 safeMessage = FRIENDS_LOAD_FAILURE,

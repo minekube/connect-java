@@ -5,6 +5,7 @@ import com.minekube.connect.share.fabric.FabricShareBrowser
 import com.minekube.connect.share.fabric.FriendCardExchangeConsent
 import com.minekube.connect.share.fabric.FriendPresenceMonitor
 import com.minekube.connect.share.fabric.GuestJoinTarget
+import com.minekube.connect.share.friend.FriendControlRequest
 import com.minekube.connect.share.fabric.ui.FriendSummary
 import com.minekube.connect.share.fabric.ui.FriendsViewModel
 import com.minekube.connect.share.friend.FriendPermissions
@@ -14,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.minecraft.client.gui.components.Button
@@ -27,6 +29,7 @@ import net.minecraft.client.multiplayer.ServerData
 import net.minecraft.client.multiplayer.resolver.ServerAddress
 import net.minecraft.network.chat.CommonComponents
 import net.minecraft.network.chat.Component
+import java.util.UUID
 
 class ShareJoinScreen(
     private val parent: Screen,
@@ -55,6 +58,10 @@ class ShareJoinScreen(
     private var transferred = false
     private var removeConfirmation = false
     private var friendLinkState = FriendLinkState.IDLE
+    private var requestOperationInProgress = false
+    private val requestJobs = mutableMapOf<String, Job>()
+    private val requestStates =
+        mutableMapOf<String, RequestDeliveryState>()
 
     override fun init() {
         if (scope == null) {
@@ -147,15 +154,16 @@ class ShareJoinScreen(
         }
         outgoing.forEachIndexed { index, request ->
             val y = 58 + index * 26
+            val deliveryState = requestStates[request.peerId]
             addRenderableWidget(
                 StringWidget(
                     width / 2 - 155,
                     y,
                     174,
                     20,
-                    Component.translatable(
-                        "connect_share.friends.outgoing_request",
+                    outgoingRequestLabel(
                         request.displayName,
+                        deliveryState,
                     ),
                     font,
                 ),
@@ -163,11 +171,15 @@ class ShareJoinScreen(
             addRenderableWidget(
                 Button.builder(
                     Component.translatable(
-                        "connect_share.friends.retry_request",
+                        deliveryState?.translationKey
+                            ?: "connect_share.friends.retry_request",
                     ),
                 ) {
-                    joinOutgoing(request.peerId)
-                }.bounds(width / 2 + 23, y, 62, 20).build(),
+                    deliverOutgoing(request.peerId)
+                }.bounds(width / 2 + 23, y, 62, 20).build().apply {
+                    active = deliveryState == null ||
+                        deliveryState == RequestDeliveryState.FAILED
+                },
             )
             addRenderableWidget(
                 Button.builder(
@@ -175,8 +187,7 @@ class ShareJoinScreen(
                         "connect_share.friends.cancel_request",
                     ),
                 ) {
-                    friends.remove(request.peerId)
-                    rebuildWidgets()
+                    cancelOutgoing(request.peerId)
                 }.bounds(width / 2 + 89, y, 66, 20).build(),
             )
         }
@@ -344,15 +355,7 @@ class ShareJoinScreen(
                     "connect_share.friends.send_request",
                 ),
             ) {
-                val peerId = friends.sendRequest(
-                    invitationValue,
-                    nameValue,
-                )
-                if (peerId == null) {
-                    rebuildWidgets()
-                } else {
-                    joinOutgoing(peerId)
-                }
+                createFriendRequest()
             }.bounds(width / 2 - 155, height - 52, 150, 20).build(),
         )
         secondaryButton = addRenderableWidget(
@@ -442,19 +445,28 @@ class ShareJoinScreen(
             Button.builder(
                 Component.translatable("connect_share.friends.save_changes"),
             ) {
-                friends.rename(friend.peerId, nameValue)
-                friends.updatePermissions(
-                    friend.peerId,
-                    FriendPermissions(
-                        notifyWhenOnline = notify.selected(),
-                        canSeeMyWorlds =
-                            friend.permissions.canSeeMyWorlds,
-                        canJoinAutomatically = autoJoin.selected(),
-                    ),
-                )
-                mode = Mode.FRIENDS
-                selectedPeerId = null
-                rebuildWidgets()
+                val activeScope = scope ?: return@builder
+                requestOperationInProgress = true
+                refresh()
+                activeScope.launch {
+                    withContext(Dispatchers.IO) {
+                        friends.rename(friend.peerId, nameValue)
+                        friends.updatePermissions(
+                            friend.peerId,
+                            FriendPermissions(
+                                notifyWhenOnline = notify.selected(),
+                                canSeeMyWorlds =
+                                    friend.permissions.canSeeMyWorlds,
+                                canJoinAutomatically =
+                                    autoJoin.selected(),
+                            ),
+                        )
+                    }
+                    requestOperationInProgress = false
+                    mode = Mode.FRIENDS
+                    selectedPeerId = null
+                    rebuildWidgets()
+                }
             }.bounds(width / 2 - 155, height - 52, 150, 20).build(),
         )
         addRenderableWidget(
@@ -497,12 +509,20 @@ class ShareJoinScreen(
                     "connect_share.friends.remove_confirm.confirm",
                 ),
             ) {
-                friends.remove(friend.peerId)
-                removeConfirmation = false
-                mode = Mode.FRIENDS
-                selectedPeerId = null
-                nameValue = ""
-                rebuildWidgets()
+                val activeScope = scope ?: return@builder
+                requestOperationInProgress = true
+                refresh()
+                activeScope.launch {
+                    withContext(Dispatchers.IO) {
+                        friends.remove(friend.peerId)
+                    }
+                    requestOperationInProgress = false
+                    removeConfirmation = false
+                    mode = Mode.FRIENDS
+                    selectedPeerId = null
+                    nameValue = ""
+                    rebuildWidgets()
+                }
             }.bounds(width / 2 - 155, height - 28, 150, 20).build(),
         )
         addRenderableWidget(
@@ -556,23 +576,158 @@ class ShareJoinScreen(
         }
     }
 
-    private fun joinOutgoing(peerId: String) {
-        if (joining) return
-        joining = true
-        joiningPeerId = peerId
-        reciprocalPairing = true
+    private fun createFriendRequest() {
+        val activeScope = scope ?: return
+        if (
+            requestOperationInProgress ||
+            invitationValue.isBlank() ||
+            nameValue.isBlank()
+        ) {
+            return
+        }
+        requestOperationInProgress = true
         safeMessage = null
         refresh()
-        scope?.launch {
-            friends.joinOutgoing(
+        activeScope.launch {
+            val peerId = withContext(Dispatchers.IO) {
+                friends.sendRequest(
+                    invitationValue,
+                    nameValue,
+                )
+            }
+            requestOperationInProgress = false
+            if (peerId == null) {
+                rebuildWidgets()
+                return@launch
+            }
+            mode = Mode.FRIENDS
+            invitationValue = ""
+            nameValue = ""
+            rebuildWidgets()
+            deliverOutgoing(peerId)
+        }
+    }
+
+    private fun deliverOutgoing(peerId: String) {
+        val activeScope = scope ?: return
+        if (requestJobs[peerId]?.isActive == true) {
+            return
+        }
+        safeMessage = null
+        requestStates[peerId] = RequestDeliveryState.SENDING
+        rebuildWidgets()
+        val job = activeScope.launch {
+            val senderCard = withContext(Dispatchers.IO) {
+                ConnectShareClient.friendCardIssuer().issue().getOrNull()
+            }
+            if (senderCard == null) {
+                requestFailed(
+                    peerId,
+                    Component.translatable(
+                        "connect_share.friends.request_failed",
+                    ).string,
+                )
+                return@launch
+            }
+            val targetResult = friends.routeOutgoing(
                 peerId = peerId,
                 browser = browser,
                 authMode = authMode(),
-            ).fold(
-                ifLeft = ::joinFailed,
-                ifRight = ::connect,
             )
+            val target = targetResult.getOrNull()
+            if (target == null) {
+                requestFailed(
+                    peerId,
+                    targetResult.leftOrNull()?.safeMessage
+                        ?: Component.translatable(
+                            "connect_share.friends.request_failed",
+                        ).string,
+                )
+                return@launch
+            }
+            val displayName = friends.state.value.outgoingRequests
+                .firstOrNull { it.peerId == peerId }
+                ?.displayName
+                ?: peerId
+            val result = ConnectShareClient.friendRequestClient().exchange(
+                target = target,
+                request = FriendControlRequest(
+                    requestId = UUID.randomUUID(),
+                    displayName = minecraft.user.name,
+                    invitation = senderCard,
+                ),
+                onReceived = {
+                    minecraft.execute {
+                        requestStates[peerId] =
+                            RequestDeliveryState.WAITING
+                        rebuildWidgets()
+                    }
+                },
+            )
+            val hostCard = result.getOrNull()
+            if (hostCard == null) {
+                requestFailed(
+                    peerId,
+                    result.leftOrNull()?.safeMessage
+                        ?: Component.translatable(
+                            "connect_share.friends.request_failed",
+                        ).string,
+                )
+                return@launch
+            }
+            val accepted = withContext(Dispatchers.IO) {
+                ConnectShareClient.friendCardReceiver().receive(
+                    invitation = hostCard,
+                    displayName = displayName,
+                    authenticatedMinecraftUuid = null,
+                )
+            }
+            if (accepted.isLeft()) {
+                requestFailed(
+                    peerId,
+                    Component.translatable(
+                        "connect_share.friends.request_failed",
+                    ).string,
+                )
+                return@launch
+            }
+            requestStates.remove(peerId)
+            friends.reload()
+            safeMessage = Component.translatable(
+                "connect_share.friends.request_accepted",
+                displayName,
+            ).string
+            rebuildWidgets()
         }
+        requestJobs[peerId] = job
+        job.invokeOnCompletion {
+            minecraft.execute {
+                requestJobs.remove(peerId, job)
+            }
+        }
+    }
+
+    private fun cancelOutgoing(peerId: String) {
+        val activeScope = scope ?: return
+        requestJobs.remove(peerId)?.cancel()
+        requestStates[peerId] = RequestDeliveryState.CANCELLING
+        rebuildWidgets()
+        activeScope.launch {
+            withContext(Dispatchers.IO) {
+                friends.remove(peerId)
+            }
+            requestStates.remove(peerId)
+            rebuildWidgets()
+        }
+    }
+
+    private fun requestFailed(
+        peerId: String,
+        message: String,
+    ) {
+        requestStates[peerId] = RequestDeliveryState.FAILED
+        safeMessage = message
+        rebuildWidgets()
     }
 
     private fun joinInvitation() {
@@ -624,17 +779,8 @@ class ShareJoinScreen(
         val joiningFriend = state.friends.firstOrNull {
             it.peerId == joiningPeerId
         }
-        val outgoingRequest = state.outgoingRequests.firstOrNull {
-            it.peerId == joiningPeerId
-        }
         val data = ServerData(
             joiningFriend?.displayName
-                ?: outgoingRequest?.let {
-                    Component.translatable(
-                        "connect_share.friends.connecting_request",
-                        it.displayName,
-                    ).string
-                }
                 ?: "Connect Share",
             address.toString(),
             ServerData.Type.OTHER,
@@ -642,8 +788,7 @@ class ShareJoinScreen(
         val exchangeFriendCard = FriendCardExchangeConsent.shouldArm(
             savedFriendJoin = reciprocalPairing,
             canSeeMyWorlds =
-                joiningFriend?.permissions?.canSeeMyWorlds
-                    ?: (outgoingRequest != null),
+                joiningFriend?.permissions?.canSeeMyWorlds == true,
         )
         if (exchangeFriendCard && joiningPeerId != null) {
             ConnectShareClient.armFriendCardExchange(
@@ -663,7 +808,8 @@ class ShareJoinScreen(
     private fun refresh() {
         val inputReady = invitationValue.isNotBlank()
         primaryButton?.active =
-            !joining && friendLinkState != FriendLinkState.COPYING &&
+            !joining && !requestOperationInProgress &&
+            friendLinkState != FriendLinkState.COPYING &&
             when (mode) {
                 Mode.ADD -> inputReady && nameValue.isNotBlank()
                 Mode.MANAGE -> nameValue.isNotBlank()
@@ -701,6 +847,18 @@ class ShareJoinScreen(
                 friend.displayName,
             )
     }
+
+    private fun outgoingRequestLabel(
+        displayName: String,
+        deliveryState: RequestDeliveryState?,
+    ): Component = Component.translatable(
+        if (deliveryState == null) {
+            "connect_share.friends.outgoing_request"
+        } else {
+            "connect_share.friends.outgoing_request_active"
+        },
+        displayName,
+    )
 
     private fun selectedFriend(): FriendSummary? =
         friends.state.value.friends.firstOrNull {
@@ -747,6 +905,15 @@ class ShareJoinScreen(
         COPYING("connect_share.friends.copying_my_link"),
         COPIED("connect_share.friends.my_link_copied"),
         FAILED("connect_share.friends.copy_my_link_failed"),
+    }
+
+    private enum class RequestDeliveryState(
+        val translationKey: String,
+    ) {
+        SENDING("connect_share.friends.request_sending"),
+        WAITING("connect_share.friends.request_waiting"),
+        CANCELLING("connect_share.friends.request_cancelling"),
+        FAILED("connect_share.friends.retry_request"),
     }
 
     private companion object {

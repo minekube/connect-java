@@ -83,6 +83,8 @@ sealed interface FriendStoreError {
 class FriendStore(
     private val directory: Path,
 ) {
+    private var cached: List<SavedFriend>? = null
+
     @Synchronized
     fun all(): List<SavedFriend> =
         read().filter {
@@ -230,7 +232,10 @@ class FriendStore(
         updated
     }
 
-    private fun read(): List<SavedFriend> {
+    private fun read(): List<SavedFriend> =
+        cached ?: load().also { cached = it }
+
+    private fun load(): List<SavedFriend> {
         Files.createDirectories(directory)
         if (!Files.exists(friendsFile)) {
             return emptyList()
@@ -359,6 +364,7 @@ class FriendStore(
             add("friends", entries)
         }
         writeAtomic(GSON.toJson(root))
+        cached = friends.toList()
     }
 
     private fun writeAtomic(content: String) {

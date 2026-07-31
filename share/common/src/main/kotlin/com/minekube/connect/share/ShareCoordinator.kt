@@ -70,7 +70,7 @@ class ShareCoordinator(
                             acquire = {
                                 it.start(
                                     options = options,
-                                    target = target.address,
+                                    target = target.directAddress,
                                     connectAddress = connect?.publicAddress,
                                 )
                             },

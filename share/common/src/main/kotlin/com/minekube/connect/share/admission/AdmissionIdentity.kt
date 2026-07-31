@@ -43,7 +43,13 @@ enum class AdmissionAnswer {
     CAPACITY,
 }
 
+enum class AdmissionPurpose {
+    JOIN,
+    FRIEND,
+}
+
 data class PendingAdmission(
     val requestId: UUID,
     val identity: AdmissionIdentity,
+    val purpose: AdmissionPurpose = AdmissionPurpose.JOIN,
 )

@@ -15,7 +15,10 @@ data class ConnectShareInstallation(
     val viewModel: ShareViewModel,
     val runtime: ConnectShareRuntime,
     val friendCardIssuer: FriendCardIssuer,
+    val friendCardReceiver: FriendCardReceiver,
+    val friendRequestClient: FriendRequestClient,
     val approvedJoins: ApprovedJoinTracker,
+    val friendControlLease: AutoCloseable,
     val screens: ConnectShareScreenFactory,
     val guestScreens: ConnectShareGuestScreenFactory,
 )
@@ -77,6 +80,14 @@ object ConnectShareClient {
         checkNotNull(installation).friendCardIssuer
 
     @JvmStatic
+    fun friendCardReceiver(): FriendCardReceiver =
+        checkNotNull(installation).friendCardReceiver
+
+    @JvmStatic
+    fun friendRequestClient(): FriendRequestClient =
+        checkNotNull(installation).friendRequestClient
+
+    @JvmStatic
     fun armFriendCardExchange(peerId: String) {
         friendCardConsent.arm(peerId)
     }
@@ -97,7 +108,10 @@ object ConnectShareClient {
     fun shutdown() {
         friendCardConsent.cancel()
         guestLease.close()
-        installation?.runtime?.shutdown()
+        installation?.let { installed ->
+            installed.friendControlLease.close()
+            installed.runtime.shutdown()
+        }
     }
 
     private fun isShareActive(): Boolean = when (

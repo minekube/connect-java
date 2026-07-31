@@ -24,6 +24,23 @@ class FriendStoreTest {
     lateinit var tempDir: Path
 
     @Test
+    fun `loaded relationships are served from memory instead of rereading each tick`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        val loaded = store.all()
+        Files.writeString(
+            tempDir.resolve(FriendStore.FILE_NAME),
+            "{broken-json",
+        )
+
+        assertEquals(loaded, store.all())
+        assertEquals(loaded, store.all())
+        assertTrue(
+            runCatching { FriendStore(tempDir).all() }.isFailure,
+        )
+    }
+
+    @Test
     fun `sending a signed link stores only an outgoing request`() {
         val store = FriendStore(tempDir)
 

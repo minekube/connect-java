@@ -7,12 +7,48 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class AdmissionControllerTest {
+    @Test
+    fun `cancelled request disappears immediately`() = runTest {
+        val controller = controller()
+        val request = async {
+            controller.request(offline("Alex", "connection-cancelled"))
+        }
+        runCurrent()
+        assertEquals(1, controller.pending.value.size)
+
+        request.cancelAndJoin()
+        runCurrent()
+
+        assertTrue(controller.pending.value.isEmpty())
+    }
+
+    @Test
+    fun `friend request bypasses world capacity and is labeled separately`() = runTest {
+        val controller = controller(
+            connectedCount = { 8 },
+            maxGuests = { 8 },
+        )
+        val request = async {
+            controller.request(
+                offline("bob", "friend-request"),
+                purpose = AdmissionPurpose.FRIEND,
+            )
+        }
+        runCurrent()
+
+        val pending = controller.pending.value.single()
+        assertEquals(AdmissionPurpose.FRIEND, pending.purpose)
+        controller.answer(pending.requestId, allow = false)
+        assertEquals(AdmissionAnswer.DENY, request.await())
+    }
+
     @Test
     fun `authenticated UUID approval is reused only during current share`() = runTest {
         val controller = controller()

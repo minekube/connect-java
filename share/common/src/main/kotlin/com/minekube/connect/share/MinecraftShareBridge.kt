@@ -4,6 +4,7 @@ import java.net.SocketAddress
 
 data class LocalShareTarget(
     val address: SocketAddress,
+    val directAddress: SocketAddress = address,
     val close: suspend () -> Unit,
 )
 

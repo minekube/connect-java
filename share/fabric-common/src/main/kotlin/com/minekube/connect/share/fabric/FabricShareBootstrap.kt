@@ -9,6 +9,7 @@ import com.minekube.connect.share.admission.AdmissionIdentity
 import com.minekube.connect.share.fabric.ui.ShareViewModel
 import com.minekube.connect.share.fabric.ui.StoredEndpointIdentityUiActions
 import com.minekube.connect.share.friend.FriendStore
+import com.minekube.connect.share.friend.FriendControlChannelRegistry
 import com.minekube.connect.share.friend.SharePreferences
 import com.minekube.connect.share.friend.SharePreferencesStore
 import com.minekube.connect.share.identity.EndpointIdentityStore
@@ -28,7 +29,9 @@ object FabricShareBootstrap {
         scope: CoroutineScope,
         dataDirectory: Path,
         minecraftVersion: String,
+        minecraftProtocolVersion: Int,
         worldAvailable: Boolean,
+        friendStore: FriendStore,
         playerCount: () -> Int,
         worldDisplayName: () -> String = { "Minecraft world" },
         bridgeFactory:
@@ -44,7 +47,6 @@ object FabricShareBootstrap {
         httpClient: OkHttpClient = OkHttpClient(),
     ): ConnectShareInstallation {
         val viewModelReference = AtomicReference<ShareViewModel?>()
-        val friendStore = FriendStore(dataDirectory)
         val approvedJoins = ApprovedJoinTracker()
         val admission = AdmissionController(
             scope = scope,
@@ -146,13 +148,29 @@ object FabricShareBootstrap {
             resumeShare = viewModel::resumeIfEnabled,
             worldAvailabilityChanged = viewModel::setWorldAvailable,
         )
+        val friendCardIssuer = FriendCardIssuer(dataDirectory) {
+            "${identityStore.currentOrCreate().endpoint}.play.minekube.net"
+        }
+        val friendCardReceiver = FriendCardReceiver(friendStore)
+        val friendRequestServer = FriendRequestServer(
+            scope = scope,
+            admission = admission,
+            issuer = friendCardIssuer,
+            receiver = friendCardReceiver,
+            friendStore = friendStore,
+        )
+        val friendControlLease =
+            FriendControlChannelRegistry.install(friendRequestServer)
         return ConnectShareInstallation(
             viewModel = viewModel,
             runtime = runtime,
-            friendCardIssuer = FriendCardIssuer(dataDirectory) {
-                "${identityStore.currentOrCreate().endpoint}.play.minekube.net"
-            },
+            friendCardIssuer = friendCardIssuer,
+            friendCardReceiver = friendCardReceiver,
+            friendRequestClient = FriendRequestClient(
+                minecraftProtocolVersion,
+            ),
             approvedJoins = approvedJoins,
+            friendControlLease = friendControlLease,
             screens = screens,
             guestScreens = guestScreens,
         )

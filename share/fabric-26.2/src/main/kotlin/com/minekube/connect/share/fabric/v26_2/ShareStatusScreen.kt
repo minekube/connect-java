@@ -3,6 +3,7 @@ package com.minekube.connect.share.fabric.v26_2
 import com.minekube.connect.share.ShareState
 import com.minekube.connect.share.admission.AdmissionIdentity
 import com.minekube.connect.share.admission.Ingress
+import com.minekube.connect.share.admission.AdmissionPurpose
 import com.minekube.connect.share.fabric.ConnectShareClient
 import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.components.StringWidget
@@ -106,7 +107,11 @@ class ShareStatusScreen(
                     "offline · ${identity.ingress.displayName()}"
             }
             val label = Component.translatable(
-                "connect_share.status.request",
+                if (request.purpose == AdmissionPurpose.FRIEND) {
+                    "connect_share.status.friend_request"
+                } else {
+                    "connect_share.status.request"
+                },
                 identity.name,
                 badge,
             )
