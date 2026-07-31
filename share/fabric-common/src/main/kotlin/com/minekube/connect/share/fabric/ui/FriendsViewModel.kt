@@ -27,8 +27,14 @@ data class FriendSummary(
     val worldName: String? = null,
 )
 
+data class PendingFriendSummary(
+    val peerId: String,
+    val displayName: String,
+)
+
 data class FriendsUiState(
     val friends: List<FriendSummary> = emptyList(),
+    val pendingRequests: List<PendingFriendSummary> = emptyList(),
     val safeMessage: String? = null,
 )
 
@@ -41,12 +47,12 @@ class FriendsViewModel(
 
     val state: StateFlow<FriendsUiState> = mutableState.asStateFlow()
 
-    fun accept(
+    fun receiveRequest(
         invitationUri: String,
         displayName: String,
         now: Instant = Instant.now(),
     ): Boolean =
-        store.accept(invitationUri, displayName, now).fold(
+        store.receiveRequest(invitationUri, displayName, now).fold(
             ifLeft = { failure ->
                 update { copy(safeMessage = failure.safeMessage) }
                 false
@@ -118,14 +124,31 @@ class FriendsViewModel(
         return browser.join(friend, authMode)
     }
 
+    suspend fun joinPending(
+        peerId: String,
+        browser: FabricShareBrowser,
+        authMode: DirectP2pAuthMode,
+    ): Either<GuestJoinFailure, GuestJoinTarget> {
+        val request = pendingRequest(peerId)
+            ?: return GuestJoinFailure.NoRoute.left()
+        return browser.join(request, authMode)
+    }
+
     internal fun savedFriend(peerId: String): SavedFriend? =
         runCatching {
             store.all().firstOrNull { it.peerId == peerId }
         }.getOrNull()
 
+    internal fun pendingRequest(peerId: String): SavedFriend? =
+        runCatching {
+            store.pendingRequests().firstOrNull {
+                it.peerId == peerId
+            }
+        }.getOrNull()
+
     private fun refresh() {
         mutableState.value = try {
-            FriendsUiState(friends = store.all().map { it.summary() })
+            currentState()
         } catch (_: Exception) {
             mutableState.value.copy(
                 safeMessage = FRIENDS_LOAD_FAILURE,
@@ -134,10 +157,21 @@ class FriendsViewModel(
     }
 
     private fun loadInitialState(): FriendsUiState = try {
-        FriendsUiState(friends = store.all().map { it.summary() })
+        currentState()
     } catch (_: Exception) {
         FriendsUiState(safeMessage = FRIENDS_LOAD_FAILURE)
     }
+
+    private fun currentState(): FriendsUiState =
+        FriendsUiState(
+            friends = store.all().map { it.summary() },
+            pendingRequests = store.pendingRequests().map {
+                PendingFriendSummary(
+                    peerId = it.peerId,
+                    displayName = it.displayName,
+                )
+            },
+        )
 
     private fun update(transform: FriendsUiState.() -> FriendsUiState) {
         mutableState.value = mutableState.value.transform()

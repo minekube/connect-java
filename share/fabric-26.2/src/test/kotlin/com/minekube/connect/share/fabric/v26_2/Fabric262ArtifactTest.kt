@@ -38,6 +38,22 @@ class Fabric262ArtifactTest {
                 "\"connect_share.friends.copy_my_link\": " +
                     "\"Copy my friend link\"" in language,
             )
+            assertTrue(
+                "\"connect_share.friends.save_request\": " +
+                    "\"Save request\"" in language,
+            )
+            assertTrue(
+                "\"connect_share.friends.pending_request\": " +
+                    "\"Request from %s\"" in language,
+            )
+            assertTrue(
+                "\"connect_share.friends.accept_request\": \"Accept\"" in
+                    language,
+            )
+            assertTrue(
+                "\"connect_share.friends.decline_request\": \"Decline\"" in
+                    language,
+            )
         }
     }
 
@@ -59,6 +75,28 @@ class Fabric262ArtifactTest {
             assertTrue(
                 "connect_share.friends.remove_confirm.confirm" in bytecode,
             )
+            assertTrue("receiveRequest" in bytecode)
+            assertTrue("joinPending" in bytecode)
+        }
+    }
+
+    @Test
+    fun `approved card exchange promotes a pending request`() {
+        JarFile(artifact().toFile()).use { jar ->
+            val bytecode = jar.entries().asSequence()
+                .filter {
+                    it.name.startsWith(
+                        "com/minekube/connect/share/fabric/v26_2/" +
+                            "FriendCardNetworking",
+                    ) && it.name.endsWith(".class")
+                }
+                .joinToString {
+                    jar.getInputStream(it).use { input ->
+                        input.readBytes().toString(Charsets.ISO_8859_1)
+                    }
+                }
+
+            assertTrue("confirmPending" in bytecode)
         }
     }
 

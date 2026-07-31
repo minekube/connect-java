@@ -132,36 +132,74 @@ class ShareJoinScreen(
             ).setMaxWidth(CONTENT_WIDTH),
         )
 
-        val saved = friends.state.value.friends.take(MAX_VISIBLE_FRIENDS)
-        if (saved.isEmpty()) {
+        val state = friends.state.value
+        val pending = state.pendingRequests.take(MAX_VISIBLE_RELATIONSHIPS)
+        val saved = state.friends.take(
+            MAX_VISIBLE_RELATIONSHIPS - pending.size,
+        )
+        if (pending.isEmpty() && saved.isEmpty()) {
             addRenderableWidget(
                 centered(
                     Component.translatable("connect_share.friends.empty"),
                     82,
                 ).setMaxWidth(CONTENT_WIDTH),
             )
-        } else {
-            saved.forEachIndexed { index, friend ->
-                val y = 58 + index * 26
-                addRenderableWidget(
-                    Button.builder(friendLabel(friend)) {
-                        joinSaved(friend.peerId)
-                    }.bounds(width / 2 - 155, y, 242, 20).build(),
-                )
-                addRenderableWidget(
-                    Button.builder(
-                        Component.translatable(
-                            "connect_share.friends.manage",
-                        ),
-                    ) {
-                        selectedPeerId = friend.peerId
-                        nameValue = friend.displayName
-                        mode = Mode.MANAGE
-                        safeMessage = null
-                        rebuildWidgets()
-                    }.bounds(width / 2 + 91, y, 64, 20).build(),
-                )
-            }
+        }
+        pending.forEachIndexed { index, request ->
+            val y = 58 + index * 26
+            addRenderableWidget(
+                StringWidget(
+                    width / 2 - 155,
+                    y,
+                    174,
+                    20,
+                    Component.translatable(
+                        "connect_share.friends.pending_request",
+                        request.displayName,
+                    ),
+                    font,
+                ),
+            )
+            addRenderableWidget(
+                Button.builder(
+                    Component.translatable(
+                        "connect_share.friends.accept_request",
+                    ),
+                ) {
+                    joinPending(request.peerId)
+                }.bounds(width / 2 + 23, y, 62, 20).build(),
+            )
+            addRenderableWidget(
+                Button.builder(
+                    Component.translatable(
+                        "connect_share.friends.decline_request",
+                    ),
+                ) {
+                    friends.remove(request.peerId)
+                    rebuildWidgets()
+                }.bounds(width / 2 + 89, y, 66, 20).build(),
+            )
+        }
+        saved.forEachIndexed { index, friend ->
+            val y = 58 + (pending.size + index) * 26
+            addRenderableWidget(
+                Button.builder(friendLabel(friend)) {
+                    joinSaved(friend.peerId)
+                }.bounds(width / 2 - 155, y, 242, 20).build(),
+            )
+            addRenderableWidget(
+                Button.builder(
+                    Component.translatable(
+                        "connect_share.friends.manage",
+                    ),
+                ) {
+                    selectedPeerId = friend.peerId
+                    nameValue = friend.displayName
+                    mode = Mode.MANAGE
+                    safeMessage = null
+                    rebuildWidgets()
+                }.bounds(width / 2 + 91, y, 64, 20).build(),
+            )
         }
 
         safeMessage().let { message ->
@@ -302,12 +340,11 @@ class ShareJoinScreen(
         }
         primaryButton = addRenderableWidget(
             Button.builder(
-                Component.translatable("connect_share.friends.save"),
+                Component.translatable(
+                    "connect_share.friends.save_request",
+                ),
             ) {
-                if (friends.accept(invitationValue, nameValue)) {
-                    scope?.launch {
-                        remotePresence.refresh()
-                    }
+                if (friends.receiveRequest(invitationValue, nameValue)) {
                     invitationValue = ""
                     nameValue = ""
                     mode = Mode.FRIENDS
@@ -518,6 +555,25 @@ class ShareJoinScreen(
         }
     }
 
+    private fun joinPending(peerId: String) {
+        if (joining) return
+        joining = true
+        joiningPeerId = peerId
+        reciprocalPairing = true
+        safeMessage = null
+        refresh()
+        scope?.launch {
+            friends.joinPending(
+                peerId = peerId,
+                browser = browser,
+                authMode = authMode(),
+            ).fold(
+                ifLeft = ::joinFailed,
+                ifRight = ::connect,
+            )
+        }
+    }
+
     private fun joinInvitation() {
         if (joining || invitationValue.isBlank()) return
         joining = true
@@ -564,21 +620,30 @@ class ShareJoinScreen(
         } else {
             browser.close()
         }
-        val joiningFriend = friends.state.value.friends.firstOrNull {
+        val state = friends.state.value
+        val joiningFriend = state.friends.firstOrNull {
+            it.peerId == joiningPeerId
+        }
+        val pendingRequest = state.pendingRequests.firstOrNull {
             it.peerId == joiningPeerId
         }
         val data = ServerData(
-            joiningFriend?.displayName ?: "Connect Share",
+            joiningFriend?.displayName
+                ?: pendingRequest?.displayName
+                ?: "Connect Share",
             address.toString(),
             ServerData.Type.OTHER,
         )
         val exchangeFriendCard = FriendCardExchangeConsent.shouldArm(
             savedFriendJoin = reciprocalPairing,
             canSeeMyWorlds =
-                joiningFriend?.permissions?.canSeeMyWorlds,
+                joiningFriend?.permissions?.canSeeMyWorlds
+                    ?: (pendingRequest != null),
         )
-        if (exchangeFriendCard) {
-            ConnectShareClient.armFriendCardExchange()
+        if (exchangeFriendCard && joiningPeerId != null) {
+            ConnectShareClient.armFriendCardExchange(
+                checkNotNull(joiningPeerId),
+            )
         }
         ConnectScreen.startConnecting(
             parent,
@@ -681,7 +746,7 @@ class ShareJoinScreen(
 
     private companion object {
         const val MAX_INVITATION_LENGTH = 32_768
-        const val MAX_VISIBLE_FRIENDS = 5
+        const val MAX_VISIBLE_RELATIONSHIPS = 5
         const val CONTENT_WIDTH = 310
     }
 }

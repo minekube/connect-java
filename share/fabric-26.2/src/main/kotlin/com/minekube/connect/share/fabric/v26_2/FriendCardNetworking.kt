@@ -67,9 +67,9 @@ object FriendCardNetworking {
         ClientPlayNetworking.registerGlobalReceiver(
             FriendCardRequestPayload.TYPE,
         ) { _, context ->
-            if (!ConnectShareClient.consumeFriendCardExchangeConsent()) {
-                return@registerGlobalReceiver
-            }
+            val exchange =
+                ConnectShareClient.consumeFriendCardExchangeConsent()
+                    ?: return@registerGlobalReceiver
             val client = context.client()
             scope.launch(Dispatchers.IO) {
                 issuer.issue().getOrNull()?.let { invitation ->
@@ -83,6 +83,9 @@ object FriendCardNetworking {
                             ClientPlayNetworking.send(
                                 FriendCardPayload(invitation),
                             )
+                            scope.launch(Dispatchers.IO) {
+                                receiver.confirmPending(exchange.peerId)
+                            }
                         }
                     }
                 }

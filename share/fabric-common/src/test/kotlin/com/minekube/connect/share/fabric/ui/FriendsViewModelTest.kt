@@ -8,14 +8,14 @@ import com.minekube.connect.share.fabric.FabricGuestDirectNode
 import com.minekube.connect.share.fabric.FabricShareBrowser
 import com.minekube.connect.share.fabric.GuestJoinTarget
 import com.minekube.connect.share.fabric.RemoteFriendPresence
+import com.minekube.connect.share.friend.FriendPermissions
+import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import com.minekube.connect.tunnel.p2p.DirectP2pDiscoveredShare
 import com.minekube.connect.tunnel.p2p.DirectP2pDiscoveryListener
 import com.minekube.connect.tunnel.p2p.DirectP2pProxy
 import java.net.InetAddress
 import java.net.InetSocketAddress
-import com.minekube.connect.share.friend.FriendStore
-import com.minekube.connect.share.friend.FriendPermissions
 import java.nio.file.Path
 import java.security.KeyPairGenerator
 import java.security.Signature
@@ -24,8 +24,8 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.io.TempDir
@@ -35,25 +35,48 @@ class FriendsViewModelTest {
     lateinit var tempDir: Path
 
     @Test
-    fun `accepting one link exposes a safe saved friend summary`() {
+    fun `receiving one link exposes only a pending request`() {
         val viewModel = FriendsViewModel(FriendStore(tempDir))
 
-        assertTrue(viewModel.accept(signedLink(), "Robin", NOW))
+        assertTrue(viewModel.receiveRequest(signedLink(), "Robin", NOW))
 
-        val friend = viewModel.state.value.friends.single()
-        assertEquals(PEER_ID, friend.peerId)
-        assertEquals("Robin", friend.displayName)
-        assertTrue(friend.connectAvailable)
-        assertTrue(friend.permissions.notifyWhenOnline)
+        val request = viewModel.state.value.pendingRequests.single()
+        assertEquals(PEER_ID, request.peerId)
+        assertEquals("Robin", request.displayName)
+        assertTrue(viewModel.state.value.friends.isEmpty())
         assertFalse(viewModel.state.value.toString().contains(CAPABILITY))
         assertEquals(null, viewModel.state.value.safeMessage)
+    }
+
+    @Test
+    fun `pending request never exposes presence as a friend`() {
+        val viewModel = FriendsViewModel(FriendStore(tempDir))
+        viewModel.receiveRequest(signedLink(), "Robin", NOW)
+
+        viewModel.updateRemotePresence(
+            mapOf(
+                PEER_ID to RemoteFriendPresence(
+                    peerId = PEER_ID,
+                    displayName = "Robin",
+                    online = true,
+                    description = "Robin's World",
+                    notifyWhenOnline = true,
+                ),
+            ),
+        )
+
+        assertTrue(viewModel.state.value.friends.isEmpty())
+        assertEquals(
+            PEER_ID,
+            viewModel.state.value.pendingRequests.single().peerId,
+        )
     }
 
     @Test
     fun `invalid friend link stays on the add flow with a useful message`() {
         val viewModel = FriendsViewModel(FriendStore(tempDir))
 
-        val accepted = viewModel.accept(
+        val accepted = viewModel.receiveRequest(
             "minekube://share/not-a-valid-link",
             "Robin",
             NOW,
@@ -66,8 +89,9 @@ class FriendsViewModelTest {
 
     @Test
     fun `saved friend can be renamed configured and removed`() {
-        val viewModel = FriendsViewModel(FriendStore(tempDir))
-        viewModel.accept(signedLink(), "Robin", NOW)
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        val viewModel = FriendsViewModel(store)
 
         viewModel.rename(PEER_ID, "Robin from Discord")
         viewModel.updatePermissions(
@@ -95,8 +119,9 @@ class FriendsViewModelTest {
     fun `matching discovery marks a saved friend world ready to join`() {
         val link = signedLink()
         val invitation = ShareInviteCodec.decode(link, NOW).getOrNull()!!
-        val viewModel = FriendsViewModel(FriendStore(tempDir))
-        viewModel.accept(link, "Robin", NOW)
+        val store = FriendStore(tempDir)
+        store.accept(link, "Robin", NOW)
+        val viewModel = FriendsViewModel(store)
 
         viewModel.updatePresence(
             listOf(
@@ -121,8 +146,9 @@ class FriendsViewModelTest {
 
     @Test
     fun `Connect presence marks a saved friend online across networks`() {
-        val viewModel = FriendsViewModel(FriendStore(tempDir))
-        viewModel.accept(signedLink(), "Robin", NOW)
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        val viewModel = FriendsViewModel(store)
 
         viewModel.updateRemotePresence(
             mapOf(
@@ -160,8 +186,9 @@ class FriendsViewModelTest {
                 link,
             ),
         )
-        val viewModel = FriendsViewModel(FriendStore(tempDir))
-        viewModel.accept(link, "Robin", NOW)
+        val store = FriendStore(tempDir)
+        store.accept(link, "Robin", NOW)
+        val viewModel = FriendsViewModel(store)
         viewModel.updatePresence(
             listOf(
                 DiscoveredLanShare(
@@ -181,6 +208,39 @@ class FriendsViewModelTest {
 
         assertIs<arrow.core.Either.Right<GuestJoinTarget.Direct>>(result)
         assertEquals(listOf(LAN_ADDRESS), node.openedAddresses)
+        browser.close()
+    }
+
+    @Test
+    fun `accepting a pending request can join its signed route`() = runTest {
+        val link = signedLink()
+        val node = FakeGuestNode()
+        val browser = FabricShareBrowser.testing(
+            node = node,
+            now = { NOW },
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        browser.start()
+        node.discover(
+            DirectP2pDiscoveredShare(
+                "Robin's World",
+                PEER_ID,
+                LAN_ADDRESS,
+                link,
+            ),
+        )
+        val viewModel = FriendsViewModel(FriendStore(tempDir))
+        viewModel.receiveRequest(link, "Robin", NOW)
+
+        val result = viewModel.joinPending(
+            peerId = PEER_ID,
+            browser = browser,
+            authMode = DirectP2pAuthMode.OFFLINE,
+        )
+
+        assertIs<arrow.core.Either.Right<GuestJoinTarget.Direct>>(result)
+        assertEquals(listOf(LAN_ADDRESS), node.openedAddresses)
+        assertTrue(viewModel.state.value.friends.isEmpty())
         browser.close()
     }
 

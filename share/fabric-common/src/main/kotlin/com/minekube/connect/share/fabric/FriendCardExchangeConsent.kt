@@ -1,26 +1,42 @@
 package com.minekube.connect.share.fabric
 
+data class FriendCardExchangeProof(
+    val peerId: String,
+)
+
 class FriendCardExchangeConsent(
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
-    private var armedAtMillis: Long? = null
+    private var armed: TimedExchange? = null
 
     @Synchronized
-    fun arm() {
-        armedAtMillis = nowMillis()
+    fun arm(peerId: String) {
+        require(peerId.isNotBlank())
+        armed = TimedExchange(
+            proof = FriendCardExchangeProof(peerId),
+            armedAtMillis = nowMillis(),
+        )
     }
 
     @Synchronized
-    fun consume(): Boolean {
-        val armedAt = armedAtMillis ?: return false
-        armedAtMillis = null
-        return nowMillis() - armedAt <= CONSENT_LIFETIME_MILLIS
+    fun consume(): FriendCardExchangeProof? {
+        val exchange = armed ?: return null
+        armed = null
+        return exchange.proof.takeIf {
+            nowMillis() - exchange.armedAtMillis <=
+                CONSENT_LIFETIME_MILLIS
+        }
     }
 
     @Synchronized
     fun cancel() {
-        armedAtMillis = null
+        armed = null
     }
+
+    private data class TimedExchange(
+        val proof: FriendCardExchangeProof,
+        val armedAtMillis: Long,
+    )
 
     companion object {
         const val CONSENT_LIFETIME_MILLIS = 120_000L

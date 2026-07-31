@@ -90,6 +90,33 @@ class FriendCardIssuerTest {
         }
 
     @Test
+    fun `approved exchange promotes the accepter pending request`() =
+        runBlocking {
+            val issuer = FriendCardIssuer(
+                dataDirectory = tempDir.resolve("sender"),
+                connectAddress = { "sender.play.minekube.net" },
+            )
+            val card = issuer.issue(NOW).getOrNull()!!
+            val peerId = ShareInviteCodec.decode(card, NOW)
+                .getOrNull()!!
+                .payload
+                .peerId
+            val store = FriendStore(tempDir.resolve("accepter"))
+            store.receiveRequest(card, "Robin", NOW)
+            val receiver = FriendCardReceiver(store)
+
+            val result = receiver.confirmPending(peerId)
+
+            assertIs<
+                Either.Right<
+                    com.minekube.connect.share.friend.SavedFriend,
+                    >
+                >(result)
+            assertEquals(peerId, store.all().single().peerId)
+            assertTrue(store.pendingRequests().isEmpty())
+        }
+
+    @Test
     fun `card issuer resolves the persisted endpoint asynchronously`() =
         runBlocking {
             val issuer = FriendCardIssuer(
