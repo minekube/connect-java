@@ -1,24 +1,32 @@
 package com.minekube.connect.share.fabric
 
 import com.minekube.connect.share.ShareState
+import com.minekube.connect.share.ShareConnectionGateway
 import com.minekube.connect.share.fabric.ui.ShareViewModel
+import com.minekube.connect.share.fabric.ui.FriendsViewModel
 
 fun interface ConnectShareScreenFactory {
     fun open(parent: Any, active: Boolean)
 }
 
 fun interface ConnectShareGuestScreenFactory {
-    fun open(parent: Any)
+    fun open(parent: Any, browser: FabricShareBrowser)
 }
 
 data class ConnectShareInstallation(
     val viewModel: ShareViewModel,
+    val friendsViewModel: FriendsViewModel,
     val runtime: ConnectShareRuntime,
     val friendCardIssuer: FriendCardIssuer,
     val friendCardReceiver: FriendCardReceiver,
     val friendRequestClient: FriendRequestClient,
+    val friendPairingClient: FriendPairingClient,
     val approvedJoins: ApprovedJoinTracker,
-    val friendControlLease: AutoCloseable,
+    val controlPlane: ConnectControlPlane,
+    val directControlPlane: DirectControlPlane,
+    val browser: FabricShareBrowser,
+    val gateway: ShareConnectionGateway,
+    val ownConnectAddress: String,
     val screens: ConnectShareScreenFactory,
     val guestScreens: ConnectShareGuestScreenFactory,
 )
@@ -56,14 +64,15 @@ object ConnectShareClient {
 
     @JvmStatic
     fun openJoinScreen(parent: Any) {
-        installation?.guestScreens?.open(parent)
+        installation?.let { installed ->
+            installed.guestScreens.open(parent, installed.browser)
+        }
     }
 
     fun holdGuestDirect(
         target: GuestJoinTarget.Direct,
-        browser: FabricShareBrowser,
     ) {
-        guestLease.hold(target, browser)
+        guestLease.hold(target, NOOP_CLOSE)
     }
 
     @JvmStatic
@@ -76,6 +85,10 @@ object ConnectShareClient {
         checkNotNull(installation).viewModel
 
     @JvmStatic
+    fun friendsViewModel(): FriendsViewModel =
+        checkNotNull(installation).friendsViewModel
+
+    @JvmStatic
     fun friendCardIssuer(): FriendCardIssuer =
         checkNotNull(installation).friendCardIssuer
 
@@ -86,6 +99,14 @@ object ConnectShareClient {
     @JvmStatic
     fun friendRequestClient(): FriendRequestClient =
         checkNotNull(installation).friendRequestClient
+
+    @JvmStatic
+    fun friendPairingClient(): FriendPairingClient =
+        checkNotNull(installation).friendPairingClient
+
+    @JvmStatic
+    fun connectPublicAddress(): String? =
+        installation?.ownConnectAddress
 
     @JvmStatic
     fun armFriendCardExchange(peerId: String) {
@@ -105,13 +126,17 @@ object ConnectShareClient {
     }
 
     @JvmStatic
-    fun shutdown() {
+    suspend fun shutdown() {
         friendCardConsent.cancel()
         guestLease.close()
         installation?.let { installed ->
-            installed.friendControlLease.close()
             installed.runtime.shutdown()
+            installed.directControlPlane.shutdown()
+            installed.controlPlane.shutdown()
+            installed.browser.close()
+            installed.gateway.close()
         }
+        installation = null
     }
 
     private fun isShareActive(): Boolean = when (
@@ -127,6 +152,8 @@ object ConnectShareClient {
         ShareState.Stopping,
         -> true
     }
+
+    private val NOOP_CLOSE = AutoCloseable {}
 }
 
 internal class GuestConnectionLease(

@@ -5,6 +5,7 @@ import com.minekube.connect.share.fabric.FabricShareBrowser
 import com.minekube.connect.share.fabric.FriendCardExchangeConsent
 import com.minekube.connect.share.fabric.FriendPresenceMonitor
 import com.minekube.connect.share.fabric.GuestJoinTarget
+import com.minekube.connect.share.admission.Ingress
 import com.minekube.connect.share.friend.FriendControlRequest
 import com.minekube.connect.share.fabric.ui.FriendSummary
 import com.minekube.connect.share.fabric.ui.FriendsViewModel
@@ -55,7 +56,6 @@ class ShareJoinScreen(
     private var joining = false
     private var joiningPeerId: String? = null
     private var reciprocalPairing = false
-    private var transferred = false
     private var removeConfirmation = false
     private var friendLinkState = FriendLinkState.IDLE
     private var requestOperationInProgress = false
@@ -72,6 +72,9 @@ class ShareJoinScreen(
         }
         friends.updatePresence(browser.discovered.value)
         friends.updateRemotePresence(remotePresence.state.value)
+        friends.updateIncoming(
+            ConnectShareClient.viewModel().state.value.pendingAdmissions,
+        )
         fingerprint = currentFingerprint()
         nameBox = null
         invitationBox = null
@@ -89,6 +92,9 @@ class ShareJoinScreen(
         super.tick()
         friends.updatePresence(browser.discovered.value)
         friends.updateRemotePresence(remotePresence.state.value)
+        friends.updateIncoming(
+            ConnectShareClient.viewModel().state.value.pendingAdmissions,
+        )
         val next = currentFingerprint()
         if (next != fingerprint) {
             rebuildWidgets()
@@ -119,9 +125,6 @@ class ShareJoinScreen(
     override fun removed() {
         scope?.cancel()
         scope = null
-        if (!transferred) {
-            browser.close()
-        }
         super.removed()
     }
 
@@ -140,11 +143,16 @@ class ShareJoinScreen(
         )
 
         val state = friends.state.value
-        val outgoing = state.outgoingRequests.take(MAX_VISIBLE_RELATIONSHIPS)
-        val saved = state.friends.take(
-            MAX_VISIBLE_RELATIONSHIPS - outgoing.size,
+        val incoming = state.incomingRequests.take(
+            MAX_VISIBLE_RELATIONSHIPS,
         )
-        if (outgoing.isEmpty() && saved.isEmpty()) {
+        val outgoing = state.outgoingRequests.take(
+            MAX_VISIBLE_RELATIONSHIPS - incoming.size,
+        )
+        val saved = state.friends.take(
+            MAX_VISIBLE_RELATIONSHIPS - incoming.size - outgoing.size,
+        )
+        if (incoming.isEmpty() && outgoing.isEmpty() && saved.isEmpty()) {
             addRenderableWidget(
                 centered(
                     Component.translatable("connect_share.friends.empty"),
@@ -152,8 +160,39 @@ class ShareJoinScreen(
                 ).setMaxWidth(CONTENT_WIDTH),
             )
         }
-        outgoing.forEachIndexed { index, request ->
+        incoming.forEachIndexed { index, request ->
             val y = 58 + index * 26
+            addRenderableWidget(
+                StringWidget(
+                    width / 2 - 155,
+                    y,
+                    174,
+                    20,
+                    Component.translatable(
+                        "connect_share.friends.incoming_request",
+                        request.displayName,
+                        request.ingress.displayName(),
+                    ),
+                    font,
+                ).setMaxWidth(174),
+            )
+            addRenderableWidget(
+                Button.builder(
+                    Component.translatable("connect_share.status.allow"),
+                ) {
+                    ConnectShareClient.viewModel().allow(request.requestId)
+                }.bounds(width / 2 + 23, y, 62, 20).build(),
+            )
+            addRenderableWidget(
+                Button.builder(
+                    Component.translatable("connect_share.status.deny"),
+                ) {
+                    ConnectShareClient.viewModel().deny(request.requestId)
+                }.bounds(width / 2 + 89, y, 66, 20).build(),
+            )
+        }
+        outgoing.forEachIndexed { index, request ->
+            val y = 58 + (incoming.size + index) * 26
             val deliveryState = requestStates[request.peerId]
             addRenderableWidget(
                 StringWidget(
@@ -192,7 +231,8 @@ class ShareJoinScreen(
             )
         }
         saved.forEachIndexed { index, friend ->
-            val y = 58 + (outgoing.size + index) * 26
+            val y =
+                58 + (incoming.size + outgoing.size + index) * 26
             addRenderableWidget(
                 Button.builder(friendLabel(friend)) {
                     joinSaved(friend.peerId)
@@ -569,6 +609,8 @@ class ShareJoinScreen(
                 peerId = peerId,
                 browser = browser,
                 authMode = authMode(),
+                ownConnectAddress =
+                    ConnectShareClient.connectPublicAddress(),
             ).fold(
                 ifLeft = ::joinFailed,
                 ifRight = ::connect,
@@ -633,6 +675,8 @@ class ShareJoinScreen(
                 peerId = peerId,
                 browser = browser,
                 authMode = authMode(),
+                ownConnectAddress =
+                    ConnectShareClient.connectPublicAddress(),
             )
             val target = targetResult.getOrNull()
             if (target == null) {
@@ -770,10 +814,7 @@ class ShareJoinScreen(
                 )
         }
         if (target is GuestJoinTarget.Direct) {
-            ConnectShareClient.holdGuestDirect(target, browser)
-            transferred = true
-        } else {
-            browser.close()
+            ConnectShareClient.holdGuestDirect(target)
         }
         val state = friends.state.value
         val joiningFriend = state.friends.firstOrNull {
@@ -846,6 +887,12 @@ class ShareJoinScreen(
                 "connect_share.friends.saved_offline",
                 friend.displayName,
             )
+    }
+
+    private fun Ingress.displayName(): String = when (this) {
+        Ingress.CONNECT -> "connect"
+        Ingress.DIRECT_LAN -> "direct LAN"
+        Ingress.DIRECT_INTERNET -> "direct internet"
     }
 
     private fun outgoingRequestLabel(

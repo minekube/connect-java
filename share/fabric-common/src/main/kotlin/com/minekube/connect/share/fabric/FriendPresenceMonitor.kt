@@ -1,12 +1,16 @@
 package com.minekube.connect.share.fabric
 
 import arrow.fx.coroutines.parMap
+import com.minekube.connect.share.direct.ShareRoute
 import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.share.friend.SavedFriend
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 
 data class RemoteFriendPresence(
     val peerId: String,
@@ -14,6 +18,7 @@ data class RemoteFriendPresence(
     val online: Boolean,
     val description: String? = null,
     val notifyWhenOnline: Boolean,
+    val route: ShareRoute? = null,
 )
 
 class FriendOnlineTracker {
@@ -37,13 +42,22 @@ class FriendOnlineTracker {
 class FriendPresenceMonitor private constructor(
     private val friends: () -> List<SavedFriend>,
     private val probe: FriendStatusProbe,
+    private val directProbe: suspend (SavedFriend) -> ServerPresence?,
+    private val ownConnectAddress: () -> String?,
+    private val ioDispatcher: CoroutineDispatcher,
 ) {
     constructor(
         store: FriendStore,
         probe: FriendStatusProbe = MinecraftStatusProbe(),
+        directProbe: suspend (SavedFriend) -> ServerPresence? = { null },
+        ownConnectAddress: () -> String? = { null },
+        ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     ) : this(
         friends = store::all,
         probe = probe,
+        directProbe = directProbe,
+        ownConnectAddress = ownConnectAddress,
+        ioDispatcher = ioDispatcher,
     )
 
     private val mutableState =
@@ -52,18 +66,34 @@ class FriendPresenceMonitor private constructor(
     val state: StateFlow<Map<String, RemoteFriendPresence>> =
         mutableState.asStateFlow()
 
-    suspend fun refresh() {
+    suspend fun refresh() = withContext(ioDispatcher) {
         val saved = runCatching(friends)
             .getOrDefault(emptyList())
             .take(MAX_PROBED_FRIENDS)
+        val ownAddress = runCatching(ownConnectAddress).getOrNull()
         val results = saved.parMap(
-            context = Dispatchers.IO,
+            context = ioDispatcher,
             concurrency = MAX_CONCURRENT_PROBES,
         ) { friend ->
-            val result = friend.connectAddress?.let {
-                probe.probe(it)
+            val directPresence = try {
+                directProbe(friend)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                null
             }
-            val presence = result?.getOrNull()
+            val connectPresence = if (directPresence == null) {
+                friend.connectAddress?.let { address ->
+                    if (connectAddressesMatch(address, ownAddress)) {
+                        null
+                    } else {
+                        probe.probe(address).getOrNull()
+                    }
+                }
+            } else {
+                null
+            }
+            val presence = directPresence ?: connectPresence
             friend.peerId to RemoteFriendPresence(
                 peerId = friend.peerId,
                 displayName = friend.displayName,
@@ -71,6 +101,11 @@ class FriendPresenceMonitor private constructor(
                 description = presence?.description,
                 notifyWhenOnline =
                     friend.permissions.notifyWhenOnline,
+                route = when {
+                    directPresence != null -> ShareRoute.DIRECT_LAN
+                    connectPresence != null -> ShareRoute.CONNECT
+                    else -> null
+                },
             )
         }
         mutableState.value = results.toMap()
@@ -80,7 +115,18 @@ class FriendPresenceMonitor private constructor(
         internal fun testing(
             friends: () -> List<SavedFriend>,
             probe: FriendStatusProbe,
-        ) = FriendPresenceMonitor(friends, probe)
+            directProbe: suspend (SavedFriend) -> ServerPresence? = {
+                null
+            },
+            ownConnectAddress: () -> String? = { null },
+            ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+        ) = FriendPresenceMonitor(
+            friends,
+            probe,
+            directProbe,
+            ownConnectAddress,
+            ioDispatcher,
+        )
 
         private const val MAX_PROBED_FRIENDS = 32
         private const val MAX_CONCURRENT_PROBES = 4

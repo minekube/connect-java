@@ -147,7 +147,8 @@ class FabricShareBrowserTest {
     @Test
     fun `saved friend ignores LAN metadata signed by a different identity`() = runTest {
         val node = FakeGuestNode()
-        val browser = browser(node)
+        val reports = mutableListOf<String>()
+        val browser = browser(node, reports::add)
         browser.start()
         val friend = savedFriend(invitation())
         node.discover(
@@ -166,8 +167,69 @@ class FabricShareBrowserTest {
 
         assertIs<Either.Right<GuestJoinTarget.Connect>>(result)
         assertTrue(node.openedAddresses.isEmpty())
+        assertEquals(
+            listOf(
+                "Connect Share route: direct LAN unavailable",
+                "Connect Share route: using Connect fallback",
+            ),
+            reports,
+        )
         browser.close()
     }
+
+    @Test
+    fun `saved friend never falls back through this profiles own Connect endpoint`() =
+        runTest {
+            val node = FakeGuestNode()
+            val browser = browser(node)
+            val friend = savedFriend(invitation())
+
+            val result = browser.join(
+                friend = friend,
+                authMode = DirectP2pAuthMode.OFFLINE,
+                ownConnectAddress = friend.connectAddress,
+            )
+
+            assertEquals(
+                GuestJoinFailure.EndpointConflict,
+                result.leftOrNull(),
+            )
+            assertTrue(node.openedAddresses.isEmpty())
+            browser.close()
+        }
+
+    @Test
+    fun `LAN discovery is world ready only after status succeeds through proxy`() =
+        runTest {
+            val node = FakeGuestNode()
+            val browser = browser(node)
+            val link = invitation()
+            val friend = savedFriend(link)
+            browser.start()
+            node.discover(
+                DirectP2pDiscoveredShare(
+                    "Robin's LAN World",
+                    PEER_ID,
+                    lanAddress(PEER_ID),
+                    link,
+                ),
+            )
+            val probed = mutableListOf<String>()
+
+            val presence = browser.probeLan(
+                friend = friend,
+                authMode = DirectP2pAuthMode.OFFLINE,
+                probe = FriendStatusProbe { address ->
+                    probed += address
+                    Either.Right(ServerPresence("Robin's LAN World"))
+                },
+            )
+
+            assertEquals(ServerPresence("Robin's LAN World"), presence)
+            assertEquals(1, probed.size)
+            assertTrue(probed.single().endsWith(":41234"))
+            browser.close()
+        }
 
     @Test
     fun `pasted invitation ignores discovery with a different peer`() = runTest {
@@ -229,7 +291,8 @@ class FabricShareBrowserTest {
     fun `failed direct reachability falls back to Connect exactly once`() =
         runTest {
             val node = FakeGuestNode(failDirect = true)
-            val browser = browser(node)
+            val reports = mutableListOf<String>()
+            val browser = browser(node, reports::add)
 
             val result = browser.join(
                 invitationUri = invitation(),
@@ -243,6 +306,14 @@ class FabricShareBrowserTest {
             assertEquals(
                 listOf(LAN_ADDRESS, INTERNET_ADDRESS),
                 node.openedAddresses,
+            )
+            assertEquals(
+                listOf(
+                    "Connect Share route: direct LAN unavailable",
+                    "Connect Share route: direct internet unavailable",
+                    "Connect Share route: using Connect fallback",
+                ),
+                reports,
             )
             browser.close()
         }
@@ -265,11 +336,15 @@ class FabricShareBrowserTest {
             browser.close()
         }
 
-    private fun kotlinx.coroutines.test.TestScope.browser(node: FakeGuestNode) =
+    private fun kotlinx.coroutines.test.TestScope.browser(
+        node: FakeGuestNode,
+        routeReporter: (String) -> Unit = {},
+    ) =
         FabricShareBrowser.testing(
             node = node,
             now = { Instant.ofEpochMilli(NOW) },
             ioDispatcher = StandardTestDispatcher(testScheduler),
+            routeReporter = routeReporter,
         )
 
     private fun invitation(

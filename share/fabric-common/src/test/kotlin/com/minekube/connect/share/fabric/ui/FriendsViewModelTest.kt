@@ -3,11 +3,16 @@ package com.minekube.connect.share.fabric.ui
 import com.minekube.connect.share.direct.ShareInviteCodec
 import com.minekube.connect.share.direct.ShareInvitePayload
 import com.minekube.connect.share.direct.SignedShareInvite
+import com.minekube.connect.share.admission.AdmissionIdentity
+import com.minekube.connect.share.admission.AdmissionPurpose
+import com.minekube.connect.share.admission.Ingress
+import com.minekube.connect.share.admission.PendingAdmission
 import com.minekube.connect.share.fabric.DiscoveredLanShare
 import com.minekube.connect.share.fabric.FabricGuestDirectNode
 import com.minekube.connect.share.fabric.FabricShareBrowser
 import com.minekube.connect.share.fabric.GuestJoinTarget
 import com.minekube.connect.share.fabric.RemoteFriendPresence
+import com.minekube.connect.share.direct.ShareRoute
 import com.minekube.connect.share.friend.FriendPermissions
 import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
@@ -73,6 +78,58 @@ class FriendsViewModelTest {
             PEER_ID,
             viewModel.state.value.outgoingRequests.single().peerId,
         )
+    }
+
+    @Test
+    fun `title friends state exposes only incoming friend approvals`() {
+        val viewModel = FriendsViewModel(FriendStore(tempDir))
+        val friendRequestId = UUID.randomUUID()
+        val joinRequestId = UUID.randomUUID()
+
+        viewModel.updateIncoming(
+            listOf(
+                PendingAdmission(
+                    requestId = friendRequestId,
+                    identity = AdmissionIdentity.UnverifiedOffline(
+                        name = "bob",
+                        uuid = UUID.randomUUID(),
+                        connectionId = "friend:bob",
+                        ingress = Ingress.CONNECT,
+                    ),
+                    purpose = AdmissionPurpose.FRIEND,
+                ),
+                PendingAdmission(
+                    requestId = joinRequestId,
+                    identity = AdmissionIdentity.UnverifiedOffline(
+                        name = "visitor",
+                        uuid = UUID.randomUUID(),
+                        connectionId = "join:visitor",
+                        ingress = Ingress.DIRECT_LAN,
+                    ),
+                    purpose = AdmissionPurpose.JOIN,
+                ),
+            ),
+        )
+
+        val incoming = viewModel.state.value.incomingRequests.single()
+        assertEquals(friendRequestId, incoming.requestId)
+        assertEquals("bob", incoming.displayName)
+        assertEquals(Ingress.CONNECT, incoming.ingress)
+        assertTrue(viewModel.state.value.friends.isEmpty())
+        assertTrue(viewModel.state.value.outgoingRequests.isEmpty())
+    }
+
+    @Test
+    fun `unchanged incoming tick observes an accepted relationship`() {
+        val store = FriendStore(tempDir)
+        val viewModel = FriendsViewModel(store)
+        viewModel.updateIncoming(emptyList())
+
+        store.accept(signedLink(), "Robin", NOW)
+        viewModel.updateIncoming(emptyList())
+
+        assertEquals("Robin", viewModel.state.value.friends.single().displayName)
+        assertTrue(viewModel.state.value.incomingRequests.isEmpty())
     }
 
     @Test
@@ -155,14 +212,40 @@ class FriendsViewModelTest {
                 ),
             ),
         )
+        viewModel.updateRemotePresence(
+            mapOf(
+                PEER_ID to RemoteFriendPresence(
+                    peerId = PEER_ID,
+                    displayName = "Robin",
+                    online = true,
+                    description = "Robin's New World",
+                    notifyWhenOnline = true,
+                    route = ShareRoute.DIRECT_LAN,
+                ),
+            ),
+        )
 
         val online = viewModel.state.value.friends.single()
         assertTrue(online.onlineViaLan)
         assertEquals("Robin's New World", online.worldName)
 
         viewModel.updatePresence(emptyList())
+        viewModel.updateRemotePresence(emptyMap())
 
         assertFalse(viewModel.state.value.friends.single().onlineViaLan)
+    }
+
+    @Test
+    fun `cancelling an outgoing request removes only pending state`() {
+        val store = FriendStore(tempDir)
+        val viewModel = FriendsViewModel(store)
+        viewModel.sendRequest(signedLink(), "Robin", NOW)
+
+        assertTrue(viewModel.remove(PEER_ID))
+
+        assertTrue(viewModel.state.value.outgoingRequests.isEmpty())
+        assertTrue(viewModel.state.value.friends.isEmpty())
+        assertTrue(FriendStore(tempDir).outgoingRequests().isEmpty())
     }
 
     @Test
@@ -179,6 +262,7 @@ class FriendsViewModelTest {
                     online = true,
                     description = "Robin's Remote World",
                     notifyWhenOnline = true,
+                    route = ShareRoute.CONNECT,
                 ),
             ),
         )

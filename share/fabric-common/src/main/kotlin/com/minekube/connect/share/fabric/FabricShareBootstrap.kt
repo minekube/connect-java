@@ -3,13 +3,16 @@ package com.minekube.connect.share.fabric
 import com.minekube.connect.api.logger.ConnectLogger
 import com.minekube.connect.identity.EndpointTokenStore
 import com.minekube.connect.share.ShareCoordinator
+import com.minekube.connect.share.ShareConnectionGateway
+import com.minekube.connect.share.ShareGameMode
+import com.minekube.connect.share.ShareOptions
 import com.minekube.connect.share.VersionedMinecraftBridge
 import com.minekube.connect.share.admission.AdmissionController
 import com.minekube.connect.share.admission.AdmissionIdentity
 import com.minekube.connect.share.fabric.ui.ShareViewModel
+import com.minekube.connect.share.fabric.ui.FriendsViewModel
 import com.minekube.connect.share.fabric.ui.StoredEndpointIdentityUiActions
 import com.minekube.connect.share.friend.FriendStore
-import com.minekube.connect.share.friend.FriendControlChannelRegistry
 import com.minekube.connect.share.friend.SharePreferences
 import com.minekube.connect.share.friend.SharePreferencesStore
 import com.minekube.connect.share.identity.EndpointIdentityStore
@@ -25,7 +28,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 
 object FabricShareBootstrap {
-    fun create(
+    suspend fun create(
         scope: CoroutineScope,
         dataDirectory: Path,
         minecraftVersion: String,
@@ -39,6 +42,7 @@ object FabricShareBootstrap {
                 AdmissionController,
                 CoroutineScope,
                 ApprovedJoinTracker,
+                ShareConnectionGateway,
             ) -> VersionedMinecraftBridge,
         screens: ConnectShareScreenFactory,
         guestScreens: ConnectShareGuestScreenFactory,
@@ -72,11 +76,6 @@ object FabricShareBootstrap {
                 }.getOrDefault(false)
             },
         )
-        val bridge = bridgeFactory(
-            admission,
-            scope,
-            approvedJoins,
-        )
         val identityStore = EndpointIdentityStore(
             directory = dataDirectory,
             environment = environment,
@@ -95,63 +94,14 @@ object FabricShareBootstrap {
             watchUrl = watchHttpUrl(environment),
             timeout = 10.seconds,
         )
-        val ingress = FabricConnectIngress(
-            dataDirectory = dataDirectory,
-            platformInjector = bridge,
-            logger = logger,
-            platformUtils = FabricPlatformUtils(
-                minecraftVersion = minecraftVersion,
-                playerCount = playerCount,
-            ),
-            admission = admission,
-            approvedJoins = approvedJoins,
-            scope = scope,
-        )
-        val directIngress = FabricDirectShareIngress(
-            dataDirectory = dataDirectory,
-            displayName = worldDisplayName,
-        )
-        val coordinator = ShareCoordinator(
-            bridge = bridge,
-            ingress = ingress,
-            identityProvider = identityStore::currentOrCreate,
-            admission = admission,
-            directIngress = directIngress,
-            failureReporter = logger::warn,
-        )
-        val viewModel = ShareViewModel(
-            scope = scope,
-            shareState = coordinator.state,
-            pendingAdmissions = admission.pending,
-            initialWorldAvailable = worldAvailable,
-            initialShareWithFriendsEnabled =
-                initialPreferences.shareWithFriends,
-            persistShareWithFriendsEnabled = { enabled ->
-                preferencesStore.save(
-                    SharePreferences(shareWithFriends = enabled),
-                )
-            },
-            identityActions = StoredEndpointIdentityUiActions(
-                store = identityStore,
-                validator = validator,
-            ),
-            startShare = coordinator::start,
-            stopShare = coordinator::stop,
-            answerAdmission = admission::answer,
-        )
-        viewModelReference.set(viewModel)
-        val runtime = ConnectShareRuntime(
-            scope = scope,
-            stopShare = {
-                coordinator.worldReplaced()
-            },
-            resumeShare = viewModel::resumeIfEnabled,
-            worldAvailabilityChanged = viewModel::setWorldAvailable,
-        )
+        val endpointIdentity = identityStore.currentOrCreate()
+        val ownConnectAddress =
+            "${endpointIdentity.endpoint}.play.minekube.net"
         val friendCardIssuer = FriendCardIssuer(dataDirectory) {
-            "${identityStore.currentOrCreate().endpoint}.play.minekube.net"
+            ownConnectAddress
         }
         val friendCardReceiver = FriendCardReceiver(friendStore)
+        val friendsViewModel = FriendsViewModel(friendStore)
         val friendRequestServer = FriendRequestServer(
             scope = scope,
             admission = admission,
@@ -159,21 +109,128 @@ object FabricShareBootstrap {
             receiver = friendCardReceiver,
             friendStore = friendStore,
         )
-        val friendControlLease =
-            FriendControlChannelRegistry.install(friendRequestServer)
-        return ConnectShareInstallation(
-            viewModel = viewModel,
-            runtime = runtime,
-            friendCardIssuer = friendCardIssuer,
-            friendCardReceiver = friendCardReceiver,
-            friendRequestClient = FriendRequestClient(
+        val gateway = ShareConnectionGateway.bind(friendRequestServer)
+        var browser: FabricShareBrowser? = null
+        try {
+            val activeBrowser = FabricShareBrowser(dataDirectory)
+            browser = activeBrowser
+            activeBrowser.start().leftOrNull()?.let {
+                logger.warn(it.safeMessage)
+            }
+            val bridge = bridgeFactory(
+                admission,
+                scope,
+                approvedJoins,
+                gateway,
+            )
+            val ingress = PersistentConnectIngress(
+                FabricConnectIngress(
+                    dataDirectory = dataDirectory,
+                    platformInjector = gateway,
+                    logger = logger,
+                    platformUtils = FabricPlatformUtils(
+                        minecraftVersion = minecraftVersion,
+                        playerCount = playerCount,
+                    ),
+                    admission = admission,
+                    approvedJoins = approvedJoins,
+                    scope = scope,
+                    worldAvailable = bridge::isInjected,
+                ),
+            )
+            val directIngress = PersistentDirectIngress(
+                FabricDirectShareIngress(
+                    dataDirectory = dataDirectory,
+                    displayName = worldDisplayName,
+                ),
+            )
+            val coordinator = ShareCoordinator(
+                bridge = bridge,
+                ingress = ingress,
+                identityProvider = identityStore::currentOrCreate,
+                admission = admission,
+                directIngress = directIngress,
+                failureReporter = logger::warn,
+            )
+            val viewModel = ShareViewModel(
+                scope = scope,
+                shareState = coordinator.state,
+                pendingAdmissions = admission.pending,
+                initialWorldAvailable = worldAvailable,
+                initialShareWithFriendsEnabled =
+                    initialPreferences.shareWithFriends,
+                persistShareWithFriendsEnabled = { enabled ->
+                    preferencesStore.save(
+                        SharePreferences(shareWithFriends = enabled),
+                    )
+                },
+                identityActions = StoredEndpointIdentityUiActions(
+                    store = identityStore,
+                    validator = validator,
+                ),
+                startShare = coordinator::start,
+                stopShare = coordinator::stop,
+                answerAdmission = admission::answer,
+            )
+            viewModelReference.set(viewModel)
+            val runtime = ConnectShareRuntime(
+                scope = scope,
+                stopShare = {
+                    coordinator.worldReplaced()
+                },
+                resumeShare = viewModel::resumeIfEnabled,
+                worldAvailabilityChanged = viewModel::setWorldAvailable,
+            )
+            val friendRequestClient = FriendRequestClient(
                 minecraftProtocolVersion,
-            ),
-            approvedJoins = approvedJoins,
-            friendControlLease = friendControlLease,
-            screens = screens,
-            guestScreens = guestScreens,
-        )
+            )
+            val friendPairingClient = FriendPairingClient(
+                store = friendStore,
+                issuer = friendCardIssuer,
+                receiver = friendCardReceiver,
+                requestClient = friendRequestClient,
+            )
+            val controlPlane = ConnectControlPlane(
+                scope = scope,
+                ingress = ingress,
+                identity = { endpointIdentity },
+                target = gateway.serverSocketAddress,
+                failureReporter = logger::warn,
+            ).also(ConnectControlPlane::start)
+            val directControlPlane = DirectControlPlane(
+                scope = scope,
+                ingress = directIngress,
+                options = ShareOptions(
+                    gameMode = ShareGameMode.SURVIVAL,
+                    allowCheats = false,
+                    allowInternetDirect = false,
+                ),
+                target = gateway.directAddress,
+                connectAddress = { ownConnectAddress },
+                failureReporter = logger::warn,
+            ).also(DirectControlPlane::start)
+            return ConnectShareInstallation(
+                viewModel = viewModel,
+                friendsViewModel = friendsViewModel,
+                runtime = runtime,
+                friendCardIssuer = friendCardIssuer,
+                friendCardReceiver = friendCardReceiver,
+                friendRequestClient = friendRequestClient,
+                friendPairingClient = friendPairingClient,
+                approvedJoins = approvedJoins,
+                controlPlane = controlPlane,
+                directControlPlane = directControlPlane,
+                browser = activeBrowser,
+                gateway = gateway,
+                ownConnectAddress = ownConnectAddress,
+                screens = screens,
+                guestScreens = guestScreens,
+            )
+        } catch (failure: Throwable) {
+            browser?.close()
+            gateway.close()
+            throw failure
+        }
     }
 
     internal fun watchHttpUrl(environment: Map<String, String>) =

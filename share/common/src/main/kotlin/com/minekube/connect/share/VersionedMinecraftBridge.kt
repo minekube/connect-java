@@ -16,11 +16,34 @@ import io.netty.util.concurrent.DefaultThreadFactory
 import java.net.InetSocketAddress
 import java.net.SocketAddress
 
-open class VersionedMinecraftBridge(
+open class VersionedMinecraftBridge private constructor(
     private val transport: MinecraftVersionTransport,
-    private val localBinder: LocalShareChannelBinder,
+    private val localBinder: LocalShareChannelBinder?,
+    private val gateway: ShareConnectionGateway?,
     private val loginAdmissionAcquire: (() -> AutoCloseable)? = null,
 ) : CommonPlatformInjector(), MinecraftShareBridge {
+    constructor(
+        transport: MinecraftVersionTransport,
+        localBinder: LocalShareChannelBinder,
+        loginAdmissionAcquire: (() -> AutoCloseable)? = null,
+    ) : this(
+        transport = transport,
+        localBinder = localBinder,
+        gateway = null,
+        loginAdmissionAcquire = loginAdmissionAcquire,
+    )
+
+    constructor(
+        transport: MinecraftVersionTransport,
+        gateway: ShareConnectionGateway,
+        loginAdmissionAcquire: (() -> AutoCloseable)? = null,
+    ) : this(
+        transport = transport,
+        localBinder = null,
+        gateway = gateway,
+        loginAdmissionAcquire = loginAdmissionAcquire,
+    )
+
     private val lifecycleLock = Any()
     private var active: ActiveTransport? = null
 
@@ -30,26 +53,54 @@ open class VersionedMinecraftBridge(
         val published = transport.publish(options)
         var local: LocalShareChannel? = null
         var localAdded = false
+        var gatewayLease: AutoCloseable? = null
         var admission: AutoCloseable? = null
         try {
             validatePublished(published).fold(
                 ifLeft = { failure -> throw IllegalStateException(failure.safeMessage) },
                 ifRight = {},
             )
-            local = localBinder.bind(published.childInitializer)
-            validateLocal(local).fold(
-                ifLeft = { failure -> throw IllegalStateException(failure.safeMessage) },
-                ifRight = {},
-            )
-            published.addLocalListener(local)
-            localAdded = true
+            val connectAddress: SocketAddress
+            val directAddress: InetSocketAddress
+            if (gateway != null) {
+                connectAddress = gateway.serverSocketAddress
+                directAddress = gateway.directAddress
+                validateGateway(connectAddress, directAddress).fold(
+                    ifLeft = {
+                        throw IllegalStateException(it.safeMessage)
+                    },
+                    ifRight = {},
+                )
+                gatewayLease = gateway.activateMinecraft(
+                    published.childInitializer,
+                )
+            } else {
+                local = checkNotNull(localBinder)
+                    .bind(published.childInitializer)
+                validateLocal(local).fold(
+                    ifLeft = {
+                        throw IllegalStateException(it.safeMessage)
+                    },
+                    ifRight = {},
+                )
+                published.addLocalListener(local)
+                localAdded = true
+                connectAddress = local.address
+                directAddress = published.address
+            }
             admission = loginAdmissionAcquire?.invoke()
-            val acquired = ActiveTransport(published, local, admission)
+            val acquired = ActiveTransport(
+                published = published,
+                local = local,
+                localAdded = localAdded,
+                gatewayLease = gatewayLease,
+                admission = admission,
+            )
             active = acquired
-            serverSocketAddress = local.address
+            serverSocketAddress = connectAddress
             LocalShareTarget(
-                address = local.address,
-                directAddress = published.address,
+                address = connectAddress,
+                directAddress = directAddress,
             ) {
                 close(acquired)
             }
@@ -57,6 +108,9 @@ open class VersionedMinecraftBridge(
             var cleanup: Throwable? = failure
             cleanup = releaseAfter(cleanup) {
                 admission?.close()
+            }
+            cleanup = releaseAfter(cleanup) {
+                gatewayLease?.close()
             }
             if (localAdded) {
                 cleanup = releaseAfter(cleanup) {
@@ -115,13 +169,27 @@ open class VersionedMinecraftBridge(
         }
     }
 
+    private fun validateGateway(
+        connectAddress: SocketAddress,
+        directAddress: InetSocketAddress,
+    ): Either<BridgeValidationError, Unit> = either {
+        ensure(connectAddress is LocalAddress) {
+            BridgeValidationError.NonLocalConnectTarget
+        }
+        ensure(directAddress.address.isLoopbackAddress) {
+            BridgeValidationError.PublicListener
+        }
+    }
+
     private class ActiveTransport(
         private val published: PublishedMinecraftTransport,
-        private val local: LocalShareChannel,
+        private val local: LocalShareChannel?,
+        private val localAdded: Boolean,
+        private val gatewayLease: AutoCloseable?,
         private val admission: AutoCloseable?,
     ) {
         private var admissionStopped = false
-        private var localClosed = false
+        private var routeClosed = false
         private var publishedClosed = false
 
         fun stopAdmission(primary: Throwable?): Throwable? {
@@ -135,11 +203,17 @@ open class VersionedMinecraftBridge(
         }
 
         fun closeLocal(primary: Throwable?): Throwable? {
-            if (localClosed) {
+            if (routeClosed) {
                 return primary
             }
-            localClosed = true
+            routeClosed = true
             var failure = releaseAfter(primary) {
+                gatewayLease?.close()
+            }
+            if (!localAdded || local == null) {
+                return failure
+            }
+            failure = releaseAfter(failure) {
                 published.removeLocalListener(local)
             }
             failure = releaseAfter(failure) {

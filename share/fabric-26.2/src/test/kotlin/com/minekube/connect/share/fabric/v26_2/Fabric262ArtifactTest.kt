@@ -47,6 +47,10 @@ class Fabric262ArtifactTest {
                     "\"Request to %s\"" in language,
             )
             assertTrue(
+                "\"connect_share.friends.incoming_request\": " +
+                    "\"Request from %s · %s\"" in language,
+            )
+            assertTrue(
                 "\"connect_share.friends.retry_request\": \"Retry\"" in
                     language,
             )
@@ -88,6 +92,9 @@ class Fabric262ArtifactTest {
             )
             assertTrue("sendRequest" in bytecode)
             assertTrue("FriendRequestClient" in bytecode)
+            assertTrue("getIncomingRequests" in bytecode)
+            assertTrue("connect_share.status.allow" in bytecode)
+            assertTrue("connect_share.status.deny" in bytecode)
             assertTrue("joinOutgoing" !in bytecode)
             assertFalse("connect_share.friends.accept_request" in bytecode)
         }

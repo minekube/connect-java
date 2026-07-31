@@ -2,17 +2,22 @@ package com.minekube.connect.share.fabric.ui
 
 import arrow.core.Either
 import arrow.core.left
+import com.minekube.connect.share.admission.AdmissionPurpose
+import com.minekube.connect.share.admission.AdmissionIdentity
+import com.minekube.connect.share.admission.Ingress
+import com.minekube.connect.share.admission.PendingAdmission
 import com.minekube.connect.share.fabric.DiscoveredLanShare
 import com.minekube.connect.share.fabric.FabricShareBrowser
 import com.minekube.connect.share.fabric.GuestJoinFailure
 import com.minekube.connect.share.fabric.GuestJoinTarget
 import com.minekube.connect.share.fabric.RemoteFriendPresence
+import com.minekube.connect.share.direct.ShareRoute
 import com.minekube.connect.share.friend.FriendPermissions
 import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.share.friend.SavedFriend
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import java.time.Instant
-import java.util.Base64
+import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,9 +37,16 @@ data class OutgoingFriendRequestSummary(
     val displayName: String,
 )
 
+data class IncomingFriendRequestSummary(
+    val requestId: UUID,
+    val displayName: String,
+    val ingress: Ingress,
+)
+
 data class FriendsUiState(
     val friends: List<FriendSummary> = emptyList(),
     val outgoingRequests: List<OutgoingFriendRequestSummary> = emptyList(),
+    val incomingRequests: List<IncomingFriendRequestSummary> = emptyList(),
     val safeMessage: String? = null,
 )
 
@@ -43,6 +55,8 @@ class FriendsViewModel(
 ) {
     private var discovered: List<DiscoveredLanShare> = emptyList()
     private var remotePresence: Map<String, RemoteFriendPresence> = emptyMap()
+    private var incomingRequests: List<IncomingFriendRequestSummary> =
+        emptyList()
     private val mutableState = MutableStateFlow(loadInitialState())
 
     val state: StateFlow<FriendsUiState> = mutableState.asStateFlow()
@@ -120,24 +134,52 @@ class FriendsViewModel(
         refresh(preserveSafeMessage = true)
     }
 
+    fun updateIncoming(pending: List<PendingAdmission>) {
+        val next = pending
+            .asSequence()
+            .filter { it.purpose == AdmissionPurpose.FRIEND }
+            .map {
+                IncomingFriendRequestSummary(
+                    requestId = it.requestId,
+                    displayName = it.identity.name,
+                    ingress = when (val identity = it.identity) {
+                        is AdmissionIdentity.Authenticated ->
+                            identity.ingress
+
+                        is AdmissionIdentity.UnverifiedOffline ->
+                            identity.ingress
+                    },
+                )
+            }
+            .toList()
+        if (incomingRequests == next) {
+            refresh(preserveSafeMessage = true)
+            return
+        }
+        incomingRequests = next
+        refresh(preserveSafeMessage = true)
+    }
+
     suspend fun join(
         peerId: String,
         browser: FabricShareBrowser,
         authMode: DirectP2pAuthMode,
+        ownConnectAddress: String? = null,
     ): Either<GuestJoinFailure, GuestJoinTarget> {
         val friend = savedFriend(peerId)
             ?: return GuestJoinFailure.NoRoute.left()
-        return browser.join(friend, authMode)
+        return browser.join(friend, authMode, ownConnectAddress)
     }
 
     suspend fun routeOutgoing(
         peerId: String,
         browser: FabricShareBrowser,
         authMode: DirectP2pAuthMode,
+        ownConnectAddress: String? = null,
     ): Either<GuestJoinFailure, GuestJoinTarget> {
         val request = outgoingRequest(peerId)
             ?: return GuestJoinFailure.NoRoute.left()
-        return browser.join(request, authMode)
+        return browser.join(request, authMode, ownConnectAddress)
     }
 
     fun reload() {
@@ -192,6 +234,7 @@ class FriendsViewModel(
                     displayName = it.displayName,
                 )
             },
+            incomingRequests = incomingRequests,
         )
 
     private fun update(transform: FriendsUiState.() -> FriendsUiState) {
@@ -199,13 +242,6 @@ class FriendsViewModel(
     }
 
     private fun SavedFriend.summary(): FriendSummary {
-        val presence = discovered.firstOrNull {
-            val invitation = it.invitation
-            invitation.payload.peerId == peerId &&
-                invitation.payload.shareId == shareId &&
-                Base64.getEncoder().encodeToString(invitation.publicKey) ==
-                publicKeyBase64
-        }
         val remote = remotePresence[peerId]
             ?.takeIf { it.online }
         return FriendSummary(
@@ -213,9 +249,9 @@ class FriendsViewModel(
             displayName = displayName,
             connectAvailable = connectAddress != null,
             permissions = permissions,
-            onlineViaLan = presence != null,
-            onlineViaConnect = remote != null,
-            worldName = presence?.displayName ?: remote?.description,
+            onlineViaLan = remote?.route == ShareRoute.DIRECT_LAN,
+            onlineViaConnect = remote?.route == ShareRoute.CONNECT,
+            worldName = remote?.description,
         )
     }
 
