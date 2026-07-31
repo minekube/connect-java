@@ -10,7 +10,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 @Mixin(IntegratedServer.class)
 public abstract class IntegratedServerMixin {
     @Redirect(
-            method = "publishServer(Lnet/minecraft/server/MinecraftServer$MultiplayerScope;Lnet/minecraft/world/level/GameType;ZI)Z",
+            method = "publishServer(Lnet/minecraft/server/MinecraftServer$MultiplayerScope;I)Z",
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/client/server/LanServerPinger;start()V"))
