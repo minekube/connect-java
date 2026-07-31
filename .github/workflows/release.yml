@@ -39,7 +39,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Build
-        run: ./gradlew build
+        run: ./gradlew -Pskip-share=true build
 
       - name: Get version
         id: version

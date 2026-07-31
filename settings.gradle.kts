@@ -96,9 +96,15 @@ include(":core")
 include(":bungee")
 include(":spigot")
 include(":velocity")
-include(":share:common")
-include(":share:fabric-common")
-include(":share:fabric-1-21-11")
-project(":share:fabric-1-21-11").projectDir = file("share/fabric-1.21.11")
-include(":share:fabric-26-2")
-project(":share:fabric-26-2").projectDir = file("share/fabric-26.2")
+
+// Fabric Loom has a newer JVM floor than the legacy Connect modules. The
+// Java 17/21 root CI build skips these modules; dedicated Share jobs use their
+// normal project paths with their matching JDK.
+if (!gradle.startParameter.projectProperties.containsKey("skip-share")) {
+    include(":share:common")
+    include(":share:fabric-common")
+    include(":share:fabric-1-21-11")
+    project(":share:fabric-1-21-11").projectDir = file("share/fabric-1.21.11")
+    include(":share:fabric-26-2")
+    project(":share:fabric-26-2").projectDir = file("share/fabric-26.2")
+}
