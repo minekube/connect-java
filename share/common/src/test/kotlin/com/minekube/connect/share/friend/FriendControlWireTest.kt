@@ -37,6 +37,14 @@ class FriendControlWireTest {
             FriendControlResponse.Declined,
             FriendControlResponse.TimedOut,
             FriendControlResponse.Invalid,
+            FriendControlResponse.Removed,
+            FriendControlResponse.Activity(
+                FriendActivity(
+                    FriendActivityKind.PLAYING_SERVER,
+                    "Hypixel",
+                ),
+            ),
+            FriendControlResponse.JoinAccepted("mc.hypixel.net"),
         )
 
         responses.forEach { response ->
@@ -47,6 +55,48 @@ class FriendControlWireTest {
             assertEquals(response, decoded.value)
             assertEquals(encoded.size, decoded.consumedBytes)
         }
+    }
+
+    @Test
+    fun `activity and join requests round trip without exposing a server address`() {
+        val activity = FriendActivityRequest(REQUEST_ID)
+        val join = FriendJoinRequest(REQUEST_ID)
+
+        assertEquals(
+            activity,
+            assertIs<FriendControlDecode.Decoded<FriendActivityRequest>>(
+                FriendControlWire.decodeActivityRequest(
+                    FriendControlWire.encodeActivityRequest(activity),
+                ),
+            ).value,
+        )
+        assertEquals(
+            join,
+            assertIs<FriendControlDecode.Decoded<FriendJoinRequest>>(
+                FriendControlWire.decodeJoinRequest(
+                    FriendControlWire.encodeJoinRequest(join),
+                ),
+            ).value,
+        )
+    }
+
+    @Test
+    fun `removal command round trips with a stable operation id`() {
+        val removal = FriendRemovalRequest(REQUEST_ID)
+
+        val encoded = FriendControlWire.encodeRemoval(removal)
+        val decoded = assertIs<
+            FriendControlDecode.Decoded<FriendRemovalRequest>
+            >(FriendControlWire.decodeRemoval(encoded))
+
+        assertEquals(removal, decoded.value)
+        assertEquals(encoded.size, decoded.consumedBytes)
+        assertEquals(
+            FriendControlMessageKind.REMOVAL,
+            assertIs<FriendControlDecode.Decoded<FriendControlMessageKind>>(
+                FriendControlWire.inspectControlMessage(encoded),
+            ).value,
+        )
     }
 
     @Test

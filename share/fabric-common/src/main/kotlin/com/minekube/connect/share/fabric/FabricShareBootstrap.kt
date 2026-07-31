@@ -13,16 +13,25 @@ import com.minekube.connect.share.fabric.ui.ShareViewModel
 import com.minekube.connect.share.fabric.ui.FriendsViewModel
 import com.minekube.connect.share.fabric.ui.StoredEndpointIdentityUiActions
 import com.minekube.connect.share.friend.FriendStore
+import com.minekube.connect.share.friend.FriendActivity
+import com.minekube.connect.share.friend.FriendActivityKind
+import com.minekube.connect.share.friend.FriendActivityRequest
 import com.minekube.connect.share.friend.SharePreferences
 import com.minekube.connect.share.friend.SharePreferencesStore
 import com.minekube.connect.share.identity.EndpointIdentityStore
+import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import com.minekube.connect.util.MessageFormatter
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicReference
+import java.util.UUID
 import java.util.logging.Level
 import java.util.logging.Logger
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -37,6 +46,10 @@ object FabricShareBootstrap {
         playerCount: () -> Int,
         worldDisplayName: () -> String = { "Minecraft world" },
         playerDisplayName: () -> String? = { null },
+        friendActivity: () -> FriendActivity = {
+            FriendActivity(FriendActivityKind.ONLINE)
+        },
+        friendJoinTarget: () -> String? = { null },
         bridgeFactory:
             (
                 AdmissionController,
@@ -103,13 +116,14 @@ object FabricShareBootstrap {
             connectAddress = { ownConnectAddress },
         )
         val friendCardReceiver = FriendCardReceiver(friendStore)
-        val friendsViewModel = FriendsViewModel(friendStore)
         val friendRequestServer = FriendRequestServer(
             scope = scope,
             admission = admission,
             issuer = friendCardIssuer,
             receiver = friendCardReceiver,
             friendStore = friendStore,
+            activity = friendActivity,
+            joinTarget = friendJoinTarget,
         )
         val gateway = ShareConnectionGateway.bind(friendRequestServer)
         var browser: FabricShareBrowser? = null
@@ -185,6 +199,63 @@ object FabricShareBootstrap {
                 worldAvailabilityChanged = viewModel::setWorldAvailable,
             )
             val friendRequestClient = FriendRequestClient()
+            val removalSync = FriendRemovalSync(friendStore) { removal ->
+                activeBrowser.openFriendControl(
+                    friend = removal.friend,
+                    authMode = DirectP2pAuthMode.OFFLINE,
+                ).fold(
+                    ifLeft = {
+                        arrow.core.Either.Left(
+                            FriendRequestFailure.Unreachable,
+                        )
+                    },
+                    ifRight = { target ->
+                        friendRequestClient.remove(
+                            target,
+                            com.minekube.connect.share.friend
+                                .FriendRemovalRequest(removal.operationId),
+                        )
+                    },
+                )
+            }
+            val friendsViewModel = FriendsViewModel(friendStore) {
+                scope.launch(Dispatchers.IO) {
+                    removalSync.sync()
+                }
+            }
+            val activityMonitor = FriendActivityMonitor(
+                store = friendStore,
+                query = { friend ->
+                activeBrowser.openFriendControl(
+                    friend = friend,
+                    authMode = DirectP2pAuthMode.OFFLINE,
+                ).fold(
+                    ifLeft = {
+                        arrow.core.Either.Left(
+                            FriendRequestFailure.Unreachable,
+                        )
+                    },
+                    ifRight = { target ->
+                        friendRequestClient.activity(
+                            target,
+                            FriendActivityRequest(UUID.randomUUID()),
+                        )
+                    },
+                )
+                },
+            )
+            scope.launch(Dispatchers.IO) {
+                while (isActive) {
+                    activityMonitor.refresh()
+                    delay(ACTIVITY_REFRESH_MILLIS)
+                }
+            }
+            scope.launch(Dispatchers.IO) {
+                while (isActive) {
+                    removalSync.sync()
+                    delay(REMOVAL_SYNC_MILLIS)
+                }
+            }
             val friendPairingClient = FriendPairingClient(
                 store = friendStore,
                 issuer = friendCardIssuer,
@@ -222,6 +293,7 @@ object FabricShareBootstrap {
                 controlPlane = controlPlane,
                 directControlPlane = directControlPlane,
                 browser = activeBrowser,
+                friendActivity = activityMonitor,
                 gateway = gateway,
                 ownConnectAddress = ownConnectAddress,
                 screens = screens,
@@ -256,6 +328,8 @@ object FabricShareBootstrap {
     private const val WS_SCHEME_LENGTH = 5
     private const val HOST_PLAYER_COUNT = 1
     private const val DEFAULT_MAX_GUESTS = 8
+    private const val REMOVAL_SYNC_MILLIS = 10_000L
+    private const val ACTIVITY_REFRESH_MILLIS = 10_000L
 }
 
 private class FabricConnectLogger(

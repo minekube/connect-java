@@ -23,6 +23,30 @@ fun interface FriendControlServer {
         context: FriendControlContext,
         request: FriendControlRequest,
     ): CompletionStage<FriendControlResponse>
+
+    fun handleRemoval(
+        context: FriendControlContext,
+        request: FriendRemovalRequest,
+    ): CompletionStage<FriendControlResponse> =
+        java.util.concurrent.CompletableFuture.completedFuture(
+            FriendControlResponse.Invalid,
+        )
+
+    fun handleActivity(
+        context: FriendControlContext,
+        request: FriendActivityRequest,
+    ): CompletionStage<FriendControlResponse> =
+        java.util.concurrent.CompletableFuture.completedFuture(
+            FriendControlResponse.Invalid,
+        )
+
+    fun handleJoin(
+        context: FriendControlContext,
+        request: FriendJoinRequest,
+    ): CompletionStage<FriendControlResponse> =
+        java.util.concurrent.CompletableFuture.completedFuture(
+            FriendControlResponse.Invalid,
+        )
 }
 
 class FriendControlChannelHandler(
@@ -58,7 +82,7 @@ class FriendControlChannelHandler(
         if (!controlHandshake) {
             when (
                 val inspected =
-                    FriendControlWire.inspectControlRequest(accumulated)
+                    FriendControlWire.inspectControlMessage(accumulated)
             ) {
                 FriendControlDecode.Incomplete -> return
                 FriendControlDecode.Invalid -> {
@@ -67,7 +91,7 @@ class FriendControlChannelHandler(
                 }
 
                 is FriendControlDecode.Decoded -> {
-                    if (!inspected.value) {
+                    if (inspected.value == FriendControlMessageKind.OTHER) {
                         passThrough(context, accumulated)
                         return
                     }
@@ -76,16 +100,85 @@ class FriendControlChannelHandler(
             }
         }
 
-        when (val decoded = FriendControlWire.decodeRequest(accumulated)) {
+        when (val inspected =
+            FriendControlWire.inspectControlMessage(accumulated)
+        ) {
+            is FriendControlDecode.Decoded -> when (inspected.value) {
+                FriendControlMessageKind.PAIRING ->
+                    decodePairing(context, accumulated)
+
+                FriendControlMessageKind.REMOVAL ->
+                    decodeRemoval(context, accumulated)
+
+                FriendControlMessageKind.ACTIVITY ->
+                    decodeActivity(context, accumulated)
+
+                FriendControlMessageKind.JOIN ->
+                    decodeJoin(context, accumulated)
+
+                FriendControlMessageKind.OTHER -> Unit
+            }
+
             FriendControlDecode.Incomplete -> Unit
             FriendControlDecode.Invalid -> context.close()
-            is FriendControlDecode.Decoded -> {
-                if (decoded.consumedBytes != accumulated.size) {
-                    context.close()
-                    return
-                }
+        }
+    }
+
+    private fun decodePairing(
+        context: ChannelHandlerContext,
+        accumulated: ByteArray,
+    ) = when (val decoded = FriendControlWire.decodeRequest(accumulated)) {
+        FriendControlDecode.Incomplete -> Unit
+        FriendControlDecode.Invalid -> context.close()
+        is FriendControlDecode.Decoded -> {
+            if (decoded.consumedBytes != accumulated.size) {
+                context.close()
+            } else {
                 beginRequest(context, decoded.value)
             }
+        }
+    }
+
+    private fun decodeRemoval(
+        context: ChannelHandlerContext,
+        accumulated: ByteArray,
+    ) = when (val decoded = FriendControlWire.decodeRemoval(accumulated)) {
+        FriendControlDecode.Incomplete -> Unit
+        FriendControlDecode.Invalid -> context.close()
+        is FriendControlDecode.Decoded -> {
+            if (decoded.consumedBytes != accumulated.size) {
+                context.close()
+            } else {
+                beginRemoval(context, decoded.value)
+            }
+        }
+    }
+
+    private fun decodeActivity(
+        context: ChannelHandlerContext,
+        accumulated: ByteArray,
+    ) = when (
+        val decoded = FriendControlWire.decodeActivityRequest(accumulated)
+    ) {
+        FriendControlDecode.Incomplete -> Unit
+        FriendControlDecode.Invalid -> context.close()
+        is FriendControlDecode.Decoded -> {
+            if (decoded.consumedBytes != accumulated.size) context.close()
+            else beginActivity(context, decoded.value)
+        }
+    }
+
+    private fun decodeJoin(
+        context: ChannelHandlerContext,
+        accumulated: ByteArray,
+    ) = when (
+        val decoded = FriendControlWire.decodeJoinRequest(accumulated)
+    ) {
+        FriendControlDecode.Incomplete -> Unit
+        FriendControlDecode.Invalid -> context.close()
+        is FriendControlDecode.Decoded -> {
+            if (decoded.consumedBytes != accumulated.size) context.close()
+            else beginJoin(context, decoded.value)
         }
     }
 
@@ -110,7 +203,57 @@ class FriendControlChannelHandler(
             return
         }
         writeResponse(context, FriendControlResponse.Received)
-        val pending = server.handle(context.controlContext(), request)
+        beginResponse(
+            context,
+            server.handle(context.controlContext(), request),
+        )
+    }
+
+    private fun beginRemoval(
+        context: ChannelHandlerContext,
+        request: FriendRemovalRequest,
+    ) {
+        if (response.get() != null) {
+            context.close()
+            return
+        }
+        writeResponse(context, FriendControlResponse.Received)
+        beginResponse(
+            context,
+            server.handleRemoval(context.controlContext(), request),
+        )
+    }
+
+    private fun beginActivity(
+        context: ChannelHandlerContext,
+        request: FriendActivityRequest,
+    ) = beginControl(context) {
+        server.handleActivity(context.controlContext(), request)
+    }
+
+    private fun beginJoin(
+        context: ChannelHandlerContext,
+        request: FriendJoinRequest,
+    ) = beginControl(context) {
+        server.handleJoin(context.controlContext(), request)
+    }
+
+    private inline fun beginControl(
+        context: ChannelHandlerContext,
+        operation: () -> CompletionStage<FriendControlResponse>,
+    ) {
+        if (response.get() != null) {
+            context.close()
+            return
+        }
+        writeResponse(context, FriendControlResponse.Received)
+        beginResponse(context, operation())
+    }
+
+    private fun beginResponse(
+        context: ChannelHandlerContext,
+        pending: CompletionStage<FriendControlResponse>,
+    ) {
         if (!response.compareAndSet(null, pending)) {
             pending.toCompletableFuture().cancel(true)
             context.close()

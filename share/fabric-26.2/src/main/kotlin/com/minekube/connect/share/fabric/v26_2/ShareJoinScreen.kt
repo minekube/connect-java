@@ -4,9 +4,12 @@ import com.minekube.connect.share.fabric.ConnectShareClient
 import com.minekube.connect.share.fabric.FabricShareBrowser
 import com.minekube.connect.share.fabric.FriendCardExchangeConsent
 import com.minekube.connect.share.fabric.FriendPresenceMonitor
+import com.minekube.connect.share.fabric.FriendActivityMonitor
 import com.minekube.connect.share.fabric.GuestJoinTarget
 import com.minekube.connect.share.admission.Ingress
 import com.minekube.connect.share.friend.FriendControlRequest
+import com.minekube.connect.share.friend.FriendJoinRequest
+import com.minekube.connect.share.friend.FriendActivityKind
 import com.minekube.connect.share.fabric.ui.FriendSummary
 import com.minekube.connect.share.fabric.ui.FriendsViewModel
 import com.minekube.connect.share.friend.FriendPermissions
@@ -22,6 +25,7 @@ import kotlinx.coroutines.withContext
 import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.components.Checkbox
 import net.minecraft.client.gui.components.EditBox
+import net.minecraft.client.gui.components.MultiLineTextWidget
 import net.minecraft.client.gui.components.StringWidget
 import net.minecraft.client.gui.components.Tooltip
 import net.minecraft.client.gui.screens.ConnectScreen
@@ -37,6 +41,7 @@ class ShareJoinScreen(
     private val friends: FriendsViewModel,
     private val browser: FabricShareBrowser,
     private val remotePresence: FriendPresenceMonitor,
+    private val friendActivity: FriendActivityMonitor,
 ) : Screen(Component.translatable("connect_share.friends.title")) {
     private var scope: CoroutineScope? = null
     private var mode = Mode.FRIENDS
@@ -72,6 +77,7 @@ class ShareJoinScreen(
         }
         friends.updatePresence(browser.discovered.value)
         friends.updateRemotePresence(remotePresence.state.value)
+        friends.updateActivities(friendActivity.state.value)
         friends.updateIncoming(
             ConnectShareClient.viewModel().state.value.pendingAdmissions,
         )
@@ -92,6 +98,7 @@ class ShareJoinScreen(
         super.tick()
         friends.updatePresence(browser.discovered.value)
         friends.updateRemotePresence(remotePresence.state.value)
+        friends.updateActivities(friendActivity.state.value)
         friends.updateIncoming(
             ConnectShareClient.viewModel().state.value.pendingAdmissions,
         )
@@ -136,10 +143,10 @@ class ShareJoinScreen(
             ),
         )
         addRenderableWidget(
-            centered(
+            centeredWrapped(
                 Component.translatable("connect_share.friends.description"),
                 34,
-            ).setMaxWidth(CONTENT_WIDTH),
+            ),
         )
 
         val state = friends.state.value
@@ -154,10 +161,10 @@ class ShareJoinScreen(
         )
         if (incoming.isEmpty() && outgoing.isEmpty() && saved.isEmpty()) {
             addRenderableWidget(
-                centered(
+                centeredWrapped(
                     Component.translatable("connect_share.friends.empty"),
                     82,
-                ).setMaxWidth(CONTENT_WIDTH),
+                ),
             )
         }
         incoming.forEachIndexed { index, request ->
@@ -169,7 +176,11 @@ class ShareJoinScreen(
                     174,
                     20,
                     Component.translatable(
-                        "connect_share.friends.incoming_request",
+                        if (request.purpose == com.minekube.connect.share.admission.AdmissionPurpose.FRIEND) {
+                            "connect_share.friends.incoming_request"
+                        } else {
+                            "connect_share.friends.incoming_join_request"
+                        },
                         request.displayName,
                         request.ingress.displayName(),
                     ),
@@ -233,11 +244,33 @@ class ShareJoinScreen(
         saved.forEachIndexed { index, friend ->
             val y =
                 58 + (incoming.size + outgoing.size + index) * 26
+            val actionWidth = if (friend.canRequestJoin || friend.canJoinNow) 86 else 0
             addRenderableWidget(
-                Button.builder(friendLabel(friend)) {
-                    joinSaved(friend.peerId)
-                }.bounds(width / 2 - 155, y, 242, 20).build(),
+                StringWidget(
+                    width / 2 - 155,
+                    y,
+                    242 - actionWidth,
+                    20,
+                    friendLabel(friend),
+                    font,
+                ).setMaxWidth(242 - actionWidth),
             )
+            if (actionWidth > 0) {
+                addRenderableWidget(
+                    Button.builder(
+                        Component.translatable(
+                            if (friend.canRequestJoin) {
+                                "connect_share.friends.request_join"
+                            } else {
+                                "connect_share.join.join"
+                            },
+                        ),
+                    ) {
+                        if (friend.canRequestJoin) requestToJoin(friend.peerId)
+                        else joinSaved(friend.peerId)
+                    }.bounds(width / 2 + 1, y, 86, 20).build(),
+                )
+            }
             addRenderableWidget(
                 Button.builder(
                     Component.translatable(
@@ -300,10 +333,10 @@ class ShareJoinScreen(
             ),
         )
         addRenderableWidget(
-            centered(
+            centeredWrapped(
                 Component.translatable("connect_share.friends.add_description"),
                 34,
-            ).setMaxWidth(CONTENT_WIDTH),
+            ),
         )
         nameBox = addRenderableWidget(
             EditBox(
@@ -467,7 +500,7 @@ class ShareJoinScreen(
             Checkbox.builder(
                 Component.translatable("connect_share.friends.auto_join"),
                 font,
-            ).pos(width / 2 - 155, 104)
+            ).pos(width / 2 - 155, 126)
                 .selected(friend.permissions.canJoinAutomatically)
                 .tooltip(
                     Tooltip.create(
@@ -478,10 +511,18 @@ class ShareJoinScreen(
                 )
                 .build(),
         )
+        val shareWorlds = addRenderableWidget(
+            Checkbox.builder(
+                Component.translatable("connect_share.friends.share_worlds"),
+                font,
+            ).pos(width / 2 - 155, 104)
+                .selected(friend.permissions.canSeeMyWorlds)
+                .build(),
+        )
         safeMessage().let { message ->
             if (message != null) {
                 addRenderableWidget(
-                    centered(Component.literal(message), 138)
+                    centered(Component.literal(message), 154)
                         .setMaxWidth(CONTENT_WIDTH),
                 )
             }
@@ -500,8 +541,7 @@ class ShareJoinScreen(
                             friend.peerId,
                             FriendPermissions(
                                 notifyWhenOnline = notify.selected(),
-                                canSeeMyWorlds =
-                                    friend.permissions.canSeeMyWorlds,
+                                canSeeMyWorlds = shareWorlds.selected(),
                                 canJoinAutomatically =
                                     autoJoin.selected(),
                             ),
@@ -541,12 +581,12 @@ class ShareJoinScreen(
             ),
         )
         addRenderableWidget(
-            centered(
+            centeredWrapped(
                 Component.translatable(
                     "connect_share.friends.remove_confirm.message",
                 ),
                 58,
-            ).setMaxWidth(CONTENT_WIDTH),
+            ),
         )
         addRenderableWidget(
             Button.builder(
@@ -623,6 +663,43 @@ class ShareJoinScreen(
         }
     }
 
+    private fun requestToJoin(peerId: String) {
+        if (joining) return
+        joining = true
+        joiningPeerId = peerId
+        reciprocalPairing = false
+        safeMessage = null
+        refresh()
+        scope?.launch {
+            val target = friends.routeFriendControl(
+                peerId,
+                browser,
+                DirectP2pAuthMode.OFFLINE,
+            ).getOrNull()
+            if (target == null) {
+                joining = false
+                safeMessage = Component.translatable(
+                    "connect_share.friends.friend_unreachable",
+                ).string
+                rebuildWidgets()
+                return@launch
+            }
+            ConnectShareClient.friendRequestClient().requestJoin(
+                target,
+                FriendJoinRequest(UUID.randomUUID()),
+            ).fold(
+                ifLeft = { failure ->
+                    joining = false
+                    safeMessage = failure.safeMessage
+                    rebuildWidgets()
+                },
+                ifRight = { address ->
+                    connect(GuestJoinTarget.Connect(address))
+                },
+            )
+        }
+    }
+
     private fun createFriendRequest() {
         val activeScope = scope ?: return
         if (
@@ -679,7 +756,7 @@ class ShareJoinScreen(
             val targetResult = friends.routeOutgoing(
                 peerId = peerId,
                 browser = browser,
-                authMode = authMode(),
+                authMode = DirectP2pAuthMode.OFFLINE,
             )
             val target = targetResult.getOrNull()
             if (target == null) {
@@ -865,6 +942,13 @@ class ShareJoinScreen(
     }
 
     private fun friendLabel(friend: FriendSummary): Component = when {
+        friend.activityKind == FriendActivityKind.PLAYING_SERVER ->
+            Component.translatable(
+                "connect_share.friends.playing_server",
+                friend.displayName,
+                friend.activityDescription ?: "Minecraft server",
+            )
+
         friend.onlineViaLan ->
             Component.translatable(
                 "connect_share.friends.ready_lan",
@@ -877,6 +961,12 @@ class ShareJoinScreen(
                 "connect_share.friends.ready_connect",
                 friend.displayName,
                 friend.worldName ?: "",
+            )
+
+        friend.activityKind == FriendActivityKind.ONLINE ->
+            Component.translatable(
+                "connect_share.friends.online",
+                friend.displayName,
             )
 
         friend.connectAvailable ->
@@ -941,6 +1031,17 @@ class ShareJoinScreen(
             font,
         )
     }
+
+    private fun centeredWrapped(
+        message: Component,
+        y: Int,
+    ): MultiLineTextWidget =
+        MultiLineTextWidget(
+            width / 2 - CONTENT_WIDTH / 2,
+            y,
+            message,
+            font,
+        ).setMaxWidth(CONTENT_WIDTH).setCentered(true)
 
     private enum class Mode {
         FRIENDS,

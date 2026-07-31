@@ -116,6 +116,23 @@ class AdmissionController(
         complete(completed, answer)
     }
 
+    fun denyDirectPeer(
+        peerId: String,
+        purpose: AdmissionPurpose,
+    ): Int {
+        val denied = synchronized(lock) {
+            val matches = requests.entries.filter { entry ->
+                entry.value.pending.purpose == purpose &&
+                    entry.value.pending.identity.directPeerId == peerId
+            }
+            matches.forEach { requests.remove(it.key) }
+            if (matches.isNotEmpty()) publishPending()
+            matches.map { it.value }
+        }
+        denied.forEach { complete(it, AdmissionAnswer.DENY) }
+        return denied.size
+    }
+
     fun resetShare() {
         val stopped = synchronized(lock) {
             val current = requests.values.toList()

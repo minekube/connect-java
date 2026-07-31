@@ -113,6 +113,44 @@ class FriendControlChannelHandlerTest {
         channel.finishAndReleaseAll()
     }
 
+    @Test
+    fun `removal command is dispatched on the authenticated direct session`() {
+        val removal = FriendRemovalRequest(UUID.randomUUID())
+        var received: Pair<FriendControlContext, FriendRemovalRequest>? = null
+        val server = object : FriendControlServer {
+            override fun handle(
+                context: FriendControlContext,
+                request: FriendControlRequest,
+            ): java.util.concurrent.CompletionStage<FriendControlResponse> =
+                CompletableFuture.completedFuture(
+                    FriendControlResponse.Invalid,
+                )
+
+            override fun handleRemoval(
+                context: FriendControlContext,
+                request: FriendRemovalRequest,
+            ): CompletableFuture<FriendControlResponse> {
+                received = context to request
+                return CompletableFuture.completedFuture(
+                    FriendControlResponse.Removed,
+                )
+            }
+        }
+        val channel = EmbeddedChannel(FriendControlChannelHandler(server))
+        channel.attr(DirectSessionAttributes.SESSION).set(DIRECT_SESSION)
+
+        channel.writeInbound(
+            Unpooled.wrappedBuffer(FriendControlWire.encodeRemoval(removal)),
+        )
+        channel.runPendingTasks()
+
+        assertEquals(removal, received?.second)
+        assertEquals(DIRECT_SESSION.peerId(), received?.first?.directPeerId)
+        assertEquals(FriendControlResponse.Received, channel.readControlResponse())
+        assertEquals(FriendControlResponse.Removed, channel.readControlResponse())
+        channel.finishAndReleaseAll()
+    }
+
     private fun EmbeddedChannel.readControlResponse(): FriendControlResponse {
         val buffer = readOutbound<ByteBuf>()
         val bytes = ByteArray(buffer.readableBytes())

@@ -11,6 +11,33 @@ data class FriendControlRequest(
     val invitation: String,
 )
 
+data class FriendRemovalRequest(
+    val operationId: UUID,
+)
+
+data class FriendActivityRequest(val requestId: UUID)
+
+data class FriendJoinRequest(val requestId: UUID)
+
+enum class FriendActivityKind {
+    ONLINE,
+    HOSTING_WORLD,
+    PLAYING_SERVER,
+}
+
+data class FriendActivity(
+    val kind: FriendActivityKind,
+    val description: String? = null,
+)
+
+enum class FriendControlMessageKind {
+    PAIRING,
+    REMOVAL,
+    ACTIVITY,
+    JOIN,
+    OTHER,
+}
+
 sealed interface FriendControlResponse {
     data object Received : FriendControlResponse
 
@@ -23,6 +50,12 @@ sealed interface FriendControlResponse {
     data object TimedOut : FriendControlResponse
 
     data object Invalid : FriendControlResponse
+
+    data object Removed : FriendControlResponse
+
+    data class Activity(val activity: FriendActivity) : FriendControlResponse
+
+    data class JoinAccepted(val address: String) : FriendControlResponse
 }
 
 sealed interface FriendControlDecode<out A> {
@@ -43,9 +76,14 @@ object FriendControlWire {
     private const val HANDSHAKE_PACKET_ID = 0
     private const val CONTROL_REQUEST_PACKET_ID = 0x43F1
     private const val CONTROL_RESPONSE_PACKET_ID = 0x43F2
+    private const val CONTROL_REMOVAL_PACKET_ID = 0x43F3
+    private const val CONTROL_ACTIVITY_PACKET_ID = 0x43F4
+    private const val CONTROL_JOIN_PACKET_ID = 0x43F5
     private const val MAX_ADDRESS_BYTES = 255
     private const val MAX_DISPLAY_NAME_BYTES = 256
     private const val MAX_INVITATION_BYTES = 32_768
+    private const val MAX_ACTIVITY_BYTES = 512
+    private const val MAX_SERVER_ADDRESS_BYTES = 1_024
 
     fun encodeRequest(
         request: FriendControlRequest,
@@ -107,6 +145,78 @@ object FriendControlWire {
         }
     }
 
+    fun encodeRemoval(request: FriendRemovalRequest): ByteArray {
+        val output = ByteArrayOutputStream()
+        output.writePacket {
+            writeVarInt(CONTROL_REMOVAL_PACKET_ID)
+            writeLong(request.operationId.mostSignificantBits)
+            writeLong(request.operationId.leastSignificantBits)
+        }
+        return output.toByteArray()
+    }
+
+    fun decodeRemoval(
+        bytes: ByteArray,
+    ): FriendControlDecode<FriendRemovalRequest> {
+        if (bytes.size > MAX_REQUEST_BYTES) {
+            return FriendControlDecode.Invalid
+        }
+        return decode(bytes) {
+            val control = readPacket()
+            ensure(control.readVarInt() == CONTROL_REMOVAL_PACKET_ID)
+            val request = FriendRemovalRequest(
+                UUID(control.readLong(), control.readLong()),
+            )
+            control.ensureFinished()
+            request
+        }
+    }
+
+    fun encodeActivityRequest(request: FriendActivityRequest): ByteArray =
+        encodeIdRequest(CONTROL_ACTIVITY_PACKET_ID, request.requestId)
+
+    fun decodeActivityRequest(
+        bytes: ByteArray,
+    ): FriendControlDecode<FriendActivityRequest> =
+        decodeIdRequest(bytes, CONTROL_ACTIVITY_PACKET_ID) {
+            FriendActivityRequest(it)
+        }
+
+    fun encodeJoinRequest(request: FriendJoinRequest): ByteArray =
+        encodeIdRequest(CONTROL_JOIN_PACKET_ID, request.requestId)
+
+    fun decodeJoinRequest(
+        bytes: ByteArray,
+    ): FriendControlDecode<FriendJoinRequest> =
+        decodeIdRequest(bytes, CONTROL_JOIN_PACKET_ID) {
+            FriendJoinRequest(it)
+        }
+
+    private fun encodeIdRequest(packetId: Int, id: UUID): ByteArray {
+        val output = ByteArrayOutputStream()
+        output.writePacket {
+            writeVarInt(packetId)
+            writeLong(id.mostSignificantBits)
+            writeLong(id.leastSignificantBits)
+        }
+        return output.toByteArray()
+    }
+
+    private fun <A> decodeIdRequest(
+        bytes: ByteArray,
+        packetId: Int,
+        create: (UUID) -> A,
+    ): FriendControlDecode<A> {
+        if (bytes.size > MAX_REQUEST_BYTES) return FriendControlDecode.Invalid
+        return decode(bytes) {
+            val control = readPacket()
+            ensure(control.readVarInt() == packetId)
+            val value = create(UUID(control.readLong(), control.readLong()))
+            control.ensureFinished()
+            value
+        }
+    }
+
     fun isStatusHandshake(bytes: ByteArray): Boolean = try {
         val reader = Reader(bytes)
         val handshake = reader.readPacket()
@@ -128,6 +238,19 @@ object FriendControlWire {
         firstPacket.readVarInt() == CONTROL_REQUEST_PACKET_ID
     }
 
+    fun inspectControlMessage(
+        bytes: ByteArray,
+    ): FriendControlDecode<FriendControlMessageKind> = decode(bytes) {
+        val packet = readPacket()
+        when (packet.readVarInt()) {
+            CONTROL_REQUEST_PACKET_ID -> FriendControlMessageKind.PAIRING
+            CONTROL_REMOVAL_PACKET_ID -> FriendControlMessageKind.REMOVAL
+            CONTROL_ACTIVITY_PACKET_ID -> FriendControlMessageKind.ACTIVITY
+            CONTROL_JOIN_PACKET_ID -> FriendControlMessageKind.JOIN
+            else -> FriendControlMessageKind.OTHER
+        }
+    }
+
     fun encodeResponse(response: FriendControlResponse): ByteArray {
         val output = ByteArrayOutputStream()
         output.writePacket {
@@ -142,6 +265,16 @@ object FriendControlWire {
                 FriendControlResponse.Declined -> write(2)
                 FriendControlResponse.TimedOut -> write(3)
                 FriendControlResponse.Invalid -> write(4)
+                FriendControlResponse.Removed -> write(5)
+                is FriendControlResponse.Activity -> {
+                    write(6)
+                    write(response.activity.kind.ordinal)
+                    writeString(response.activity.description.orEmpty())
+                }
+                is FriendControlResponse.JoinAccepted -> {
+                    write(7)
+                    writeString(response.address)
+                }
             }
         }
         return output.toByteArray()
@@ -161,6 +294,22 @@ object FriendControlWire {
             2 -> FriendControlResponse.Declined
             3 -> FriendControlResponse.TimedOut
             4 -> FriendControlResponse.Invalid
+            5 -> FriendControlResponse.Removed
+            6 -> {
+                val kind = FriendActivityKind.entries.getOrNull(
+                    response.readByte(),
+                ) ?: invalid()
+                FriendControlResponse.Activity(
+                    FriendActivity(
+                        kind = kind,
+                        description = response.readString(MAX_ACTIVITY_BYTES)
+                            .takeIf(String::isNotEmpty),
+                    ),
+                )
+            }
+            7 -> FriendControlResponse.JoinAccepted(
+                response.readString(MAX_SERVER_ADDRESS_BYTES),
+            )
             else -> invalid()
         }
         response.ensureFinished()

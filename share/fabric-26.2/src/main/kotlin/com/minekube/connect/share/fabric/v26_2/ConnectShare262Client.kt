@@ -9,10 +9,13 @@ import com.minekube.connect.share.fabric.FabricLocalLoginAdmissionGate
 import com.minekube.connect.share.fabric.FabricShareBootstrap
 import com.minekube.connect.share.fabric.FabricShareBrowser
 import com.minekube.connect.share.fabric.FriendCardReceiver
-import com.minekube.connect.share.fabric.FriendOnlineTracker
+import com.minekube.connect.share.fabric.SocialEvent
+import com.minekube.connect.share.fabric.SocialEventTracker
 import com.minekube.connect.share.fabric.FriendPresenceMonitor
 import com.minekube.connect.share.fabric.MinecraftStatusProbe
 import com.minekube.connect.share.friend.FriendStore
+import com.minekube.connect.share.friend.FriendActivity
+import com.minekube.connect.share.friend.FriendActivityKind
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -58,6 +61,10 @@ class ConnectShare262Client : ClientModInitializer {
             client.singleplayerServer?.worldData?.levelName
                 ?: "Minecraft world",
         )
+        val activitySnapshot = AtomicReference(
+            FriendActivity(FriendActivityKind.ONLINE),
+        )
+        val joinTargetSnapshot = AtomicReference<String?>(null)
         val minecraftVersion =
             SharedConstants.getCurrentVersion().name()
         val dataDirectory = FabricLoader.getInstance().configDir
@@ -96,6 +103,8 @@ class ConnectShare262Client : ClientModInitializer {
                     playerCount = playerCountSnapshot::get,
                     worldDisplayName = worldNameSnapshot::get,
                     playerDisplayName = { client.user.name },
+                    friendActivity = activitySnapshot::get,
+                    friendJoinTarget = joinTargetSnapshot::get,
                     bridgeFactory = {
                             admission,
                             admissionScope,
@@ -124,7 +133,7 @@ class ConnectShare262Client : ClientModInitializer {
                             )
                         }
                     },
-                    guestScreens = { parent, browser ->
+                    guestScreens = { parent, browser, activity ->
                         val parentScreen = parent as Screen
                         client.execute {
                             client.gui.setScreen(
@@ -134,6 +143,7 @@ class ConnectShare262Client : ClientModInitializer {
                                         ConnectShareClient.friendsViewModel(),
                                     browser = browser,
                                     remotePresence = remotePresence,
+                                    friendActivity = activity,
                                 ),
                             )
                         }
@@ -164,9 +174,8 @@ class ConnectShare262Client : ClientModInitializer {
             }
         }
         val admissionNotifications = NewAdmissionTracker()
-        val friendNotifications = FriendOnlineTracker()
+        val socialNotifications = SocialEventTracker()
         val admissionToastId = SystemToast.SystemToastId()
-        val friendToastId = SystemToast.SystemToastId()
 
         ClientTickEvents.END_CLIENT_TICK.register { minecraft ->
             val installation =
@@ -180,6 +189,20 @@ class ConnectShare262Client : ClientModInitializer {
             )
             worldNameSnapshot.set(
                 server?.worldData?.levelName ?: "Minecraft world",
+            )
+            val currentServer = minecraft.currentServer
+            val externalServer = currentServer
+                ?.takeIf { !worldAvailable }
+            joinTargetSnapshot.set(externalServer?.ip)
+            activitySnapshot.set(
+                if (externalServer != null) {
+                    FriendActivity(
+                        FriendActivityKind.PLAYING_SERVER,
+                        externalServer.name,
+                    )
+                } else {
+                    FriendActivity(FriendActivityKind.ONLINE)
+                },
             )
             ConnectShareClient.integratedWorldChanged(
                 worldAvailable,
@@ -211,19 +234,18 @@ class ConnectShare262Client : ClientModInitializer {
                     ),
                 )
             }
-            friendNotifications.update(
-                remotePresence.state.value,
-            ).firstOrNull()?.let { friend ->
+            val friends = installation.friendsViewModel
+            friends.updateIncoming(
+                installation.viewModel.state.value.pendingAdmissions,
+            )
+            friends.updateRemotePresence(remotePresence.state.value)
+            friends.updateActivities(installation.friendActivity.state.value)
+            socialNotifications.update(friends.state.value).forEach { event ->
                 SystemToast.add(
                     minecraft.gui.toastManager(),
-                    friendToastId,
-                    Component.translatable(
-                        "connect_share.notification.friend_online",
-                    ),
-                    Component.translatable(
-                        "connect_share.notification.friend_online_detail",
-                        friend.displayName,
-                    ),
+                    SystemToast.SystemToastId(),
+                    event.title(),
+                    event.detail(),
                 )
             }
         }
@@ -244,5 +266,38 @@ class ConnectShare262Client : ClientModInitializer {
     private companion object {
         const val PRESENCE_REFRESH_MILLIS = 30_000L
         val LOGGER: Logger = Logger.getLogger("Connect")
+    }
+
+    private fun SocialEvent.title(): Component = Component.translatable(
+        when (this) {
+            is SocialEvent.FriendAccepted ->
+                "connect_share.notification.friend_accepted"
+            is SocialEvent.FriendRemoved ->
+                "connect_share.notification.friend_removed"
+            is SocialEvent.PlayingServer ->
+                "connect_share.notification.friend_playing"
+            is SocialEvent.WorldReady ->
+                "connect_share.notification.friend_online"
+        },
+    )
+
+    private fun SocialEvent.detail(): Component = when (this) {
+        is SocialEvent.FriendAccepted -> Component.translatable(
+            "connect_share.notification.friend_accepted_detail",
+            displayName,
+        )
+        is SocialEvent.FriendRemoved -> Component.translatable(
+            "connect_share.notification.friend_removed_detail",
+            displayName,
+        )
+        is SocialEvent.PlayingServer -> Component.translatable(
+            "connect_share.notification.friend_playing_detail",
+            displayName,
+            serverName,
+        )
+        is SocialEvent.WorldReady -> Component.translatable(
+            "connect_share.notification.friend_online_detail",
+            displayName,
+        )
     }
 }
