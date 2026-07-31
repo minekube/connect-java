@@ -2,6 +2,8 @@ package com.minekube.connect.share.fabric
 
 import arrow.core.Either
 import arrow.core.flatMap
+import arrow.core.raise.either
+import arrow.core.raise.ensure
 import com.minekube.connect.share.direct.ShareInviteCodec
 import com.minekube.connect.share.direct.ShareInvitePayload
 import com.minekube.connect.share.direct.SignedShareInvite
@@ -30,14 +32,11 @@ class FriendCardReceiver(
         authenticatedMinecraftUuid: UUID?,
         now: Instant = Instant.now(),
     ): Either<FriendStoreError, SavedFriend> =
-        store.accept(invitation, displayName, now).flatMap { friend ->
-            store.updatePermissions(
-                friend.peerId,
-                friend.permissions.copy(
-                    canJoinAutomatically = true,
-                ),
-            )
-        }.flatMap { friend ->
+        store.acceptAndAllowJoin(
+            invitation,
+            displayName,
+            now,
+        ).flatMap { friend ->
             authenticatedMinecraftUuid?.let { minecraftUuid ->
                 store.linkMinecraftIdentity(
                     friend.peerId,
@@ -49,11 +48,19 @@ class FriendCardReceiver(
 
 class FriendCardIssuer(
     private val dataDirectory: Path,
+    private val displayName: () -> String? = { null },
     private val connectAddress: suspend () -> String?,
 ) {
     suspend fun issue(
         now: Instant = Instant.now(),
-    ): Either<FriendCardIssueFailure, String> =
+    ): Either<FriendCardIssueFailure, String> = either {
+        val normalizedDisplayName = displayName()?.trim()
+        ensure(
+            normalizedDisplayName == null ||
+                normalizedDisplayName.length in 1..MAX_DISPLAY_NAME_LENGTH,
+        ) {
+            FriendCardIssueFailure
+        }
         Either.catch {
             val access = ShareAccessIdentityStore(
                 dataDirectory,
@@ -72,6 +79,7 @@ class FriendCardIssuer(
                     internetDirectEnabled = false,
                     directCandidates = emptyList(),
                     capability = access.capability,
+                    displayName = normalizedDisplayName,
                 )
                 val publicKey = node.publicKey()
                 val unsigned = ShareInviteCodec.unsignedBytes(
@@ -88,11 +96,13 @@ class FriendCardIssuer(
             }
         }.mapLeft {
             FriendCardIssueFailure
-        }
+        }.bind()
+    }
 
     private companion object {
         private const val IDENTITY_FILE_NAME =
             "share-libp2p-identity.key"
         private const val CARD_LIFETIME_SECONDS = 24 * 60 * 60L
+        private const val MAX_DISPLAY_NAME_LENGTH = 64
     }
 }

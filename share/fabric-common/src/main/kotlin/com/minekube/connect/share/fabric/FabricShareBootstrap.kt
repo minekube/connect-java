@@ -32,11 +32,11 @@ object FabricShareBootstrap {
         scope: CoroutineScope,
         dataDirectory: Path,
         minecraftVersion: String,
-        minecraftProtocolVersion: Int,
         worldAvailable: Boolean,
         friendStore: FriendStore,
         playerCount: () -> Int,
         worldDisplayName: () -> String = { "Minecraft world" },
+        playerDisplayName: () -> String? = { null },
         bridgeFactory:
             (
                 AdmissionController,
@@ -97,9 +97,11 @@ object FabricShareBootstrap {
         val endpointIdentity = identityStore.currentOrCreate()
         val ownConnectAddress =
             "${endpointIdentity.endpoint}.play.minekube.net"
-        val friendCardIssuer = FriendCardIssuer(dataDirectory) {
-            ownConnectAddress
-        }
+        val friendCardIssuer = FriendCardIssuer(
+            dataDirectory = dataDirectory,
+            displayName = playerDisplayName,
+            connectAddress = { ownConnectAddress },
+        )
         val friendCardReceiver = FriendCardReceiver(friendStore)
         val friendsViewModel = FriendsViewModel(friendStore)
         val friendRequestServer = FriendRequestServer(
@@ -181,9 +183,7 @@ object FabricShareBootstrap {
                 resumeShare = viewModel::resumeIfEnabled,
                 worldAvailabilityChanged = viewModel::setWorldAvailable,
             )
-            val friendRequestClient = FriendRequestClient(
-                minecraftProtocolVersion,
-            )
+            val friendRequestClient = FriendRequestClient()
             val friendPairingClient = FriendPairingClient(
                 store = friendStore,
                 issuer = friendCardIssuer,

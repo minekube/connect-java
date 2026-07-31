@@ -23,6 +23,7 @@ class FriendCardIssuerTest {
             val issuer = FriendCardIssuer(
                 dataDirectory = tempDir,
                 connectAddress = { "purple-del.play.minekube.net" },
+                displayName = { "RoboFlax2" },
             )
 
             val first = assertIs<Either.Right<String>>(
@@ -54,6 +55,7 @@ class FriendCardIssuerTest {
                 "purple-del.play.minekube.net",
                 firstInvite.payload.connectAddress,
             )
+            assertEquals("RoboFlax2", firstInvite.payload.displayName)
             assertTrue(firstInvite.payload.directCandidates.isEmpty())
         }
 

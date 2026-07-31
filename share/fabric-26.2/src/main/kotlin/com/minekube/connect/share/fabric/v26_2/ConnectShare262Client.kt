@@ -60,8 +60,6 @@ class ConnectShare262Client : ClientModInitializer {
         )
         val minecraftVersion =
             SharedConstants.getCurrentVersion().name()
-        val minecraftProtocolVersion =
-            SharedConstants.getProtocolVersion()
         val dataDirectory = FabricLoader.getInstance().configDir
             .resolve("minekube-connect-share")
         val friendStore = FriendStore(dataDirectory)
@@ -93,11 +91,11 @@ class ConnectShare262Client : ClientModInitializer {
                     scope = scope,
                     dataDirectory = dataDirectory,
                     minecraftVersion = minecraftVersion,
-                    minecraftProtocolVersion = minecraftProtocolVersion,
                     worldAvailable = worldAvailableSnapshot.get(),
                     friendStore = friendStore,
                     playerCount = playerCountSnapshot::get,
                     worldDisplayName = worldNameSnapshot::get,
+                    playerDisplayName = { client.user.name },
                     bridgeFactory = {
                             admission,
                             admissionScope,

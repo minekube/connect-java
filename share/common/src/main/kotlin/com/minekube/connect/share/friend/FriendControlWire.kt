@@ -38,11 +38,9 @@ sealed interface FriendControlDecode<out A> {
 
 object FriendControlWire {
     const val MAX_REQUEST_BYTES = 65_536
-    const val CONTROL_HANDSHAKE_PORT = 24_454
 
     private const val STATUS_INTENTION = 1
     private const val HANDSHAKE_PACKET_ID = 0
-    private const val STATUS_REQUEST_PACKET_ID = 0
     private const val CONTROL_REQUEST_PACKET_ID = 0x43F1
     private const val CONTROL_RESPONSE_PACKET_ID = 0x43F2
     private const val MAX_ADDRESS_BYTES = 255
@@ -50,16 +48,8 @@ object FriendControlWire {
     private const val MAX_INVITATION_BYTES = 32_768
 
     fun encodeRequest(
-        protocolVersion: Int,
-        serverAddress: String,
         request: FriendControlRequest,
     ): ByteArray {
-        require(protocolVersion >= 0) {
-            "Minecraft protocol version must not be negative"
-        }
-        require(serverAddress.toByteArray(StandardCharsets.UTF_8).size <= MAX_ADDRESS_BYTES) {
-            "Minecraft server address is too long"
-        }
         require(
             request.displayName.trim().isNotEmpty() &&
                 request.displayName.toByteArray(StandardCharsets.UTF_8).size <=
@@ -75,17 +65,6 @@ object FriendControlWire {
         }
 
         val output = ByteArrayOutputStream()
-        output.writePacket {
-            writeVarInt(HANDSHAKE_PACKET_ID)
-            writeVarInt(protocolVersion)
-            writeString(serverAddress)
-            write((CONTROL_HANDSHAKE_PORT ushr 8) and 0xff)
-            write(CONTROL_HANDSHAKE_PORT and 0xff)
-            writeVarInt(STATUS_INTENTION)
-        }
-        output.writePacket {
-            writeVarInt(STATUS_REQUEST_PACKET_ID)
-        }
         output.writePacket {
             writeVarInt(CONTROL_REQUEST_PACKET_ID)
             writeLong(request.requestId.mostSignificantBits)
@@ -107,20 +86,6 @@ object FriendControlWire {
             return FriendControlDecode.Invalid
         }
         return decode(bytes) {
-            val handshake = readPacket()
-            ensure(handshake.readVarInt() == HANDSHAKE_PACKET_ID)
-            handshake.readVarInt()
-            handshake.readString(MAX_ADDRESS_BYTES)
-            ensure(handshake.readUnsignedShort() == CONTROL_HANDSHAKE_PORT)
-            ensure(handshake.readVarInt() == STATUS_INTENTION)
-            handshake.ensureFinished()
-
-            val statusRequest = readPacket()
-            ensure(
-                statusRequest.readVarInt() == STATUS_REQUEST_PACKET_ID,
-            )
-            statusRequest.ensureFinished()
-
             val control = readPacket()
             ensure(control.readVarInt() == CONTROL_REQUEST_PACKET_ID)
             val requestId = UUID(
@@ -156,18 +121,11 @@ object FriendControlWire {
         false
     }
 
-    fun inspectControlHandshake(
+    fun inspectControlRequest(
         bytes: ByteArray,
     ): FriendControlDecode<Boolean> = decode(bytes) {
-        val handshake = readPacket()
-        ensure(handshake.readVarInt() == HANDSHAKE_PACKET_ID)
-        handshake.readVarInt()
-        handshake.readString(MAX_ADDRESS_BYTES)
-        val port = handshake.readUnsignedShort()
-        val intention = handshake.readVarInt()
-        handshake.ensureFinished()
-        port == CONTROL_HANDSHAKE_PORT &&
-            intention == STATUS_INTENTION
+        val firstPacket = readPacket()
+        firstPacket.readVarInt() == CONTROL_REQUEST_PACKET_ID
     }
 
     fun encodeResponse(response: FriendControlResponse): ByteArray {

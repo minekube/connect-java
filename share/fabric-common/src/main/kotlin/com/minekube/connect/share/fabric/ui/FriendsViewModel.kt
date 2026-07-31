@@ -1,7 +1,9 @@
 package com.minekube.connect.share.fabric.ui
 
 import arrow.core.Either
+import arrow.core.Option
 import arrow.core.left
+import arrow.core.toOption
 import com.minekube.connect.share.admission.AdmissionPurpose
 import com.minekube.connect.share.admission.AdmissionIdentity
 import com.minekube.connect.share.admission.Ingress
@@ -12,6 +14,7 @@ import com.minekube.connect.share.fabric.GuestJoinFailure
 import com.minekube.connect.share.fabric.GuestJoinTarget
 import com.minekube.connect.share.fabric.RemoteFriendPresence
 import com.minekube.connect.share.direct.ShareRoute
+import com.minekube.connect.share.direct.ShareInviteCodec
 import com.minekube.connect.share.friend.FriendPermissions
 import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.share.friend.SavedFriend
@@ -76,6 +79,14 @@ class FriendsViewModel(
                 request.peerId
             },
         )
+
+    fun suggestedDisplayName(
+        invitationUri: String,
+        now: Instant = Instant.now(),
+    ): Option<String> = ShareInviteCodec.decode(
+        invitationUri.trim(),
+        now,
+    ).getOrNull()?.payload?.displayName.toOption()
 
     fun rename(peerId: String, displayName: String) {
         store.rename(peerId, displayName).fold(
@@ -175,11 +186,10 @@ class FriendsViewModel(
         peerId: String,
         browser: FabricShareBrowser,
         authMode: DirectP2pAuthMode,
-        ownConnectAddress: String? = null,
-    ): Either<GuestJoinFailure, GuestJoinTarget> {
+    ): Either<GuestJoinFailure, GuestJoinTarget.Direct> {
         val request = outgoingRequest(peerId)
             ?: return GuestJoinFailure.NoRoute.left()
-        return browser.join(request, authMode, ownConnectAddress)
+        return browser.openFriendControl(request, authMode)
     }
 
     fun reload() {

@@ -2,6 +2,7 @@ package com.minekube.connect.share.fabric
 
 import arrow.core.Either
 import arrow.core.raise.either
+import arrow.core.raise.ensure
 import com.minekube.connect.share.friend.FriendControlRequest
 import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.share.friend.FriendStoreError
@@ -68,6 +69,10 @@ class FriendPairingClient(
                 val target = route(pending)
                     .mapLeft(FriendPairingFailure::Route)
                     .bind()
+                ensure(target is GuestJoinTarget.Direct) {
+                    target.close()
+                    FriendPairingFailure.Route(GuestJoinFailure.NoRoute)
+                }
                 val hostCard = requestClient.exchange(
                     target = target,
                     request = FriendControlRequest(

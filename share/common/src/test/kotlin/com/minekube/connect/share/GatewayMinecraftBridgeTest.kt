@@ -149,34 +149,16 @@ class GatewayMinecraftBridgeTest {
     }
 
     private companion object {
-        val CONTROL_REQUEST = com.minekube.connect.share.friend
-            .FriendControlRequest(
-                requestId = java.util.UUID.fromString(
-                    "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-                ),
-                displayName = "ordinary",
-                invitation = "minekube://share/ordinary",
-            )
-        val MINECRAFT_BYTES =
-            com.minekube.connect.share.friend.FriendControlWire
-                .encodeRequest(
-                    protocolVersion = 1_075,
-                    serverAddress = "ordinary-minecraft",
-                    request = CONTROL_REQUEST,
-                ).copyOf().also { bytes ->
-                    val port =
-                        com.minekube.connect.share.friend
-                            .FriendControlWire
-                            .CONTROL_HANDSHAKE_PORT
-                    val high = port ushr 8
-                    val low = port and 0xff
-                    val index = bytes.indices.first {
-                        it + 1 < bytes.size &&
-                            bytes[it].toInt() and 0xff == high &&
-                            bytes[it + 1].toInt() and 0xff == low
-                    }
-                    bytes[index] = (25_565 ushr 8).toByte()
-                    bytes[index + 1] = 25_565.toByte()
-                }
+        val MINECRAFT_BYTES = byteArrayOf(
+            0x10,
+            0x00,
+            0xb3.toByte(),
+            0x08,
+            0x09,
+            *"localhost".toByteArray(),
+            0x63,
+            0xdd.toByte(),
+            0x02,
+        )
     }
 }

@@ -41,8 +41,6 @@ class ShareConnectionGatewayTest {
                 socket.getOutputStream().apply {
                     write(
                         FriendControlWire.encodeRequest(
-                            protocolVersion = 1_075,
-                            serverAddress = "connect-share",
                             request = REQUEST,
                         ),
                     )
@@ -199,8 +197,6 @@ class ShareConnectionGatewayTest {
                     channel.writeAndFlush(
                         Unpooled.wrappedBuffer(
                             FriendControlWire.encodeRequest(
-                                protocolVersion = 1_075,
-                                serverAddress = "friend-control",
                                 request = REQUEST,
                             ),
                         ),
@@ -293,23 +289,16 @@ class ShareConnectionGatewayTest {
             invitation = "minekube://share/sender-card",
         )
         const val HOST_CARD = "minekube://share/host-card"
-        val ORDINARY_MINECRAFT_BYTES =
-            FriendControlWire.encodeRequest(
-                protocolVersion = 1_075,
-                serverAddress = "ordinary-minecraft",
-                request = REQUEST,
-            ).copyOf().also { bytes ->
-                val controlHigh =
-                    FriendControlWire.CONTROL_HANDSHAKE_PORT ushr 8
-                val controlLow =
-                    FriendControlWire.CONTROL_HANDSHAKE_PORT and 0xff
-                val portIndex = bytes.indices.first {
-                    it + 1 < bytes.size &&
-                        bytes[it].toInt() and 0xff == controlHigh &&
-                        bytes[it + 1].toInt() and 0xff == controlLow
-                }
-                bytes[portIndex] = (25_565 ushr 8).toByte()
-                bytes[portIndex + 1] = 25_565.toByte()
-            }
+        val ORDINARY_MINECRAFT_BYTES = byteArrayOf(
+            0x10,
+            0x00,
+            0xb3.toByte(),
+            0x08,
+            0x09,
+            *"localhost".toByteArray(),
+            0x63,
+            0xdd.toByte(),
+            0x02,
+        )
     }
 }

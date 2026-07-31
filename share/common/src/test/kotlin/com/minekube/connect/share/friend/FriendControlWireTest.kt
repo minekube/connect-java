@@ -3,12 +3,12 @@ package com.minekube.connect.share.friend
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
-import kotlin.test.assertTrue
 
 class FriendControlWireTest {
     @Test
-    fun `request uses a status handshake and round trips without a login`() {
+    fun `request is a raw control frame instead of a Minecraft status ping`() {
         val request = FriendControlRequest(
             requestId = REQUEST_ID,
             displayName = "bob",
@@ -16,8 +16,6 @@ class FriendControlWireTest {
         )
 
         val encoded = FriendControlWire.encodeRequest(
-            protocolVersion = 1_075,
-            serverAddress = "purple-del.play.minekube.net",
             request = request,
         )
         val decoded = assertIs<FriendControlDecode.Decoded<FriendControlRequest>>(
@@ -26,7 +24,7 @@ class FriendControlWireTest {
 
         assertEquals(request, decoded.value)
         assertEquals(encoded.size, decoded.consumedBytes)
-        assertTrue(FriendControlWire.isStatusHandshake(encoded))
+        assertFalse(FriendControlWire.isStatusHandshake(encoded))
     }
 
     @Test
@@ -54,8 +52,6 @@ class FriendControlWireTest {
     @Test
     fun `partial and oversized control frames are never accepted`() {
         val encoded = FriendControlWire.encodeRequest(
-            protocolVersion = 1_075,
-            serverAddress = "purple-del.play.minekube.net",
             request = FriendControlRequest(
                 requestId = REQUEST_ID,
                 displayName = "bob",

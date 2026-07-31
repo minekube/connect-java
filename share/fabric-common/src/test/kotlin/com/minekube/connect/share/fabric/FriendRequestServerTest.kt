@@ -19,6 +19,7 @@ import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.future.await
 import org.junit.jupiter.api.io.TempDir
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -72,7 +73,8 @@ class FriendRequestServerTest {
     }
 
     @Test
-    fun `decline and direct identity mismatch never create trust`() = runTest {
+    fun `non libp2p ingress and direct identity mismatch never create trust`() =
+        runTest {
         val senderCard = issuer("sender").issue(NOW).getOrNull()!!
         val admission = admission()
         val hostStore = FriendStore(tempDir.resolve("host-store"))
@@ -102,15 +104,50 @@ class FriendRequestServerTest {
             request(senderCard),
         ).toCompletableFuture()
         runCurrent()
-        admission.answer(
-            admission.pending.value.single().requestId,
-            allow = false,
-        )
-        runCurrent()
 
-        assertEquals(FriendControlResponse.Declined, connect.getNow(null))
+        assertEquals(FriendControlResponse.Invalid, connect.getNow(null))
+        assertTrue(admission.pending.value.isEmpty())
         assertTrue(hostStore.all().isEmpty())
     }
+
+    @Test
+    fun `crossed outgoing request confirms friendship without another prompt`() =
+        runTest {
+            val senderCard = issuer("sender").issue(NOW).getOrNull()!!
+            val senderPeerId = ShareInviteCodec.decode(senderCard, NOW)
+                .getOrNull()!!
+                .payload.peerId
+            val admission = admission()
+            val hostStore = FriendStore(tempDir.resolve("host-store"))
+            hostStore.sendRequest(senderCard, "bob", NOW)
+            var relationshipsChanged = 0
+            val server = FriendRequestServer(
+                scope = backgroundScope,
+                admission = admission,
+                issuer = issuer("host"),
+                receiver = FriendCardReceiver(hostStore),
+                friendStore = hostStore,
+                now = { NOW },
+                ioDispatcher = StandardTestDispatcher(testScheduler),
+                onRelationshipChanged = { relationshipsChanged++ },
+            )
+
+            val response = server.handle(
+                FriendControlContext(
+                    ingress = Ingress.DIRECT_LAN,
+                    directPeerId = senderPeerId,
+                ),
+                request(senderCard),
+            ).toCompletableFuture()
+
+            assertIs<FriendControlResponse.Accepted>(response.await())
+            assertTrue(admission.pending.value.isEmpty())
+            val confirmed = hostStore.all().single()
+            assertEquals(senderPeerId, confirmed.peerId)
+            assertTrue(confirmed.permissions.canJoinAutomatically)
+            assertTrue(hostStore.outgoingRequests().isEmpty())
+            assertEquals(1, relationshipsChanged)
+        }
 
     private fun kotlinx.coroutines.test.TestScope.admission() =
         AdmissionController(

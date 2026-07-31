@@ -48,6 +48,40 @@ class ShareInviteCodecTest {
     }
 
     @Test
+    fun `new signed invitations carry the sender username`() {
+        val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+        val invite = payload(displayName = "RoboFlax2").signWith(keyPair)
+
+        val decoded = assertIs<Either.Right<SignedShareInvite>>(
+            ShareInviteCodec.decode(
+                ShareInviteCodec.encode(invite),
+                Instant.ofEpochMilli(NOW),
+            ),
+        ).value
+
+        assertEquals("RoboFlax2", decoded.payload.displayName)
+    }
+
+    @Test
+    fun `legacy version one invitations remain readable without a username`() {
+        val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+        val invite = payload(
+            wireVersion = 1,
+            displayName = null,
+        ).signWith(keyPair)
+
+        val decoded = assertIs<Either.Right<SignedShareInvite>>(
+            ShareInviteCodec.decode(
+                ShareInviteCodec.encode(invite),
+                Instant.ofEpochMilli(NOW),
+            ),
+        ).value
+
+        assertEquals(1, decoded.payload.wireVersion)
+        assertEquals(null, decoded.payload.displayName)
+    }
+
+    @Test
     fun `expired and unsupported invitations are rejected`() {
         val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
         val expired = payload(expiresAt = NOW - 1).signWith(keyPair)
@@ -105,6 +139,7 @@ class ShareInviteCodecTest {
     private fun payload(
         wireVersion: Int = ShareInviteCodec.WIRE_VERSION,
         expiresAt: Long = NOW + 60_000,
+        displayName: String? = null,
         directCandidates: List<String> = listOf(
             "/ip6/2001:db8::8/tcp/4001/p2p/12D3KooWHost",
         ),
@@ -117,6 +152,7 @@ class ShareInviteCodecTest {
         internetDirectEnabled = true,
         directCandidates = directCandidates,
         capability = CAPABILITY,
+        displayName = displayName,
     )
 
     private fun ShareInvitePayload.signWith(keyPair: KeyPair): SignedShareInvite {

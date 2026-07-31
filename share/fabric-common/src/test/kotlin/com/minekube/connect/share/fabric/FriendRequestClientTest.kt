@@ -1,12 +1,15 @@
 package com.minekube.connect.share.fabric
 
 import arrow.core.Either
+import com.minekube.connect.share.direct.ShareRoute
 import com.minekube.connect.share.friend.FriendControlDecode
 import com.minekube.connect.share.friend.FriendControlRequest
 import com.minekube.connect.share.friend.FriendControlResponse
 import com.minekube.connect.share.friend.FriendControlWire
+import com.minekube.connect.tunnel.p2p.DirectP2pProxy
 import java.io.ByteArrayOutputStream
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.time.Duration
 import java.util.UUID
@@ -25,7 +28,7 @@ import kotlinx.coroutines.runBlocking
 
 class FriendRequestClientTest {
     @Test
-    fun `Connect control request waits for remote acceptance without joining`() =
+    fun `libp2p control request waits for remote acceptance without joining`() =
         runBlocking {
             val server = ServerSocket(
                 0,
@@ -61,14 +64,11 @@ class FriendRequestClientTest {
             }
             var acknowledged = false
             val client = FriendRequestClient(
-                protocolVersion = 1_075,
                 ioDispatcher = Dispatchers.IO,
             )
 
             val result = client.exchange(
-                target = GuestJoinTarget.Connect(
-                    "${InetAddress.getLoopbackAddress().hostAddress}:${server.localPort}",
-                ),
+                target = directTarget(server),
                 request = REQUEST,
                 onReceived = { acknowledged = true },
             )
@@ -109,15 +109,12 @@ class FriendRequestClientTest {
                 }
             }
             val client = FriendRequestClient(
-                protocolVersion = 1_075,
                 ioDispatcher = Dispatchers.IO,
                 decisionTimeout = Duration.ofSeconds(30),
             )
             val pending = launch {
                 client.exchange(
-                    target = GuestJoinTarget.Connect(
-                        "${InetAddress.getLoopbackAddress().hostAddress}:${server.localPort}",
-                    ),
+                    target = directTarget(server),
                     request = REQUEST,
                     onReceived = {},
                 )
@@ -147,6 +144,18 @@ class FriendRequestClientTest {
             }
         }
         error("Friend control request exceeded its limit")
+    }
+
+    private fun directTarget(server: ServerSocket): GuestJoinTarget.Direct {
+        val address = InetSocketAddress(
+            InetAddress.getLoopbackAddress(),
+            server.localPort,
+        )
+        return GuestJoinTarget.Direct(
+            ShareRoute.DIRECT_LAN,
+            address,
+            DirectP2pProxy(address) {},
+        )
     }
 
     private companion object {

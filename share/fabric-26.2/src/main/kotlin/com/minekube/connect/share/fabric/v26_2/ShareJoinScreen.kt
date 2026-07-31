@@ -341,6 +341,11 @@ class ShareJoinScreen(
                 setValue(invitationValue)
                 setResponder {
                     invitationValue = it
+                    friends.suggestedDisplayName(it).getOrNull()
+                        ?.let { suggested ->
+                            nameValue = suggested
+                            nameBox?.setValue(suggested)
+                        }
                     refresh()
                 }
             },
@@ -675,8 +680,6 @@ class ShareJoinScreen(
                 peerId = peerId,
                 browser = browser,
                 authMode = authMode(),
-                ownConnectAddress =
-                    ConnectShareClient.connectPublicAddress(),
             )
             val target = targetResult.getOrNull()
             if (target == null) {
