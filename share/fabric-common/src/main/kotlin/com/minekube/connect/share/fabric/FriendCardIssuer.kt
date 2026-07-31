@@ -19,6 +19,11 @@ data object FriendCardIssueFailure
 class FriendCardReceiver(
     private val store: FriendStore,
 ) {
+    fun confirmPending(
+        peerId: String,
+    ): Either<FriendStoreError, SavedFriend> =
+        store.confirmPending(peerId)
+
     fun receive(
         invitation: String,
         displayName: String,

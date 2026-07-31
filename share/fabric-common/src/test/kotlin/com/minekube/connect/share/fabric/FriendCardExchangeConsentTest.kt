@@ -1,7 +1,9 @@
 package com.minekube.connect.share.fabric
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FriendCardExchangeConsentTest {
@@ -9,27 +11,27 @@ class FriendCardExchangeConsentTest {
     private val consent = FriendCardExchangeConsent { nowMillis }
 
     @Test
-    fun `armed Share join allows exactly one reciprocal card request`() {
-        consent.arm()
+    fun `armed Share join returns its peer exactly once`() {
+        consent.arm(PEER_ID)
 
-        assertTrue(consent.consume())
-        assertFalse(consent.consume())
+        assertEquals(PEER_ID, consent.consume()?.peerId)
+        assertNull(consent.consume())
     }
 
     @Test
     fun `stale Share join cannot leak a card to a later server`() {
-        consent.arm()
+        consent.arm(PEER_ID)
         nowMillis += 121_000
 
-        assertFalse(consent.consume())
+        assertNull(consent.consume())
     }
 
     @Test
     fun `cancel removes pending consent`() {
-        consent.arm()
+        consent.arm(PEER_ID)
         consent.cancel()
 
-        assertFalse(consent.consume())
+        assertNull(consent.consume())
     }
 
     @Test
@@ -58,5 +60,9 @@ class FriendCardExchangeConsentTest {
                 canSeeMyWorlds = true,
             ),
         )
+    }
+
+    private companion object {
+        const val PEER_ID = "12D3KooWPendingFriend"
     }
 }

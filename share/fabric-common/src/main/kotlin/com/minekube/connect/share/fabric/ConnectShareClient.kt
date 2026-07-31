@@ -77,12 +77,12 @@ object ConnectShareClient {
         checkNotNull(installation).friendCardIssuer
 
     @JvmStatic
-    fun armFriendCardExchange() {
-        friendCardConsent.arm()
+    fun armFriendCardExchange(peerId: String) {
+        friendCardConsent.arm(peerId)
     }
 
     @JvmStatic
-    fun consumeFriendCardExchangeConsent(): Boolean =
+    fun consumeFriendCardExchangeConsent(): FriendCardExchangeProof? =
         friendCardConsent.consume()
 
     @JvmStatic

@@ -4,6 +4,7 @@ import arrow.core.Either
 import com.minekube.connect.share.direct.ShareInviteCodec
 import com.minekube.connect.share.direct.ShareInvitePayload
 import com.minekube.connect.share.direct.SignedShareInvite
+import java.nio.file.Files
 import java.nio.file.Path
 import java.security.KeyPair
 import java.security.KeyPairGenerator
@@ -23,6 +24,90 @@ class FriendStoreTest {
     lateinit var tempDir: Path
 
     @Test
+    fun `receiving a signed link stores only a pending request`() {
+        val store = FriendStore(tempDir)
+
+        val request = assertIs<Either.Right<SavedFriend>>(
+            store.receiveRequest(signedLink(), "Robin", NOW),
+        ).value
+
+        assertEquals(
+            FriendRelationshipStatus.PENDING_INCOMING,
+            request.relationshipStatus,
+        )
+        assertTrue(store.all().isEmpty())
+        assertEquals(
+            listOf(request),
+            FriendStore(tempDir).pendingRequests(),
+        )
+    }
+
+    @Test
+    fun `confirming a pending request promotes it across restarts`() {
+        val store = FriendStore(tempDir)
+        store.receiveRequest(signedLink(), "Robin", NOW)
+
+        val confirmed = assertIs<Either.Right<SavedFriend>>(
+            store.confirmPending(PEER_ID),
+        ).value
+
+        assertEquals(
+            FriendRelationshipStatus.CONFIRMED,
+            confirmed.relationshipStatus,
+        )
+        assertEquals(
+            listOf(confirmed),
+            FriendStore(tempDir).all(),
+        )
+        assertTrue(FriendStore(tempDir).pendingRequests().isEmpty())
+    }
+
+    @Test
+    fun `receiving the same link never demotes a confirmed friend`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+
+        val received = assertIs<Either.Right<SavedFriend>>(
+            store.receiveRequest(signedLink(), "Robin", NOW),
+        ).value
+
+        assertEquals(
+            FriendRelationshipStatus.CONFIRMED,
+            received.relationshipStatus,
+        )
+        assertEquals(PEER_ID, store.all().single().peerId)
+        assertTrue(store.pendingRequests().isEmpty())
+    }
+
+    @Test
+    fun `legacy unverified relationships migrate to pending`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        stripRelationshipStatus()
+
+        val migrated = FriendStore(tempDir)
+
+        assertTrue(migrated.all().isEmpty())
+        assertEquals(PEER_ID, migrated.pendingRequests().single().peerId)
+    }
+
+    @Test
+    fun `legacy automatically trusted relationships remain confirmed`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        store.updatePermissions(
+            PEER_ID,
+            FriendPermissions(canJoinAutomatically = true),
+        )
+        stripRelationshipStatus()
+
+        val migrated = FriendStore(tempDir)
+
+        assertEquals(PEER_ID, migrated.all().single().peerId)
+        assertTrue(migrated.pendingRequests().isEmpty())
+    }
+
+    @Test
     fun `accepting one signed link saves a friend across restarts`() {
         val link = signedLink()
         val store = FriendStore(tempDir)
@@ -36,6 +121,10 @@ class FriendStoreTest {
         assertEquals(PEER_ID, accepted.peerId)
         assertEquals(SHARE_ID, accepted.shareId)
         assertEquals(CONNECT_ADDRESS, accepted.connectAddress)
+        assertEquals(
+            FriendRelationshipStatus.CONFIRMED,
+            accepted.relationshipStatus,
+        )
         assertTrue(accepted.permissions.notifyWhenOnline)
         assertTrue(accepted.permissions.canSeeMyWorlds)
         assertFalse(accepted.permissions.canJoinAutomatically)
@@ -144,6 +233,17 @@ class FriendStoreTest {
                 signature = signature,
             ),
         )
+    }
+
+    private fun stripRelationshipStatus() {
+        val file = tempDir.resolve(FriendStore.FILE_NAME)
+        val withoutStatus = Files.readString(file).replace(
+            Regex(
+                ""","relationshipStatus":"[A-Z_]+"""",
+            ),
+            "",
+        )
+        Files.writeString(file, withoutStatus)
     }
 
     private companion object {

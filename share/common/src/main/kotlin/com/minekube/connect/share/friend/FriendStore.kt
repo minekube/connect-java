@@ -32,6 +32,11 @@ data class FriendPermissions(
     val canJoinAutomatically: Boolean = false,
 )
 
+enum class FriendRelationshipStatus {
+    PENDING_INCOMING,
+    CONFIRMED,
+}
+
 data class SavedFriend(
     val peerId: String,
     val publicKeyBase64: String,
@@ -41,12 +46,15 @@ data class SavedFriend(
     val displayName: String,
     val minecraftUuid: UUID? = null,
     val permissions: FriendPermissions = FriendPermissions(),
+    val relationshipStatus: FriendRelationshipStatus =
+        FriendRelationshipStatus.CONFIRMED,
 ) {
     override fun toString(): String =
         "SavedFriend(peerId=$peerId, publicKey=<redacted>, " +
             "shareId=$shareId, capability=<redacted>, " +
             "connectAddress=$connectAddress, displayName=$displayName, " +
-            "minecraftUuid=$minecraftUuid, permissions=$permissions)"
+            "minecraftUuid=$minecraftUuid, permissions=$permissions, " +
+            "relationshipStatus=$relationshipStatus)"
 }
 
 sealed interface FriendStoreError {
@@ -76,13 +84,59 @@ class FriendStore(
     private val directory: Path,
 ) {
     @Synchronized
-    fun all(): List<SavedFriend> = read()
+    fun all(): List<SavedFriend> =
+        read().filter {
+            it.relationshipStatus == FriendRelationshipStatus.CONFIRMED
+        }
+
+    @Synchronized
+    fun pendingRequests(): List<SavedFriend> =
+        read().filter {
+            it.relationshipStatus ==
+                FriendRelationshipStatus.PENDING_INCOMING
+        }
 
     @Synchronized
     fun accept(
         invitationUri: String,
         displayName: String,
         now: Instant = Instant.now(),
+    ): Either<FriendStoreError, SavedFriend> =
+        storeInvitation(
+            invitationUri = invitationUri,
+            displayName = displayName,
+            relationshipStatus = FriendRelationshipStatus.CONFIRMED,
+            now = now,
+        )
+
+    @Synchronized
+    fun receiveRequest(
+        invitationUri: String,
+        displayName: String,
+        now: Instant = Instant.now(),
+    ): Either<FriendStoreError, SavedFriend> =
+        storeInvitation(
+            invitationUri = invitationUri,
+            displayName = displayName,
+            relationshipStatus =
+                FriendRelationshipStatus.PENDING_INCOMING,
+            now = now,
+        )
+
+    @Synchronized
+    fun confirmPending(
+        peerId: String,
+    ): Either<FriendStoreError, SavedFriend> = update(peerId) { friend ->
+        friend.copy(
+            relationshipStatus = FriendRelationshipStatus.CONFIRMED,
+        )
+    }
+
+    private fun storeInvitation(
+        invitationUri: String,
+        displayName: String,
+        relationshipStatus: FriendRelationshipStatus,
+        now: Instant,
     ): Either<FriendStoreError, SavedFriend> = either {
         val invite = ShareInviteCodec.decode(invitationUri.trim(), now)
             .mapLeft(FriendStoreError::InvalidInvitation)
@@ -100,6 +154,13 @@ class FriendStore(
         ensure(existing == null || existing.publicKeyBase64 == publicKey) {
             FriendStoreError.IdentityConflict
         }
+        val effectiveRelationshipStatus = when {
+            existing?.relationshipStatus ==
+                FriendRelationshipStatus.CONFIRMED ->
+                FriendRelationshipStatus.CONFIRMED
+
+            else -> relationshipStatus
+        }
         val friend = SavedFriend(
             peerId = invite.payload.peerId,
             publicKeyBase64 = publicKey,
@@ -109,6 +170,7 @@ class FriendStore(
             displayName = existing?.displayName ?: normalizedName,
             minecraftUuid = existing?.minecraftUuid,
             permissions = existing?.permissions ?: FriendPermissions(),
+            relationshipStatus = effectiveRelationshipStatus,
         )
         write(
             current.filterNot { it.peerId == friend.peerId } + friend,
@@ -222,6 +284,21 @@ class FriendStore(
         Base64.getDecoder().decode(publicKey)
         val permissions = json.getAsJsonObject("permissions")
             ?: throw IOException("Friends file is missing permissions")
+        val parsedPermissions = FriendPermissions(
+            notifyWhenOnline =
+                permissions.requiredBoolean("notifyWhenOnline"),
+            canSeeMyWorlds =
+                permissions.requiredBoolean("canSeeMyWorlds"),
+            canJoinAutomatically =
+                permissions.requiredBoolean("canJoinAutomatically"),
+        )
+        val relationshipStatus = json
+            .optionalString("relationshipStatus")
+            ?.let(FriendRelationshipStatus::valueOf)
+            ?: legacyRelationshipStatus(
+                minecraftUuid = minecraftUuid,
+                permissions = parsedPermissions,
+            )
         return SavedFriend(
             peerId = peerId,
             publicKeyBase64 = publicKey,
@@ -230,12 +307,8 @@ class FriendStore(
             connectAddress = connectAddress,
             displayName = displayName,
             minecraftUuid = minecraftUuid,
-            permissions = FriendPermissions(
-                notifyWhenOnline = permissions.requiredBoolean("notifyWhenOnline"),
-                canSeeMyWorlds = permissions.requiredBoolean("canSeeMyWorlds"),
-                canJoinAutomatically =
-                    permissions.requiredBoolean("canJoinAutomatically"),
-            ),
+            permissions = parsedPermissions,
+            relationshipStatus = relationshipStatus,
         )
     }
 
@@ -258,6 +331,10 @@ class FriendStore(
                 friend.minecraftUuid?.let {
                     addProperty("minecraftUuid", it.toString())
                 }
+                addProperty(
+                    "relationshipStatus",
+                    friend.relationshipStatus.name,
+                )
                 add(
                     "permissions",
                     JsonObject().apply {
@@ -345,6 +422,19 @@ class FriendStore(
         private const val MAX_FRIENDS = 256
         private const val MAX_DISPLAY_NAME_LENGTH = 64
         private val GSON = Gson()
+
+        private fun legacyRelationshipStatus(
+            minecraftUuid: UUID?,
+            permissions: FriendPermissions,
+        ): FriendRelationshipStatus =
+            if (
+                minecraftUuid != null ||
+                permissions.canJoinAutomatically
+            ) {
+                FriendRelationshipStatus.CONFIRMED
+            } else {
+                FriendRelationshipStatus.PENDING_INCOMING
+            }
 
         private fun isValidCapability(value: String): Boolean =
             value.length in 16..512 &&
