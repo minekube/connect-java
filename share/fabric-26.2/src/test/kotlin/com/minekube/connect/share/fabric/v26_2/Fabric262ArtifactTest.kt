@@ -189,6 +189,28 @@ class Fabric262ArtifactTest {
     }
 
     @Test
+    fun `mixin redirects the four argument 262 publish overload`() {
+        JarFile(artifact().toFile()).use { jar ->
+            val mixin = jar.getJarEntry(
+                "com/minekube/connect/share/fabric/v26_2/mixin/" +
+                    "IntegratedServerMixin.class",
+            )
+            assertNotNull(mixin)
+            val bytecode = jar.getInputStream(mixin).use {
+                it.readBytes().toString(Charsets.ISO_8859_1)
+            }
+            assertTrue(
+                "publishServer(Lnet/minecraft/server/MinecraftServer\$MultiplayerScope;" +
+                    "Lnet/minecraft/world/level/GameType;ZI)Z" in bytecode,
+            )
+            assertFalse(
+                "publishServer(Lnet/minecraft/server/MinecraftServer\$MultiplayerScope;I)Z" in
+                    bytecode,
+            )
+        }
+    }
+
+    @Test
     fun `packaged loader reads libp2p only from child payload`() {
         URLClassLoader(
             arrayOf(artifact().toUri().toURL()),

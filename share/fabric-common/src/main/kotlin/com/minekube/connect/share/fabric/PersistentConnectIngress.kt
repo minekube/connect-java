@@ -122,6 +122,21 @@ class PersistentConnectIngress(
         }
     }
 
+    suspend fun restart() {
+        lifecycle.withLock {
+            if (mutableState.value == PersistentConnectState.Closed) {
+                return@withLock
+            }
+            val acquired = active
+            active = null
+            try {
+                acquired?.handle?.close?.invoke()
+            } finally {
+                mutableState.value = PersistentConnectState.Idle
+            }
+        }
+    }
+
     private data class Active(
         val identity: EndpointIdentity,
         val target: SocketAddress,

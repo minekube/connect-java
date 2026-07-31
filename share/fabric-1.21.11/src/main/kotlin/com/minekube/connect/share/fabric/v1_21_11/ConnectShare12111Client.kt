@@ -77,7 +77,6 @@ class ConnectShare12111Client : ClientModInitializer {
         val statusProbe = MinecraftStatusProbe()
         val remotePresence = FriendPresenceMonitor(
             store = friendStore,
-            probe = statusProbe,
             directProbe = { friend ->
                 browserReference.get()?.probeLan(
                     friend = friend,
@@ -85,8 +84,6 @@ class ConnectShare12111Client : ClientModInitializer {
                     probe = statusProbe,
                 )
             },
-            ownConnectAddress =
-                ConnectShareClient::connectPublicAddress,
         )
         scope.launch {
             while (isActive) {

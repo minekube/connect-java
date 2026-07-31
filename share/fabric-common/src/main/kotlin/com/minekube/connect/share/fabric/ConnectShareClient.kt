@@ -31,7 +31,7 @@ data class ConnectShareInstallation(
     val browser: FabricShareBrowser,
     val friendActivity: FriendActivityMonitor,
     val gateway: ShareConnectionGateway,
-    val ownConnectAddress: String,
+    val ownConnectAddress: () -> String,
     val screens: ConnectShareScreenFactory,
     val guestScreens: ConnectShareGuestScreenFactory,
 )
@@ -115,7 +115,7 @@ object ConnectShareClient {
 
     @JvmStatic
     fun connectPublicAddress(): String? =
-        installation?.ownConnectAddress
+        installation?.ownConnectAddress?.invoke()
 
     @JvmStatic
     fun armFriendCardExchange(peerId: String) {

@@ -11,8 +11,11 @@ import com.minekube.connect.share.identity.CredentialSource
 import com.minekube.connect.share.identity.CredentialValidationError
 import java.nio.file.Path
 import java.util.UUID
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -149,6 +152,61 @@ class ShareViewModelTest {
     }
 
     @Test
+    fun `share operations are dispatched before invoking lifecycle work`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        var starts = 0
+        val viewModel = viewModel(
+            scope = CoroutineScope(dispatcher),
+            operationDispatcher = dispatcher,
+            startShare = {
+                starts++
+                Either.Right(
+                    ShareState.Sharing(
+                        endpoint = "share",
+                        address = "share.example.test",
+                    ),
+                )
+            },
+        )
+        advanceUntilIdle()
+
+        viewModel.start()
+
+        assertEquals(0, starts)
+        runCurrent()
+        assertEquals(1, starts)
+    }
+
+    @Test
+    fun `identity changes are rejected while a world share is active`() = runTest {
+        val identityActions = FakeIdentityActions(
+            current = localIdentity(),
+            imported = localIdentity(endpoint = "replacement"),
+        )
+        val viewModel = viewModel(
+            shareState = MutableStateFlow(
+                ShareState.Sharing(
+                    endpoint = "share",
+                    address = "share.example.test",
+                ),
+            ),
+            identityActions = identityActions,
+        )
+        advanceUntilIdle()
+
+        viewModel.setImportEndpoint("replacement")
+        viewModel.setImportToken("token")
+        viewModel.importIdentity()
+        advanceUntilIdle()
+
+        assertEquals(0, identityActions.importCalls)
+        assertEquals(
+            "Stop sharing before changing Connect credentials",
+            viewModel.state.value.safeMessage,
+        )
+    }
+
+    @Test
     fun `enabled friend sharing resumes automatically in a new world`() = runTest {
         var starts = 0
         val viewModel = viewModel(
@@ -179,6 +237,9 @@ class ShareViewModelTest {
         pending: MutableStateFlow<List<PendingAdmission>> =
             MutableStateFlow(emptyList()),
         worldAvailable: Boolean = true,
+        scope: CoroutineScope = backgroundScope,
+        operationDispatcher: CoroutineDispatcher =
+            StandardTestDispatcher(testScheduler),
         identityActions: EndpointIdentityUiActions =
             FakeIdentityActions(localIdentity()),
         answerAdmission: (UUID, Boolean) -> Unit = { _, _ -> },
@@ -195,12 +256,13 @@ class ShareViewModelTest {
                 )
             },
     ) = ShareViewModel(
-        scope = backgroundScope,
+        scope = scope,
         shareState = shareState,
         pendingAdmissions = pending,
         initialWorldAvailable = worldAvailable,
         identityActions = identityActions,
         initialShareWithFriendsEnabled = initialShareWithFriends,
+        operationDispatcher = operationDispatcher,
         persistShareWithFriendsEnabled = persistShareWithFriends,
         startShare = startShare,
         stopShare = { Either.Right(Unit) },

@@ -53,4 +53,12 @@ class ConnectControlPlane(
             ingress.shutdown()
         }
     }
+
+    suspend fun restart() {
+        startJob.getAndSet(null)?.cancelAndJoin()
+        withContext(ioDispatcher) {
+            ingress.restart()
+        }
+        start()
+    }
 }

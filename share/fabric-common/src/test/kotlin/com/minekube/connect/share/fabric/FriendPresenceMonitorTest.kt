@@ -1,6 +1,5 @@
 package com.minekube.connect.share.fabric
 
-import arrow.core.Either
 import com.minekube.connect.share.direct.ShareRoute
 import com.minekube.connect.share.friend.FriendPermissions
 import com.minekube.connect.share.friend.SavedFriend
@@ -28,9 +27,6 @@ class FriendPresenceMonitorTest {
                 loads++
                 emptyList()
             },
-            probe = FriendStatusProbe {
-                error("no friends should be probed")
-            },
             ioDispatcher = io,
         )
 
@@ -56,11 +52,11 @@ class FriendPresenceMonitorTest {
         )
         val monitor = FriendPresenceMonitor.testing(
             friends = { listOf(online, offline) },
-            probe = FriendStatusProbe { address ->
-                if (address.startsWith("online")) {
-                    Either.Right(ServerPresence("Robin's World"))
+            directProbe = { friend ->
+                if (friend.peerId == online.peerId) {
+                    ServerPresence("Robin's World")
                 } else {
-                    Either.Left(StatusProbeError.EndpointOffline)
+                    null
                 }
             },
         )
@@ -78,20 +74,15 @@ class FriendPresenceMonitorTest {
     }
 
     @Test
-    fun `direct LAN status is preferred before Connect presence`() = runTest {
+    fun `direct LAN status is authenticated before being reported`() = runTest {
         val nearby = friend(
             peerId = "12D3KooWNearby",
             address = "nearby.play.minekube.net",
         )
-        val connectProbes = mutableListOf<String>()
         val monitor = FriendPresenceMonitor.testing(
             friends = { listOf(nearby) },
             directProbe = {
                 ServerPresence("Robin's LAN World")
-            },
-            probe = FriendStatusProbe { address ->
-                connectProbes += address
-                Either.Right(ServerPresence("Wrong Connect World"))
             },
         )
 
@@ -101,7 +92,22 @@ class FriendPresenceMonitorTest {
         assertTrue(presence.online)
         assertEquals(ShareRoute.DIRECT_LAN, presence.route)
         assertEquals("Robin's LAN World", presence.description)
-        assertTrue(connectProbes.isEmpty())
+    }
+
+    @Test
+    fun `failed direct status does not fall back to Connect`() = runTest {
+        val friend = friend(
+            peerId = "12D3KooWDirectUnavailable",
+            address = "friend.play.minekube.net",
+        )
+        val monitor = FriendPresenceMonitor.testing(
+            friends = { listOf(friend) },
+            directProbe = { null },
+        )
+
+        monitor.refresh()
+
+        assertFalse(monitor.state.value.getValue(friend.peerId).online)
     }
 
     @Test
@@ -117,9 +123,6 @@ class FriendPresenceMonitorTest {
             },
             directProbe = {
                 throw CancellationException("cancelled")
-            },
-            probe = FriendStatusProbe {
-                Either.Right(ServerPresence("must not run"))
             },
         )
 
@@ -160,29 +163,6 @@ class FriendPresenceMonitorTest {
             tracker.update(mapOf(online.peerId to online)),
         )
     }
-
-    @Test
-    fun `refresh never probes this profiles own Connect endpoint as a friend`() =
-        runTest {
-            val copied = friend(
-                peerId = "12D3KooWCopiedEndpoint",
-                address = "mine.play.minekube.net",
-            )
-            val probed = mutableListOf<String>()
-            val monitor = FriendPresenceMonitor.testing(
-                friends = { listOf(copied) },
-                ownConnectAddress = { "mine.play.minekube.net" },
-                probe = FriendStatusProbe { address ->
-                    probed += address
-                    Either.Right(ServerPresence("Wrong self presence"))
-                },
-            )
-
-            monitor.refresh()
-
-            assertTrue(probed.isEmpty())
-            assertFalse(monitor.state.value.getValue(copied.peerId).online)
-        }
 
     private fun friend(
         peerId: String,
