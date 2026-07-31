@@ -41,22 +41,16 @@ class FriendOnlineTracker {
 
 class FriendPresenceMonitor private constructor(
     private val friends: () -> List<SavedFriend>,
-    private val probe: FriendStatusProbe,
     private val directProbe: suspend (SavedFriend) -> ServerPresence?,
-    private val ownConnectAddress: () -> String?,
     private val ioDispatcher: CoroutineDispatcher,
 ) {
     constructor(
         store: FriendStore,
-        probe: FriendStatusProbe = MinecraftStatusProbe(),
         directProbe: suspend (SavedFriend) -> ServerPresence? = { null },
-        ownConnectAddress: () -> String? = { null },
         ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     ) : this(
         friends = store::all,
-        probe = probe,
         directProbe = directProbe,
-        ownConnectAddress = ownConnectAddress,
         ioDispatcher = ioDispatcher,
     )
 
@@ -70,7 +64,6 @@ class FriendPresenceMonitor private constructor(
         val saved = runCatching(friends)
             .getOrDefault(emptyList())
             .take(MAX_PROBED_FRIENDS)
-        val ownAddress = runCatching(ownConnectAddress).getOrNull()
         val results = saved.parMap(
             context = ioDispatcher,
             concurrency = MAX_CONCURRENT_PROBES,
@@ -82,30 +75,14 @@ class FriendPresenceMonitor private constructor(
             } catch (_: Exception) {
                 null
             }
-            val connectPresence = if (directPresence == null) {
-                friend.connectAddress?.let { address ->
-                    if (connectAddressesMatch(address, ownAddress)) {
-                        null
-                    } else {
-                        probe.probe(address).getOrNull()
-                    }
-                }
-            } else {
-                null
-            }
-            val presence = directPresence ?: connectPresence
             friend.peerId to RemoteFriendPresence(
                 peerId = friend.peerId,
                 displayName = friend.displayName,
-                online = presence != null,
-                description = presence?.description,
+                online = directPresence != null,
+                description = directPresence?.description,
                 notifyWhenOnline =
                     friend.permissions.notifyWhenOnline,
-                route = when {
-                    directPresence != null -> ShareRoute.DIRECT_LAN
-                    connectPresence != null -> ShareRoute.CONNECT
-                    else -> null
-                },
+                route = directPresence?.let { ShareRoute.DIRECT_LAN },
             )
         }
         mutableState.value = results.toMap()
@@ -114,17 +91,13 @@ class FriendPresenceMonitor private constructor(
     companion object {
         internal fun testing(
             friends: () -> List<SavedFriend>,
-            probe: FriendStatusProbe,
             directProbe: suspend (SavedFriend) -> ServerPresence? = {
                 null
             },
-            ownConnectAddress: () -> String? = { null },
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
         ) = FriendPresenceMonitor(
             friends,
-            probe,
             directProbe,
-            ownConnectAddress,
             ioDispatcher,
         )
 

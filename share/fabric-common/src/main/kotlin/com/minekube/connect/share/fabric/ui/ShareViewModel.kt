@@ -16,6 +16,8 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -114,6 +116,8 @@ class ShareViewModel(
         suspend (ShareOptions) -> Either<ShareLifecycleError, ShareState.Sharing>,
     private val stopShare: suspend () -> Either<ShareLifecycleError, Unit>,
     private val answerAdmission: (UUID, Boolean) -> Unit,
+    private val operationDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val onIdentityChanged: suspend () -> Unit = {},
 ) {
     private val mutableState = MutableStateFlow(
         ShareUiState(
@@ -141,7 +145,7 @@ class ShareViewModel(
                 update { copy(pendingAdmissions = next) }
             }
         }
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        scope.launch(context = operationDispatcher) {
             runOperation {
                 val identity = identityActions.current()
                 update {
@@ -187,7 +191,7 @@ class ShareViewModel(
 
     fun start() {
         if (!state.value.startEnabled) return
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        scope.launch(context = operationDispatcher) {
             runOperation {
                 setShareWithFriendsEnabled(true)
                 startCurrentWorld()
@@ -196,7 +200,7 @@ class ShareViewModel(
     }
 
     fun stop() {
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        scope.launch(context = operationDispatcher) {
             runOperation {
                 try {
                     setShareWithFriendsEnabled(false)
@@ -214,8 +218,10 @@ class ShareViewModel(
         ) {
             return
         }
-        runOperation {
-            startCurrentWorld()
+        kotlinx.coroutines.withContext(operationDispatcher) {
+            runOperation {
+                startCurrentWorld()
+            }
         }
     }
 
@@ -228,6 +234,10 @@ class ShareViewModel(
     }
 
     fun setImportEndpoint(endpoint: String) {
+        if (!identityChangesAllowed()) {
+            rejectIdentityChange()
+            return
+        }
         update {
             if (!importDraft.endpointEditable) {
                 this
@@ -238,6 +248,10 @@ class ShareViewModel(
     }
 
     fun setImportToken(token: String) {
+        if (!identityChangesAllowed()) {
+            rejectIdentityChange()
+            return
+        }
         update {
             if (!importDraft.tokenEditable) {
                 this
@@ -248,12 +262,16 @@ class ShareViewModel(
     }
 
     fun importIdentity() {
+        if (!identityChangesAllowed()) {
+            rejectIdentityChange()
+            return
+        }
         val draft = state.value.importDraft
         if (!draft.endpointEditable || !draft.tokenEditable) {
             update { copy(safeMessage = MANAGED_MESSAGE) }
             return
         }
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        scope.launch(context = operationDispatcher) {
             runOperation {
                 applyIdentityResult(
                     identityActions.import(draft.endpoint, draft.token),
@@ -263,12 +281,16 @@ class ShareViewModel(
     }
 
     fun importTokenFile(tokenFile: Path) {
+        if (!identityChangesAllowed()) {
+            rejectIdentityChange()
+            return
+        }
         val draft = state.value.importDraft
         if (!draft.endpointEditable || !draft.tokenEditable) {
             update { copy(safeMessage = MANAGED_MESSAGE) }
             return
         }
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        scope.launch(context = operationDispatcher) {
             runOperation {
                 applyIdentityResult(
                     identityActions.importTokenFile(draft.endpoint, tokenFile),
@@ -278,14 +300,18 @@ class ShareViewModel(
     }
 
     fun resetIdentity() {
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        if (!identityChangesAllowed()) {
+            rejectIdentityChange()
+            return
+        }
+        scope.launch(context = operationDispatcher) {
             runOperation {
                 applyIdentityResult(identityActions.reset())
             }
         }
     }
 
-    private fun applyIdentityResult(
+    private suspend fun applyIdentityResult(
         result: Either<CredentialValidationError, EndpointIdentitySummary>,
     ) {
         result.fold(
@@ -293,6 +319,7 @@ class ShareViewModel(
                 update { copy(safeMessage = failure.safeMessage) }
             },
             ifRight = { identity ->
+                onIdentityChanged()
                 update {
                     copy(
                         identity = identity,
@@ -349,6 +376,25 @@ class ShareViewModel(
         mutableState.value = mutableState.value.transform()
     }
 
+    private fun identityChangesAllowed(): Boolean = when (
+        state.value.shareState
+    ) {
+        ShareState.Idle,
+        is ShareState.Failed,
+        -> true
+
+        ShareState.Starting,
+        is ShareState.Sharing,
+        ShareState.Stopping,
+        -> false
+    }
+
+    private fun rejectIdentityChange() {
+        update {
+            copy(safeMessage = IDENTITY_ACTIVE_MESSAGE)
+        }
+    }
+
     private fun IdentityImportDraft.withEditability(
         identity: EndpointIdentitySummary,
     ): IdentityImportDraft = copy(
@@ -361,6 +407,8 @@ class ShareViewModel(
             "Connect credentials are managed by the environment"
         const val GENERIC_FAILURE_MESSAGE =
             "Could not update Connect Share"
+        const val IDENTITY_ACTIVE_MESSAGE =
+            "Stop sharing before changing Connect credentials"
     }
 }
 

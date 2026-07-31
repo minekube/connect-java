@@ -32,6 +32,8 @@ class FabricDirectShareIngress private constructor(
 ) : DirectShareIngress {
     constructor(
         dataDirectory: Path,
+        accessIdentityStore: ShareAccessIdentityStore =
+            ShareAccessIdentityStore(dataDirectory),
         displayName: () -> String,
     ) : this(
         nodeFactory = {
@@ -40,9 +42,7 @@ class FabricDirectShareIngress private constructor(
             )
         },
         now = Instant::now,
-        accessIdentity = ShareAccessIdentityStore(
-            dataDirectory,
-        )::currentOrCreate,
+        accessIdentity = accessIdentityStore::currentOrCreate,
         displayName = displayName,
         localSocket = ::openTaggedLoopbackSocket,
     )

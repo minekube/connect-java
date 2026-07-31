@@ -16,6 +16,7 @@ import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.share.friend.FriendActivity
 import com.minekube.connect.share.friend.FriendActivityKind
 import com.minekube.connect.share.friend.FriendActivityRequest
+import com.minekube.connect.share.friend.ShareAccessIdentityStore
 import com.minekube.connect.share.friend.SharePreferences
 import com.minekube.connect.share.friend.SharePreferencesStore
 import com.minekube.connect.share.identity.EndpointIdentityStore
@@ -108,12 +109,15 @@ object FabricShareBootstrap {
             timeout = 10.seconds,
         )
         val endpointIdentity = identityStore.currentOrCreate()
-        val ownConnectAddress =
-            "${endpointIdentity.endpoint}.play.minekube.net"
+        val ownConnectAddress = AtomicReference(
+            "${endpointIdentity.endpoint}.play.minekube.net",
+        )
+        val accessIdentityStore = ShareAccessIdentityStore(dataDirectory)
         val friendCardIssuer = FriendCardIssuer(
             dataDirectory = dataDirectory,
             displayName = playerDisplayName,
-            connectAddress = { ownConnectAddress },
+            connectAddress = { ownConnectAddress.get() },
+            accessIdentityStore = accessIdentityStore,
         )
         val friendCardReceiver = FriendCardReceiver(friendStore)
         val friendRequestServer = FriendRequestServer(
@@ -131,6 +135,7 @@ object FabricShareBootstrap {
             val directPeer = FabricDirectPeerRuntime(
                 dataDirectory = dataDirectory,
                 displayName = worldDisplayName,
+                accessIdentityStore = accessIdentityStore,
             )
             val activeBrowser = directPeer.browser
             browser = activeBrowser
@@ -169,6 +174,25 @@ object FabricShareBootstrap {
                 directIngress = directIngress,
                 failureReporter = logger::warn,
             )
+            val controlPlane = ConnectControlPlane(
+                scope = scope,
+                ingress = ingress,
+                identity = identityStore::currentOrCreate,
+                target = gateway.serverSocketAddress,
+                failureReporter = logger::warn,
+            ).also(ConnectControlPlane::start)
+            val directControlPlane = DirectControlPlane(
+                scope = scope,
+                ingress = directIngress,
+                options = ShareOptions(
+                    gameMode = ShareGameMode.SURVIVAL,
+                    allowCheats = false,
+                    allowInternetDirect = false,
+                ),
+                target = gateway.directAddress,
+                connectAddress = { ownConnectAddress.get() },
+                failureReporter = logger::warn,
+            ).also(DirectControlPlane::start)
             val viewModel = ShareViewModel(
                 scope = scope,
                 shareState = coordinator.state,
@@ -185,6 +209,13 @@ object FabricShareBootstrap {
                     store = identityStore,
                     validator = validator,
                 ),
+                onIdentityChanged = {
+                    ownConnectAddress.set(
+                        "${identityStore.currentOrCreate().endpoint}" +
+                            ".play.minekube.net",
+                    )
+                    controlPlane.restart()
+                },
                 startShare = coordinator::start,
                 stopShare = coordinator::stop,
                 answerAdmission = admission::answer,
@@ -262,25 +293,6 @@ object FabricShareBootstrap {
                 receiver = friendCardReceiver,
                 requestClient = friendRequestClient,
             )
-            val controlPlane = ConnectControlPlane(
-                scope = scope,
-                ingress = ingress,
-                identity = { endpointIdentity },
-                target = gateway.serverSocketAddress,
-                failureReporter = logger::warn,
-            ).also(ConnectControlPlane::start)
-            val directControlPlane = DirectControlPlane(
-                scope = scope,
-                ingress = directIngress,
-                options = ShareOptions(
-                    gameMode = ShareGameMode.SURVIVAL,
-                    allowCheats = false,
-                    allowInternetDirect = false,
-                ),
-                target = gateway.directAddress,
-                connectAddress = { ownConnectAddress },
-                failureReporter = logger::warn,
-            ).also(DirectControlPlane::start)
             return ConnectShareInstallation(
                 viewModel = viewModel,
                 friendsViewModel = friendsViewModel,
@@ -295,7 +307,7 @@ object FabricShareBootstrap {
                 browser = activeBrowser,
                 friendActivity = activityMonitor,
                 gateway = gateway,
-                ownConnectAddress = ownConnectAddress,
+                ownConnectAddress = ownConnectAddress::get,
                 screens = screens,
                 guestScreens = guestScreens,
             )

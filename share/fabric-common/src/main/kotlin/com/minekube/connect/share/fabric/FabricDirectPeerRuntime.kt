@@ -7,6 +7,7 @@ import com.minekube.connect.tunnel.p2p.DirectP2pHostHandler
 import com.minekube.connect.tunnel.p2p.DirectP2pHostInfo
 import com.minekube.connect.tunnel.p2p.DirectP2pNode
 import com.minekube.connect.tunnel.p2p.DirectP2pProxy
+import com.minekube.connect.share.friend.ShareAccessIdentityStore
 import java.nio.file.Path
 import java.time.Duration
 import java.util.concurrent.atomic.AtomicBoolean
@@ -17,13 +18,16 @@ internal class FabricDirectPeerRuntime private constructor(
 ) {
     constructor(
         dataDirectory: Path,
+        accessIdentityStore: ShareAccessIdentityStore =
+            ShareAccessIdentityStore(dataDirectory),
         displayName: () -> String,
     ) : this(
-        node = CoreFabricDirectPeerNode(
-            DirectP2pNode(dataDirectory.resolve(IDENTITY_FILE_NAME)),
+        browser = FabricShareBrowser(dataDirectory),
+        ingress = FabricDirectShareIngress(
+            dataDirectory = dataDirectory,
+            displayName = displayName,
+            accessIdentityStore = accessIdentityStore,
         ),
-        dataDirectory = dataDirectory,
-        displayName = displayName,
     )
 
     private constructor(
@@ -49,9 +53,6 @@ internal class FabricDirectPeerRuntime private constructor(
             dataDirectory = dataDirectory,
             displayName = displayName,
         )
-
-        private const val IDENTITY_FILE_NAME =
-            "share-libp2p-identity.key"
     }
 }
 

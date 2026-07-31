@@ -72,38 +72,7 @@ class PersistentDirectIngress(
                         .borrow(target, connectAddress)
                         .right()
 
-                else -> {
-                    mutableState.value = PersistentDirectState.Starting
-                    try {
-                        val acquired = delegate.start(
-                            options,
-                            target,
-                            connectAddress,
-                        )
-                        val installed = Active(
-                            target = target,
-                            connectAddress = connectAddress,
-                            handle = acquired,
-                        )
-                        active = installed
-                        mutableState.value =
-                            PersistentDirectState.Available(
-                                lanAvailable = acquired.lanAvailable,
-                                internetAvailable =
-                                    acquired.internetAvailable,
-                            )
-                        installed.borrow(target, connectAddress).right()
-                    } catch (cancellation: CancellationException) {
-                        throw cancellation
-                    } catch (_: Exception) {
-                        mutableState.value =
-                            PersistentDirectState.Failed(
-                                PersistentDirectFailure.StartFailed
-                                    .safeMessage,
-                            )
-                        PersistentDirectFailure.StartFailed.left()
-                    }
-                }
+                else -> startFresh(options, target, connectAddress)
             }
         }
 
@@ -111,11 +80,14 @@ class PersistentDirectIngress(
         options: ShareOptions,
         target: SocketAddress,
         connectAddress: String?,
-    ): DirectShareHandle = startControl(
-        options,
-        target,
-        connectAddress,
-    ).fold(
+    ): DirectShareHandle = lifecycle.withLock {
+        check(mutableState.value != PersistentDirectState.Closed) {
+            PersistentDirectFailure.Closed.safeMessage
+        }
+        active?.handle?.close?.invoke()
+        active = null
+        startFresh(options, target, connectAddress)
+    }.fold(
         ifLeft = {
             throw IllegalStateException(it.safeMessage)
         },
@@ -153,6 +125,35 @@ class PersistentDirectIngress(
                 "Persistent direct Connect fallback changed"
             }
             return handle.copy(close = {})
+        }
+    }
+
+    private suspend fun startFresh(
+        options: ShareOptions,
+        target: SocketAddress,
+        connectAddress: String?,
+    ): Either<PersistentDirectFailure, DirectShareHandle> {
+        mutableState.value = PersistentDirectState.Starting
+        return try {
+            val acquired = delegate.start(options, target, connectAddress)
+            val installed = Active(
+                target = target,
+                connectAddress = connectAddress,
+                handle = acquired,
+            )
+            active = installed
+            mutableState.value = PersistentDirectState.Available(
+                lanAvailable = acquired.lanAvailable,
+                internetAvailable = acquired.internetAvailable,
+            )
+            installed.borrow(target, connectAddress).right()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            mutableState.value = PersistentDirectState.Failed(
+                PersistentDirectFailure.StartFailed.safeMessage,
+            )
+            PersistentDirectFailure.StartFailed.left()
         }
     }
 }

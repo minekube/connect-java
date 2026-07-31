@@ -50,6 +50,8 @@ class FriendCardReceiver(
 class FriendCardIssuer(
     private val dataDirectory: Path,
     private val displayName: () -> String? = { null },
+    private val accessIdentityStore: ShareAccessIdentityStore =
+        ShareAccessIdentityStore(dataDirectory),
     private val connectAddress: suspend () -> String?,
 ) {
     suspend fun issue(
@@ -63,9 +65,7 @@ class FriendCardIssuer(
             FriendCardIssueFailure
         }
         Either.catch {
-            val access = ShareAccessIdentityStore(
-                dataDirectory,
-            ).currentOrCreate()
+            val access = accessIdentityStore.currentOrCreate()
             DirectP2pNode(
                 dataDirectory.resolve(IDENTITY_FILE_NAME),
             ).use { node ->

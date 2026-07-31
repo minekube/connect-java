@@ -19,7 +19,7 @@ import kotlinx.coroutines.runBlocking
 
 class PersistentDirectIngressTest {
     @Test
-    fun `title startup and world leases share one direct host until shutdown`() =
+    fun `world starts replace the title host and publish current invitations`() =
         runBlocking {
             val delegate = FakeIngress()
             val persistent = PersistentDirectIngress(delegate)
@@ -46,21 +46,27 @@ class PersistentDirectIngressTest {
                 CONNECT_ADDRESS,
             )
             val secondWorld = persistent.start(
-                CONTROL_OPTIONS,
+                CONTROL_OPTIONS.copy(allowInternetDirect = true),
                 TARGET,
                 CONNECT_ADDRESS,
             )
             firstWorld.close()
             secondWorld.close()
 
-            assertEquals(0, delegate.closes.get())
-            assertEquals(INVITATION, firstWorld.invitation)
+            assertEquals(2, delegate.closes.get())
+            assertEquals("$INVITATION-2", firstWorld.invitation)
             assertTrue(firstWorld.lanAvailable)
+            assertEquals("$INVITATION-3", secondWorld.invitation)
+            assertEquals(3, delegate.starts.get())
+            assertEquals(
+                listOf(false, false, true),
+                delegate.startedOptions.map(ShareOptions::allowInternetDirect),
+            )
 
             persistent.shutdown()
             persistent.shutdown()
 
-            assertEquals(1, delegate.closes.get())
+            assertEquals(3, delegate.closes.get())
             assertEquals(PersistentDirectState.Closed, persistent.state.value)
         }
 
@@ -101,14 +107,14 @@ class PersistentDirectIngressTest {
             ).getOrNull()!!
 
             assertFailsWith<IllegalStateException> {
-                persistent.start(
+                persistent.startControl(
                     CONTROL_OPTIONS,
                     InetSocketAddress(InetAddress.getLoopbackAddress(), 25_566),
                     CONNECT_ADDRESS,
                 )
             }
             assertFailsWith<IllegalStateException> {
-                persistent.start(
+                persistent.startControl(
                     CONTROL_OPTIONS,
                     TARGET,
                     "other.play.minekube.net",
@@ -123,6 +129,7 @@ class PersistentDirectIngressTest {
     ) : DirectShareIngress {
         val starts = AtomicInteger()
         val closes = AtomicInteger()
+        val startedOptions = mutableListOf<ShareOptions>()
 
         override suspend fun start(
             options: ShareOptions,
@@ -130,11 +137,12 @@ class PersistentDirectIngressTest {
             connectAddress: String?,
         ): DirectShareHandle {
             val attempt = starts.incrementAndGet()
+            startedOptions += options
             if (attempt <= failuresBeforeSuccess) {
                 error("simulated direct startup failure")
             }
             return DirectShareHandle(
-                invitation = INVITATION,
+                invitation = "$INVITATION-$attempt",
                 lanAvailable = true,
                 internetAvailable = false,
                 close = {

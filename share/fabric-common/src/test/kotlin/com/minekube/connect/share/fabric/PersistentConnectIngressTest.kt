@@ -93,6 +93,26 @@ class PersistentConnectIngressTest {
         persistent.shutdown()
     }
 
+    @Test
+    fun `restart releases the captured identity before the next control start`() =
+        runBlocking {
+            val delegate = FakeIngress()
+            val persistent = PersistentConnectIngress(delegate)
+            persistent.startControl(IDENTITY, TARGET).getOrNull()!!
+
+            persistent.restart()
+
+            assertEquals(1, delegate.closes.get())
+            assertIs<PersistentConnectState.Idle>(persistent.state.value)
+            persistent.startControl(
+                IDENTITY.copy(endpoint = "replacement"),
+                TARGET,
+            ).getOrNull()!!
+            assertEquals(2, delegate.starts.get())
+
+            persistent.shutdown()
+        }
+
     private class FakeIngress(
         private val failuresBeforeSuccess: Int = 0,
     ) : ConnectShareIngress {
