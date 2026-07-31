@@ -90,7 +90,7 @@ class FriendCardIssuerTest {
         }
 
     @Test
-    fun `approved exchange promotes the accepter pending request`() =
+    fun `approved exchange promotes the sender outgoing request`() =
         runBlocking {
             val issuer = FriendCardIssuer(
                 dataDirectory = tempDir.resolve("sender"),
@@ -102,10 +102,10 @@ class FriendCardIssuerTest {
                 .payload
                 .peerId
             val store = FriendStore(tempDir.resolve("accepter"))
-            store.receiveRequest(card, "Robin", NOW)
+            store.sendRequest(card, "Robin", NOW)
             val receiver = FriendCardReceiver(store)
 
-            val result = receiver.confirmPending(peerId)
+            val result = receiver.confirmOutgoing(peerId)
 
             assertIs<
                 Either.Right<
@@ -113,7 +113,7 @@ class FriendCardIssuerTest {
                     >
                 >(result)
             assertEquals(peerId, store.all().single().peerId)
-            assertTrue(store.pendingRequests().isEmpty())
+            assertTrue(store.outgoingRequests().isEmpty())
         }
 
     @Test

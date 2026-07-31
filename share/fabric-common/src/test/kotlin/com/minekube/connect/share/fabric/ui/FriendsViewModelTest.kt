@@ -35,12 +35,15 @@ class FriendsViewModelTest {
     lateinit var tempDir: Path
 
     @Test
-    fun `receiving one link exposes only a pending request`() {
+    fun `sending one link exposes only an outgoing request`() {
         val viewModel = FriendsViewModel(FriendStore(tempDir))
 
-        assertTrue(viewModel.receiveRequest(signedLink(), "Robin", NOW))
+        assertEquals(
+            PEER_ID,
+            viewModel.sendRequest(signedLink(), "Robin", NOW),
+        )
 
-        val request = viewModel.state.value.pendingRequests.single()
+        val request = viewModel.state.value.outgoingRequests.single()
         assertEquals(PEER_ID, request.peerId)
         assertEquals("Robin", request.displayName)
         assertTrue(viewModel.state.value.friends.isEmpty())
@@ -49,9 +52,9 @@ class FriendsViewModelTest {
     }
 
     @Test
-    fun `pending request never exposes presence as a friend`() {
+    fun `outgoing request never exposes presence as a friend`() {
         val viewModel = FriendsViewModel(FriendStore(tempDir))
-        viewModel.receiveRequest(signedLink(), "Robin", NOW)
+        viewModel.sendRequest(signedLink(), "Robin", NOW)
 
         viewModel.updateRemotePresence(
             mapOf(
@@ -68,7 +71,7 @@ class FriendsViewModelTest {
         assertTrue(viewModel.state.value.friends.isEmpty())
         assertEquals(
             PEER_ID,
-            viewModel.state.value.pendingRequests.single().peerId,
+            viewModel.state.value.outgoingRequests.single().peerId,
         )
     }
 
@@ -76,13 +79,13 @@ class FriendsViewModelTest {
     fun `invalid friend link stays on the add flow with a useful message`() {
         val viewModel = FriendsViewModel(FriendStore(tempDir))
 
-        val accepted = viewModel.receiveRequest(
+        val accepted = viewModel.sendRequest(
             "minekube://share/not-a-valid-link",
             "Robin",
             NOW,
         )
 
-        assertFalse(accepted)
+        assertEquals(null, accepted)
         assertTrue(viewModel.state.value.friends.isEmpty())
         assertTrue(viewModel.state.value.safeMessage?.isNotBlank() == true)
     }
@@ -212,7 +215,7 @@ class FriendsViewModelTest {
     }
 
     @Test
-    fun `accepting a pending request can join its signed route`() = runTest {
+    fun `retrying an outgoing request can join its signed route`() = runTest {
         val link = signedLink()
         val node = FakeGuestNode()
         val browser = FabricShareBrowser.testing(
@@ -230,9 +233,9 @@ class FriendsViewModelTest {
             ),
         )
         val viewModel = FriendsViewModel(FriendStore(tempDir))
-        viewModel.receiveRequest(link, "Robin", NOW)
+        viewModel.sendRequest(link, "Robin", NOW)
 
-        val result = viewModel.joinPending(
+        val result = viewModel.joinOutgoing(
             peerId = PEER_ID,
             browser = browser,
             authMode = DirectP2pAuthMode.OFFLINE,
