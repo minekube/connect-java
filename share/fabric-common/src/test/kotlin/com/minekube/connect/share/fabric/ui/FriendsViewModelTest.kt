@@ -84,9 +84,11 @@ class FriendsViewModelTest {
         assertFalse(managed.permissions.notifyWhenOnline)
         assertTrue(managed.permissions.canJoinAutomatically)
 
-        viewModel.remove(PEER_ID)
+        assertTrue(viewModel.remove(PEER_ID))
 
         assertTrue(viewModel.state.value.friends.isEmpty())
+        assertTrue(FriendStore(tempDir).all().isEmpty())
+        assertFalse(viewModel.remove(PEER_ID))
     }
 
     @Test

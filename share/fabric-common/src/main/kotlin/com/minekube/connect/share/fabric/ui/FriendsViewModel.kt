@@ -82,11 +82,19 @@ class FriendsViewModel(
         )
     }
 
-    fun remove(peerId: String) {
-        if (store.remove(peerId)) {
-            refresh()
-        }
-    }
+    fun remove(peerId: String): Boolean =
+        Either.catch {
+            store.remove(peerId)
+        }.fold(
+            ifLeft = {
+                update { copy(safeMessage = FRIEND_REMOVE_FAILURE) }
+                false
+            },
+            ifRight = { removed ->
+                refresh()
+                removed
+            },
+        )
 
     fun updatePresence(discovered: List<DiscoveredLanShare>) {
         this.discovered = discovered
@@ -159,5 +167,7 @@ class FriendsViewModel(
     private companion object {
         const val FRIENDS_LOAD_FAILURE =
             "Saved Connect Share friends could not be loaded"
+        const val FRIEND_REMOVE_FAILURE =
+            "This Connect Share friend could not be removed"
     }
 }

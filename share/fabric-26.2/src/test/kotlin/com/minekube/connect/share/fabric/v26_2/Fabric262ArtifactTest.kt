@@ -34,6 +34,31 @@ class Fabric262ArtifactTest {
                 "\"connect_share.status.copy_invitation\": " +
                     "\"Copy friend link\"" in language,
             )
+            assertTrue(
+                "\"connect_share.friends.copy_my_link\": " +
+                    "\"Copy my friend link\"" in language,
+            )
+        }
+    }
+
+    @Test
+    fun `friend removal confirmation stays inside the friends screen`() {
+        JarFile(artifact().toFile()).use { jar ->
+            val screen = jar.getJarEntry(
+                "com/minekube/connect/share/fabric/v26_2/" +
+                    "ShareJoinScreen.class",
+            )
+            assertNotNull(screen)
+            val bytecode = jar.getInputStream(screen).use {
+                it.readBytes().toString(Charsets.ISO_8859_1)
+            }
+
+            assertFalse(
+                "net/minecraft/client/gui/screens/ConfirmScreen" in bytecode,
+            )
+            assertTrue(
+                "connect_share.friends.remove_confirm.confirm" in bytecode,
+            )
         }
     }
 
