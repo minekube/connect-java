@@ -1,7 +1,7 @@
 # Connect Share Pasted LAN Invitation Design
 
-**Date:** 2026-07-30  
-**Status:** Approved for implementation  
+**Date:** 2026-07-30
+**Status:** Approved for implementation
 **Parent design:** `2026-07-30-connect-share-mod-design.md`
 
 ## Problem

@@ -1158,27 +1158,28 @@ Listen for client disconnect/game shutdown/integrated-server replacement and cal
 
 - [ ] **Step 3: Implement exact screens**
 
-The pause menu button is **Share with Connect** when idle and **Connect Share** when active.
+The pause menu button is **Share with friends** when idle and **Sharing with friends** when active.
 
-The setup screen contains game mode, cheats, max guests default 8, and **Start Sharing**.
+The setup screen contains game mode, cheats, max guests default 8, the direct
+internet option, and **Share with friends**.
 
 The status screen contains:
 
 - stable `<endpoint>.play.minekube.net` with copy button;
 - state line;
 - pending cards showing name, UUID, **Connect authenticated**, **Verified online**, or **Unverified offline**;
-- **Allow**, **Deny**, and **Stop Sharing**;
-- **Endpoint identity** link.
+- **Allow**, **Deny**, and **Stop sharing with friends**;
+- **Advanced settings…** link.
 
 The identity screen contains:
 
 - endpoint name;
 - masked credential source;
-- **Import existing endpoint**;
+- **Import token.json…**;
 - endpoint field plus masked token field;
 - `token.json` chooser;
 - **Validate and save**;
-- warned **Reset Connect identity**.
+- warned **Reset endpoint identity…**.
 
 Never render or retain a successful token value.
 
@@ -1313,7 +1314,7 @@ Archive each remapped mod JAR under a distinct artifact name. Do not add mod fil
 Document exact checks:
 
 1. Create an automatic identity and share twice; endpoint and token remain byte-for-byte identical.
-2. Import a dashboard endpoint/token; bad import rolls back, good import preserves its hostname/custom-domain configuration.
+2. Import a dashboard endpoint/token; bad import rolls back, good import preserves its endpoint name.
 3. Join 1.21.11 and 26.2 from an unmodified paid Java client through Connect.
 4. Join through Connect from a non-paid/offline-mode client.
 5. Deny and allow requests; reconnect behavior matches authentication trust.
