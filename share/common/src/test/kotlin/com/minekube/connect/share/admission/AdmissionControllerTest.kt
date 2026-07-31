@@ -50,6 +50,31 @@ class AdmissionControllerTest {
     }
 
     @Test
+    fun `remote cancellation declines pending friend request for direct peer`() = runTest {
+        val controller = controller()
+        val request = async {
+            controller.request(
+                offline("bob", "friend-request").copy(
+                    ingress = Ingress.DIRECT_LAN,
+                    directPeerId = "12D3KooWFriend",
+                ),
+                purpose = AdmissionPurpose.FRIEND,
+            )
+        }
+        runCurrent()
+
+        assertEquals(
+            1,
+            controller.denyDirectPeer(
+                "12D3KooWFriend",
+                AdmissionPurpose.FRIEND,
+            ),
+        )
+        assertEquals(AdmissionAnswer.DENY, request.await())
+        assertTrue(controller.pending.value.isEmpty())
+    }
+
+    @Test
     fun `authenticated UUID approval is reused only during current share`() = runTest {
         val controller = controller()
         val identity = authenticated("Alex", AUTHENTICATED_UUID)

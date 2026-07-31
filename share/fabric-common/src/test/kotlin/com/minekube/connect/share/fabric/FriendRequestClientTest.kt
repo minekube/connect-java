@@ -6,6 +6,11 @@ import com.minekube.connect.share.friend.FriendControlDecode
 import com.minekube.connect.share.friend.FriendControlRequest
 import com.minekube.connect.share.friend.FriendControlResponse
 import com.minekube.connect.share.friend.FriendControlWire
+import com.minekube.connect.share.friend.FriendRemovalRequest
+import com.minekube.connect.share.friend.FriendActivity
+import com.minekube.connect.share.friend.FriendActivityKind
+import com.minekube.connect.share.friend.FriendActivityRequest
+import com.minekube.connect.share.friend.FriendJoinRequest
 import com.minekube.connect.tunnel.p2p.DirectP2pProxy
 import java.io.ByteArrayOutputStream
 import java.net.InetAddress
@@ -126,6 +131,91 @@ class FriendRequestClientTest {
             assertTrue(closed.await(2, TimeUnit.SECONDS))
             remote.join(1_000)
         }
+
+    @Test
+    fun `removal waits for a remote acknowledgement`() = runBlocking {
+        val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+        val removal = FriendRemovalRequest(UUID.randomUUID())
+        val remote = thread(name = "friend-removal-test") {
+            server.use {
+                it.accept().use { socket ->
+                    val bytes = socket.getInputStream().readNBytes(
+                        FriendControlWire.encodeRemoval(removal).size,
+                    )
+                    assertEquals(
+                        removal,
+                        assertIs<FriendControlDecode.Decoded<FriendRemovalRequest>>(
+                            FriendControlWire.decodeRemoval(bytes),
+                        ).value,
+                    )
+                    socket.getOutputStream().apply {
+                        write(FriendControlWire.encodeResponse(FriendControlResponse.Received))
+                        write(FriendControlWire.encodeResponse(FriendControlResponse.Removed))
+                        flush()
+                    }
+                }
+            }
+        }
+
+        val result = FriendRequestClient(ioDispatcher = Dispatchers.IO)
+            .remove(directTarget(server), removal)
+
+        assertIs<Either.Right<Unit>>(result)
+        remote.join(1_000)
+    }
+
+    @Test
+    fun `activity query returns privacy safe friend activity`() = runBlocking {
+        val request = FriendActivityRequest(UUID.randomUUID())
+        val expected = FriendActivity(FriendActivityKind.PLAYING_SERVER, "Hypixel")
+        val server = responseServer(
+            FriendControlWire.encodeActivityRequest(request),
+            FriendControlResponse.Activity(expected),
+        )
+
+        val result = FriendRequestClient(ioDispatcher = Dispatchers.IO)
+            .activity(directTarget(server), request)
+
+        assertEquals(expected, assertIs<Either.Right<FriendActivity>>(result).value)
+    }
+
+    @Test
+    fun `join request returns address only after remote acceptance`() = runBlocking {
+        val request = FriendJoinRequest(UUID.randomUUID())
+        val server = responseServer(
+            FriendControlWire.encodeJoinRequest(request),
+            FriendControlResponse.JoinAccepted("mc.hypixel.net"),
+        )
+
+        val result = FriendRequestClient(ioDispatcher = Dispatchers.IO)
+            .requestJoin(directTarget(server), request)
+
+        assertEquals("mc.hypixel.net", assertIs<Either.Right<String>>(result).value)
+    }
+
+    private fun responseServer(
+        expectedRequest: ByteArray,
+        response: FriendControlResponse,
+    ): ServerSocket {
+        val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+        thread(name = "friend-control-response-test") {
+            server.use {
+                it.accept().use { socket ->
+                    assertTrue(
+                        expectedRequest.contentEquals(
+                            socket.getInputStream().readNBytes(expectedRequest.size),
+                        ),
+                    )
+                    socket.getOutputStream().apply {
+                        write(FriendControlWire.encodeResponse(FriendControlResponse.Received))
+                        write(FriendControlWire.encodeResponse(response))
+                        flush()
+                    }
+                }
+            }
+        }
+        return server
+    }
 
     private fun java.io.InputStream.readControlRequest(): FriendControlRequest {
         val bytes = ByteArrayOutputStream()

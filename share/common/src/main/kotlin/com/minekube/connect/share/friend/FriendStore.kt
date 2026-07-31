@@ -59,6 +59,12 @@ data class SavedFriend(
             "relationshipStatus=$relationshipStatus)"
 }
 
+data class PendingFriendRemoval(
+    val operationId: UUID,
+    val friend: SavedFriend,
+    val removedAt: Instant,
+)
+
 sealed interface FriendStoreError {
     val safeMessage: String
 
@@ -85,7 +91,7 @@ sealed interface FriendStoreError {
 class FriendStore(
     private val directory: Path,
 ) {
-    private var cached: List<SavedFriend>? = null
+    private var cached: StoreData? = null
 
     @Synchronized
     fun all(): List<SavedFriend> =
@@ -103,6 +109,10 @@ class FriendStore(
     @Synchronized
     fun relationship(peerId: String): Option<SavedFriend> =
         read().firstOrNull { it.peerId == peerId }.toOption()
+
+    @Synchronized
+    fun pendingRemovals(): List<PendingFriendRemoval> =
+        data().removals
 
     @Synchronized
     fun accept(
@@ -203,7 +213,14 @@ class FriendStore(
             relationshipStatus = effectiveRelationshipStatus,
         )
         write(
-            current.filterNot { it.peerId == friend.peerId } + friend,
+            data().copy(
+                friends = current.filterNot {
+                    it.peerId == friend.peerId
+                } + friend,
+                removals = data().removals.filterNot {
+                    it.friend.peerId == friend.peerId
+                },
+            ),
         )
         friend
     }
@@ -237,13 +254,45 @@ class FriendStore(
     }
 
     @Synchronized
-    fun remove(peerId: String): Boolean {
+    fun remove(
+        peerId: String,
+        now: Instant = Instant.now(),
+    ): Boolean {
         val current = read()
+        val removed = current.firstOrNull { it.peerId == peerId }
+            ?: return false
         val remaining = current.filterNot { it.peerId == peerId }
-        if (remaining.size == current.size) {
+        val removals = data().removals.filterNot {
+            it.friend.peerId == peerId
+        } + PendingFriendRemoval(
+            operationId = UUID.randomUUID(),
+            friend = removed,
+            removedAt = now,
+        )
+        write(StoreData(remaining, removals))
+        return true
+    }
+
+    @Synchronized
+    fun applyRemoteRemoval(peerId: String): Boolean {
+        val current = read()
+        if (current.none { it.peerId == peerId }) {
             return false
         }
-        write(remaining)
+        write(data().copy(friends = current.filterNot { it.peerId == peerId }))
+        return true
+    }
+
+    @Synchronized
+    fun acknowledgeRemoval(operationId: UUID): Boolean {
+        val current = data()
+        val remaining = current.removals.filterNot {
+            it.operationId == operationId
+        }
+        if (remaining.size == current.removals.size) {
+            return false
+        }
+        write(current.copy(removals = remaining))
         return true
     }
 
@@ -260,20 +309,23 @@ class FriendStore(
         updated
     }
 
-    private fun read(): List<SavedFriend> =
+    private fun read(): List<SavedFriend> = data().friends
+
+    private fun data(): StoreData =
         cached ?: load().also { cached = it }
 
-    private fun load(): List<SavedFriend> {
+    private fun load(): StoreData {
         Files.createDirectories(directory)
         if (!Files.exists(friendsFile)) {
-            return emptyList()
+            return StoreData()
         }
         try {
             val root = GSON.fromJson(
                 Files.readString(friendsFile),
                 JsonObject::class.java,
             ) ?: throw IOException("Friends file is empty")
-            if (root.requiredInt("version") != WIRE_VERSION) {
+            val version = root.requiredInt("version")
+            if (version !in MIN_WIRE_VERSION..WIRE_VERSION) {
                 throw IOException("Friends file version is unsupported")
             }
             val entries = root.getAsJsonArray("friends")
@@ -287,7 +339,17 @@ class FriendStore(
             if (friends.map(SavedFriend::peerId).distinct().size != friends.size) {
                 throw IOException("Friends file contains duplicate identities")
             }
-            return friends
+            val removals = if (version >= 2) {
+                root.getAsJsonArray("pendingRemovals")
+                    ?.map { element -> parseRemoval(element.asJsonObject) }
+                    ?: emptyList()
+            } else {
+                emptyList()
+            }
+            if (removals.size > MAX_FRIENDS) {
+                throw IOException("Friends file contains too many removals")
+            }
+            return StoreData(friends, removals)
         } catch (exception: JsonParseException) {
             throw IOException("Friends file is invalid JSON", exception)
         } catch (exception: IllegalStateException) {
@@ -296,6 +358,19 @@ class FriendStore(
             throw IOException("Friends file contains invalid data", exception)
         }
     }
+
+    private fun parseRemoval(json: JsonObject): PendingFriendRemoval =
+        PendingFriendRemoval(
+            operationId = UUID.fromString(json.requiredString("operationId")),
+            friend = parseFriend(
+                json.getAsJsonObject("friend")
+                    ?: throw IOException("Removal is missing friend"),
+            ),
+            removedAt = Instant.ofEpochMilli(
+                json.get("removedAtEpochMillis")?.asLong
+                    ?: throw IOException("Removal is missing time"),
+            ),
+        )
 
     private fun parseFriend(json: JsonObject): SavedFriend {
         val peerId = json.requiredString("peerId")
@@ -346,53 +421,64 @@ class FriendStore(
     }
 
     private fun write(friends: List<SavedFriend>) {
-        require(friends.size <= MAX_FRIENDS) {
+        write(data().copy(friends = friends))
+    }
+
+    private fun write(data: StoreData) {
+        require(data.friends.size <= MAX_FRIENDS) {
             "Connect Share supports at most $MAX_FRIENDS saved friends"
+        }
+        require(data.removals.size <= MAX_FRIENDS) {
+            "Connect Share supports at most $MAX_FRIENDS pending removals"
         }
         Files.createDirectories(directory)
         val entries = JsonArray()
-        friends.sortedBy { it.displayName.lowercase() }.forEach { friend ->
-            entries.add(JsonObject().apply {
-                addProperty("peerId", friend.peerId)
-                addProperty("publicKey", friend.publicKeyBase64)
-                addProperty("shareId", friend.shareId.toString())
-                addProperty("capability", friend.capability)
-                friend.connectAddress?.let {
-                    addProperty("connectAddress", it)
-                }
-                addProperty("displayName", friend.displayName)
-                friend.minecraftUuid?.let {
-                    addProperty("minecraftUuid", it.toString())
-                }
+        data.friends.sortedBy { it.displayName.lowercase() }.forEach { friend ->
+            entries.add(friend.toJson())
+        }
+        val removals = JsonArray()
+        data.removals.sortedBy { it.removedAt }.forEach { removal ->
+            removals.add(JsonObject().apply {
+                addProperty("operationId", removal.operationId.toString())
                 addProperty(
-                    "relationshipStatus",
-                    friend.relationshipStatus.name,
+                    "removedAtEpochMillis",
+                    removal.removedAt.toEpochMilli(),
                 )
-                add(
-                    "permissions",
-                    JsonObject().apply {
-                        addProperty(
-                            "notifyWhenOnline",
-                            friend.permissions.notifyWhenOnline,
-                        )
-                        addProperty(
-                            "canSeeMyWorlds",
-                            friend.permissions.canSeeMyWorlds,
-                        )
-                        addProperty(
-                            "canJoinAutomatically",
-                            friend.permissions.canJoinAutomatically,
-                        )
-                    },
-                )
+                add("friend", removal.friend.toJson())
             })
         }
         val root = JsonObject().apply {
             addProperty("version", WIRE_VERSION)
             add("friends", entries)
+            add("pendingRemovals", removals)
         }
         writeAtomic(GSON.toJson(root))
-        cached = friends.toList()
+        cached = data.copy(
+            friends = data.friends.toList(),
+            removals = data.removals.toList(),
+        )
+    }
+
+    private fun SavedFriend.toJson(): JsonObject = JsonObject().apply {
+        addProperty("peerId", peerId)
+        addProperty("publicKey", publicKeyBase64)
+        addProperty("shareId", shareId.toString())
+        addProperty("capability", capability)
+        connectAddress?.let { addProperty("connectAddress", it) }
+        addProperty("displayName", displayName)
+        minecraftUuid?.let { addProperty("minecraftUuid", it.toString()) }
+        addProperty("relationshipStatus", relationshipStatus.name)
+        add(
+            "permissions",
+            JsonObject().apply {
+                addProperty("notifyWhenOnline", permissions.notifyWhenOnline)
+                addProperty("canSeeMyWorlds", permissions.canSeeMyWorlds)
+                addProperty(
+                    "canJoinAutomatically",
+                    permissions.canJoinAutomatically,
+                )
+            },
+        )
     }
 
     private fun writeAtomic(content: String) {
@@ -452,7 +538,8 @@ class FriendStore(
 
     companion object {
         const val FILE_NAME = "friends.json"
-        private const val WIRE_VERSION = 1
+        private const val MIN_WIRE_VERSION = 1
+        private const val WIRE_VERSION = 2
         private const val MAX_FRIENDS = 256
         private const val MAX_DISPLAY_NAME_LENGTH = 64
         private val GSON = Gson()
@@ -483,4 +570,9 @@ class FriendStore(
             value.length in 16..512 &&
                 value.none(Char::isWhitespace)
     }
+
+    private data class StoreData(
+        val friends: List<SavedFriend> = emptyList(),
+        val removals: List<PendingFriendRemoval> = emptyList(),
+    )
 }

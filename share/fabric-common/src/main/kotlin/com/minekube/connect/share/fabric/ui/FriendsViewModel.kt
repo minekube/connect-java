@@ -18,6 +18,8 @@ import com.minekube.connect.share.direct.ShareInviteCodec
 import com.minekube.connect.share.friend.FriendPermissions
 import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.share.friend.SavedFriend
+import com.minekube.connect.share.friend.FriendActivity
+import com.minekube.connect.share.friend.FriendActivityKind
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import java.time.Instant
 import java.util.UUID
@@ -33,6 +35,10 @@ data class FriendSummary(
     val onlineViaLan: Boolean = false,
     val onlineViaConnect: Boolean = false,
     val worldName: String? = null,
+    val activityKind: FriendActivityKind? = null,
+    val activityDescription: String? = null,
+    val canRequestJoin: Boolean = false,
+    val canJoinNow: Boolean = false,
 )
 
 data class OutgoingFriendRequestSummary(
@@ -44,6 +50,7 @@ data class IncomingFriendRequestSummary(
     val requestId: UUID,
     val displayName: String,
     val ingress: Ingress,
+    val purpose: AdmissionPurpose,
 )
 
 data class FriendsUiState(
@@ -55,9 +62,11 @@ data class FriendsUiState(
 
 class FriendsViewModel(
     private val store: FriendStore,
+    private val onRemovalQueued: () -> Unit = {},
 ) {
     private var discovered: List<DiscoveredLanShare> = emptyList()
     private var remotePresence: Map<String, RemoteFriendPresence> = emptyMap()
+    private var activities: Map<String, FriendActivity> = emptyMap()
     private var incomingRequests: List<IncomingFriendRequestSummary> =
         emptyList()
     private val mutableState = MutableStateFlow(loadInitialState())
@@ -123,6 +132,9 @@ class FriendsViewModel(
             },
             ifRight = { removed ->
                 refresh()
+                if (removed) {
+                    onRemovalQueued()
+                }
                 removed
             },
         )
@@ -145,10 +157,15 @@ class FriendsViewModel(
         refresh(preserveSafeMessage = true)
     }
 
+    fun updateActivities(activity: Map<String, FriendActivity>) {
+        if (activities == activity) return
+        activities = activity
+        refresh(preserveSafeMessage = true)
+    }
+
     fun updateIncoming(pending: List<PendingAdmission>) {
         val next = pending
             .asSequence()
-            .filter { it.purpose == AdmissionPurpose.FRIEND }
             .map {
                 IncomingFriendRequestSummary(
                     requestId = it.requestId,
@@ -160,6 +177,7 @@ class FriendsViewModel(
                         is AdmissionIdentity.UnverifiedOffline ->
                             identity.ingress
                     },
+                    purpose = it.purpose,
                 )
             }
             .toList()
@@ -190,6 +208,16 @@ class FriendsViewModel(
         val request = outgoingRequest(peerId)
             ?: return GuestJoinFailure.NoRoute.left()
         return browser.openFriendControl(request, authMode)
+    }
+
+    suspend fun routeFriendControl(
+        peerId: String,
+        browser: FabricShareBrowser,
+        authMode: DirectP2pAuthMode,
+    ): Either<GuestJoinFailure, GuestJoinTarget.Direct> {
+        val friend = savedFriend(peerId)
+            ?: return GuestJoinFailure.NoRoute.left()
+        return browser.openFriendControl(friend, authMode)
     }
 
     fun reload() {
@@ -254,6 +282,7 @@ class FriendsViewModel(
     private fun SavedFriend.summary(): FriendSummary {
         val remote = remotePresence[peerId]
             ?.takeIf { it.online }
+        val activity = activities[peerId]
         return FriendSummary(
             peerId = peerId,
             displayName = displayName,
@@ -262,6 +291,12 @@ class FriendsViewModel(
             onlineViaLan = remote?.route == ShareRoute.DIRECT_LAN,
             onlineViaConnect = remote?.route == ShareRoute.CONNECT,
             worldName = remote?.description,
+            activityKind = activity?.kind,
+            activityDescription = activity?.description,
+            canRequestJoin =
+                activity?.kind == FriendActivityKind.PLAYING_SERVER,
+            canJoinNow = remote != null &&
+                activity?.kind != FriendActivityKind.PLAYING_SERVER,
         )
     }
 

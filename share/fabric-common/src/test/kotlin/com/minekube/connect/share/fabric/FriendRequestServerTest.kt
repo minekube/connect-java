@@ -7,6 +7,11 @@ import com.minekube.connect.share.direct.ShareInviteCodec
 import com.minekube.connect.share.friend.FriendControlContext
 import com.minekube.connect.share.friend.FriendControlRequest
 import com.minekube.connect.share.friend.FriendControlResponse
+import com.minekube.connect.share.friend.FriendRemovalRequest
+import com.minekube.connect.share.friend.FriendActivity
+import com.minekube.connect.share.friend.FriendActivityKind
+import com.minekube.connect.share.friend.FriendActivityRequest
+import com.minekube.connect.share.friend.FriendJoinRequest
 import com.minekube.connect.share.friend.FriendStore
 import java.nio.file.Path
 import java.time.Instant
@@ -148,6 +153,130 @@ class FriendRequestServerTest {
             assertTrue(hostStore.outgoingRequests().isEmpty())
             assertEquals(1, relationshipsChanged)
         }
+
+    @Test
+    fun `authenticated removal converges locally and is idempotent`() = runTest {
+        val senderCard = issuer("sender").issue(NOW).getOrNull()!!
+        val senderPeerId = ShareInviteCodec.decode(senderCard, NOW)
+            .getOrNull()!!.payload.peerId
+        val hostStore = FriendStore(tempDir.resolve("host-store"))
+        hostStore.accept(senderCard, "bob", NOW)
+        val server = FriendRequestServer(
+            scope = backgroundScope,
+            admission = admission(),
+            issuer = issuer("host"),
+            receiver = FriendCardReceiver(hostStore),
+            friendStore = hostStore,
+            now = { NOW },
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val context = FriendControlContext(
+            ingress = Ingress.DIRECT_LAN,
+            directPeerId = senderPeerId,
+        )
+        val removal = FriendRemovalRequest(UUID.randomUUID())
+
+        assertEquals(
+            FriendControlResponse.Removed,
+            server.handleRemoval(context, removal).await(),
+        )
+        assertEquals(
+            FriendControlResponse.Removed,
+            server.handleRemoval(context, removal).await(),
+        )
+        assertTrue(hostStore.all().isEmpty())
+        assertTrue(hostStore.pendingRemovals().isEmpty())
+    }
+
+    @Test
+    fun `removal never accepts Connect ingress`() = runTest {
+        val hostStore = FriendStore(tempDir.resolve("host-store"))
+        val server = FriendRequestServer(
+            scope = backgroundScope,
+            admission = admission(),
+            issuer = issuer("host"),
+            receiver = FriendCardReceiver(hostStore),
+            friendStore = hostStore,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        assertEquals(
+            FriendControlResponse.Invalid,
+            server.handleRemoval(
+                FriendControlContext(Ingress.CONNECT, null),
+                FriendRemovalRequest(UUID.randomUUID()),
+            ).await(),
+        )
+    }
+
+    @Test
+    fun `confirmed friend can see server activity but not its address`() = runTest {
+        val senderCard = issuer("sender").issue(NOW).getOrNull()!!
+        val senderPeerId = ShareInviteCodec.decode(senderCard, NOW)
+            .getOrNull()!!.payload.peerId
+        val hostStore = FriendStore(tempDir.resolve("host-store"))
+        hostStore.accept(senderCard, "bob", NOW)
+        val server = FriendRequestServer(
+            scope = backgroundScope,
+            admission = admission(),
+            issuer = issuer("host"),
+            receiver = FriendCardReceiver(hostStore),
+            friendStore = hostStore,
+            activity = {
+                FriendActivity(FriendActivityKind.PLAYING_SERVER, "Hypixel")
+            },
+            joinTarget = { "mc.hypixel.net" },
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        assertEquals(
+            FriendControlResponse.Activity(
+                FriendActivity(FriendActivityKind.PLAYING_SERVER, "Hypixel"),
+            ),
+            server.handleActivity(
+                FriendControlContext(Ingress.DIRECT_LAN, senderPeerId),
+                FriendActivityRequest(UUID.randomUUID()),
+            ).await(),
+        )
+    }
+
+    @Test
+    fun `join target is disclosed only after friend request is approved`() = runTest {
+        val senderCard = issuer("sender").issue(NOW).getOrNull()!!
+        val senderPeerId = ShareInviteCodec.decode(senderCard, NOW)
+            .getOrNull()!!.payload.peerId
+        val admission = admission()
+        val hostStore = FriendStore(tempDir.resolve("host-store"))
+        hostStore.accept(senderCard, "bob", NOW)
+        val server = FriendRequestServer(
+            scope = backgroundScope,
+            admission = admission,
+            issuer = issuer("host"),
+            receiver = FriendCardReceiver(hostStore),
+            friendStore = hostStore,
+            activity = {
+                FriendActivity(FriendActivityKind.PLAYING_SERVER, "Hypixel")
+            },
+            joinTarget = { "mc.hypixel.net" },
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val response = server.handleJoin(
+            FriendControlContext(Ingress.DIRECT_LAN, senderPeerId),
+            FriendJoinRequest(UUID.randomUUID()),
+        ).toCompletableFuture()
+        runCurrent()
+
+        val pending = admission.pending.value.single()
+        assertEquals(AdmissionPurpose.JOIN, pending.purpose)
+        assertEquals("bob", pending.identity.name)
+        admission.answer(pending.requestId, allow = true)
+        runCurrent()
+
+        assertEquals(
+            FriendControlResponse.JoinAccepted("mc.hypixel.net"),
+            response.getNow(null),
+        )
+    }
 
     private fun kotlinx.coroutines.test.TestScope.admission() =
         AdmissionController(

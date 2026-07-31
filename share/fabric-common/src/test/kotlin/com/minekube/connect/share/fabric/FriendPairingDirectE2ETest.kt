@@ -6,6 +6,11 @@ import com.minekube.connect.share.ShareOptions
 import com.minekube.connect.share.admission.AdmissionController
 import com.minekube.connect.share.direct.DirectSessionRegistry
 import com.minekube.connect.share.friend.FriendStore
+import com.minekube.connect.share.friend.FriendRemovalRequest
+import com.minekube.connect.share.friend.FriendActivity
+import com.minekube.connect.share.friend.FriendActivityKind
+import com.minekube.connect.share.friend.FriendActivityRequest
+import com.minekube.connect.share.friend.FriendJoinRequest
 import com.minekube.connect.share.friend.ShareAccessIdentityStore
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import com.minekube.connect.tunnel.p2p.DirectP2pDiscoveryListener
@@ -64,6 +69,13 @@ class FriendPairingDirectE2ETest {
                 friendStore = hostStore,
                 now = { now },
                 ioDispatcher = Dispatchers.IO,
+                activity = {
+                    FriendActivity(
+                        FriendActivityKind.PLAYING_SERVER,
+                        "Hypixel",
+                    )
+                },
+                joinTarget = { "mc.hypixel.net" },
             )
 
             try {
@@ -102,17 +114,18 @@ class FriendPairingDirectE2ETest {
                         ioDispatcher = Dispatchers.IO,
                     )
                     try {
+                        val requestClient = FriendRequestClient(
+                            ioDispatcher = Dispatchers.IO,
+                            connectTimeout = Duration.ofSeconds(3),
+                            decisionTimeout = Duration.ofSeconds(5),
+                        )
                         val pairing = FriendPairingClient(
                             store = senderStore,
                             issuer = FriendCardIssuer(senderDirectory) {
                                 "sender.play.minekube.net"
                             },
                             receiver = FriendCardReceiver(senderStore),
-                            requestClient = FriendRequestClient(
-                                ioDispatcher = Dispatchers.IO,
-                                connectTimeout = Duration.ofSeconds(3),
-                                decisionTimeout = Duration.ofSeconds(5),
-                            ),
+                            requestClient = requestClient,
                             now = { now },
                             ioDispatcher = Dispatchers.IO,
                         )
@@ -155,6 +168,69 @@ class FriendPairingDirectE2ETest {
                             "RoboFlax2",
                             senderStore.all().single().displayName,
                         )
+
+                        val activityTarget = browser.join(
+                            invitationUri = direct.invitation,
+                            lanAddress = hostInfo.get().lanAddresses().first(),
+                            internetOptIn = false,
+                            authMode = DirectP2pAuthMode.OFFLINE,
+                        ).getOrNull() as GuestJoinTarget.Direct
+                        assertEquals(
+                            FriendActivity(
+                                FriendActivityKind.PLAYING_SERVER,
+                                "Hypixel",
+                            ),
+                            requestClient.activity(
+                                activityTarget,
+                                FriendActivityRequest(java.util.UUID.randomUUID()),
+                            ).getOrNull(),
+                        )
+
+                        val joinTarget = browser.join(
+                            invitationUri = direct.invitation,
+                            lanAddress = hostInfo.get().lanAddresses().first(),
+                            internetOptIn = false,
+                            authMode = DirectP2pAuthMode.OFFLINE,
+                        ).getOrNull() as GuestJoinTarget.Direct
+                        val requestedJoin = async {
+                            requestClient.requestJoin(
+                                joinTarget,
+                                FriendJoinRequest(java.util.UUID.randomUUID()),
+                            )
+                        }
+                        val joinAdmission = withTimeout(5.seconds) {
+                            admission.pending.first {
+                                it.singleOrNull()?.purpose ==
+                                    com.minekube.connect.share.admission.AdmissionPurpose.JOIN
+                            }.single()
+                        }
+                        admission.answer(joinAdmission.requestId, allow = true)
+                        assertEquals(
+                            "mc.hypixel.net",
+                            requestedJoin.await().getOrNull(),
+                        )
+
+                        val hostPeerId = senderStore.all().single().peerId
+                        assertTrue(senderStore.remove(hostPeerId, now))
+                        val removal = senderStore.pendingRemovals().single()
+                        val removalTarget = browser.join(
+                            invitationUri = direct.invitation,
+                            lanAddress = hostInfo.get().lanAddresses().first(),
+                            internetOptIn = false,
+                            authMode = DirectP2pAuthMode.OFFLINE,
+                        ).getOrNull() as GuestJoinTarget.Direct
+
+                        assertTrue(
+                            requestClient.remove(
+                                removalTarget,
+                                FriendRemovalRequest(removal.operationId),
+                            ).isRight(),
+                        )
+                        senderStore.acknowledgeRemoval(removal.operationId)
+
+                        assertTrue(hostStore.all().isEmpty())
+                        assertTrue(senderStore.all().isEmpty())
+                        assertTrue(senderStore.pendingRemovals().isEmpty())
                     } finally {
                         browser.close()
                         direct.close()

@@ -213,11 +213,53 @@ class FriendStoreTest {
         val store = FriendStore(tempDir)
         store.accept(signedLink(), "Robin", NOW)
 
-        val removed = store.remove(PEER_ID)
+        val removed = store.remove(PEER_ID, NOW)
 
         assertTrue(removed)
         assertTrue(FriendStore(tempDir).all().isEmpty())
+        val pending = FriendStore(tempDir).pendingRemovals().single()
+        assertEquals(PEER_ID, pending.friend.peerId)
+        assertEquals(NOW, pending.removedAt)
         assertFalse(store.remove(PEER_ID))
+    }
+
+    @Test
+    fun `acknowledging a removal clears its durable tombstone`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        store.remove(PEER_ID, NOW)
+        val operation = store.pendingRemovals().single()
+
+        assertTrue(store.acknowledgeRemoval(operation.operationId))
+
+        assertTrue(FriendStore(tempDir).pendingRemovals().isEmpty())
+        assertFalse(store.acknowledgeRemoval(operation.operationId))
+    }
+
+    @Test
+    fun `remote removal is idempotent and does not create a reply tombstone`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+
+        assertTrue(store.applyRemoteRemoval(PEER_ID))
+        assertFalse(store.applyRemoteRemoval(PEER_ID))
+
+        val reloaded = FriendStore(tempDir)
+        assertTrue(reloaded.all().isEmpty())
+        assertTrue(reloaded.pendingRemovals().isEmpty())
+    }
+
+    @Test
+    fun `explicitly adding a removed friend cancels the stale removal`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        store.remove(PEER_ID, NOW)
+
+        store.sendRequest(signedLink(), "Robin", NOW.plusSeconds(1))
+
+        val reloaded = FriendStore(tempDir)
+        assertEquals(PEER_ID, reloaded.outgoingRequests().single().peerId)
+        assertTrue(reloaded.pendingRemovals().isEmpty())
     }
 
     @Test

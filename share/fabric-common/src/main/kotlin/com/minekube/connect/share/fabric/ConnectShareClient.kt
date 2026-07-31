@@ -10,7 +10,11 @@ fun interface ConnectShareScreenFactory {
 }
 
 fun interface ConnectShareGuestScreenFactory {
-    fun open(parent: Any, browser: FabricShareBrowser)
+    fun open(
+        parent: Any,
+        browser: FabricShareBrowser,
+        activity: FriendActivityMonitor,
+    )
 }
 
 data class ConnectShareInstallation(
@@ -25,6 +29,7 @@ data class ConnectShareInstallation(
     val controlPlane: ConnectControlPlane,
     val directControlPlane: DirectControlPlane,
     val browser: FabricShareBrowser,
+    val friendActivity: FriendActivityMonitor,
     val gateway: ShareConnectionGateway,
     val ownConnectAddress: String,
     val screens: ConnectShareScreenFactory,
@@ -65,7 +70,11 @@ object ConnectShareClient {
     @JvmStatic
     fun openJoinScreen(parent: Any) {
         installation?.let { installed ->
-            installed.guestScreens.open(parent, installed.browser)
+            installed.guestScreens.open(
+                parent,
+                installed.browser,
+                installed.friendActivity,
+            )
         }
     }
 

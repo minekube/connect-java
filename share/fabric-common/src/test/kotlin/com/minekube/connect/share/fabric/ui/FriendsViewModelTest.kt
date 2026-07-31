@@ -16,6 +16,8 @@ import com.minekube.connect.share.fabric.RemoteFriendPresence
 import com.minekube.connect.share.direct.ShareRoute
 import com.minekube.connect.share.friend.FriendPermissions
 import com.minekube.connect.share.friend.FriendStore
+import com.minekube.connect.share.friend.FriendActivity
+import com.minekube.connect.share.friend.FriendActivityKind
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import com.minekube.connect.tunnel.p2p.DirectP2pDiscoveredShare
 import com.minekube.connect.tunnel.p2p.DirectP2pDiscoveryListener
@@ -94,7 +96,7 @@ class FriendsViewModelTest {
     }
 
     @Test
-    fun `title friends state exposes only incoming friend approvals`() {
+    fun `friends state exposes both friend and join approvals`() {
         val viewModel = FriendsViewModel(FriendStore(tempDir))
         val friendRequestId = UUID.randomUUID()
         val joinRequestId = UUID.randomUUID()
@@ -124,10 +126,14 @@ class FriendsViewModelTest {
             ),
         )
 
-        val incoming = viewModel.state.value.incomingRequests.single()
-        assertEquals(friendRequestId, incoming.requestId)
-        assertEquals("bob", incoming.displayName)
-        assertEquals(Ingress.CONNECT, incoming.ingress)
+        val incoming = viewModel.state.value.incomingRequests
+        assertEquals(2, incoming.size)
+        assertEquals(friendRequestId, incoming[0].requestId)
+        assertEquals(AdmissionPurpose.FRIEND, incoming[0].purpose)
+        assertEquals("bob", incoming[0].displayName)
+        assertEquals(Ingress.CONNECT, incoming[0].ingress)
+        assertEquals(joinRequestId, incoming[1].requestId)
+        assertEquals(AdmissionPurpose.JOIN, incoming[1].purpose)
         assertTrue(viewModel.state.value.friends.isEmpty())
         assertTrue(viewModel.state.value.outgoingRequests.isEmpty())
     }
@@ -283,6 +289,28 @@ class FriendsViewModelTest {
         val online = viewModel.state.value.friends.single()
         assertTrue(online.onlineViaConnect)
         assertEquals("Robin's Remote World", online.worldName)
+    }
+
+    @Test
+    fun `playing on a server exposes request to join instead of direct join`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        val viewModel = FriendsViewModel(store)
+
+        viewModel.updateActivities(
+            mapOf(
+                PEER_ID to FriendActivity(
+                    FriendActivityKind.PLAYING_SERVER,
+                    "Hypixel",
+                ),
+            ),
+        )
+
+        val friend = viewModel.state.value.friends.single()
+        assertEquals(FriendActivityKind.PLAYING_SERVER, friend.activityKind)
+        assertEquals("Hypixel", friend.activityDescription)
+        assertTrue(friend.canRequestJoin)
+        assertFalse(friend.canJoinNow)
     }
 
     @Test
