@@ -39,21 +39,28 @@ class Fabric262ArtifactTest {
                     "\"Copy my friend link\"" in language,
             )
             assertTrue(
-                "\"connect_share.friends.save_request\": " +
-                    "\"Save request\"" in language,
+                "\"connect_share.friends.send_request\": " +
+                    "\"Send request\"" in language,
             )
             assertTrue(
-                "\"connect_share.friends.pending_request\": " +
-                    "\"Request from %s\"" in language,
+                "\"connect_share.friends.outgoing_request\": " +
+                    "\"Request to %s\"" in language,
             )
             assertTrue(
-                "\"connect_share.friends.accept_request\": \"Accept\"" in
+                "\"connect_share.friends.retry_request\": \"Retry\"" in
                     language,
             )
             assertTrue(
-                "\"connect_share.friends.decline_request\": \"Decline\"" in
+                "\"connect_share.friends.cancel_request\": \"Cancel\"" in
                     language,
             )
+            assertTrue(
+                "\"connect_share.status.allow\": \"Accept\"" in language,
+            )
+            assertTrue(
+                "\"connect_share.status.deny\": \"Decline\"" in language,
+            )
+            assertFalse("connect_share.friends.accept_request" in language)
         }
     }
 
@@ -75,13 +82,14 @@ class Fabric262ArtifactTest {
             assertTrue(
                 "connect_share.friends.remove_confirm.confirm" in bytecode,
             )
-            assertTrue("receiveRequest" in bytecode)
-            assertTrue("joinPending" in bytecode)
+            assertTrue("sendRequest" in bytecode)
+            assertTrue("joinOutgoing" in bytecode)
+            assertFalse("connect_share.friends.accept_request" in bytecode)
         }
     }
 
     @Test
-    fun `approved card exchange promotes a pending request`() {
+    fun `approved card exchange promotes an outgoing request`() {
         JarFile(artifact().toFile()).use { jar ->
             val bytecode = jar.entries().asSequence()
                 .filter {
@@ -96,7 +104,7 @@ class Fabric262ArtifactTest {
                     }
                 }
 
-            assertTrue("confirmPending" in bytecode)
+            assertTrue("confirmOutgoing" in bytecode)
         }
     }
 

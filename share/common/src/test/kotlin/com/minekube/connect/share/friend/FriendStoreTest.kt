@@ -24,31 +24,31 @@ class FriendStoreTest {
     lateinit var tempDir: Path
 
     @Test
-    fun `receiving a signed link stores only a pending request`() {
+    fun `sending a signed link stores only an outgoing request`() {
         val store = FriendStore(tempDir)
 
         val request = assertIs<Either.Right<SavedFriend>>(
-            store.receiveRequest(signedLink(), "Robin", NOW),
+            store.sendRequest(signedLink(), "Robin", NOW),
         ).value
 
         assertEquals(
-            FriendRelationshipStatus.PENDING_INCOMING,
+            FriendRelationshipStatus.PENDING_OUTGOING,
             request.relationshipStatus,
         )
         assertTrue(store.all().isEmpty())
         assertEquals(
             listOf(request),
-            FriendStore(tempDir).pendingRequests(),
+            FriendStore(tempDir).outgoingRequests(),
         )
     }
 
     @Test
-    fun `confirming a pending request promotes it across restarts`() {
+    fun `confirming an outgoing request promotes it across restarts`() {
         val store = FriendStore(tempDir)
-        store.receiveRequest(signedLink(), "Robin", NOW)
+        store.sendRequest(signedLink(), "Robin", NOW)
 
         val confirmed = assertIs<Either.Right<SavedFriend>>(
-            store.confirmPending(PEER_ID),
+            store.confirmOutgoing(PEER_ID),
         ).value
 
         assertEquals(
@@ -59,16 +59,16 @@ class FriendStoreTest {
             listOf(confirmed),
             FriendStore(tempDir).all(),
         )
-        assertTrue(FriendStore(tempDir).pendingRequests().isEmpty())
+        assertTrue(FriendStore(tempDir).outgoingRequests().isEmpty())
     }
 
     @Test
-    fun `receiving the same link never demotes a confirmed friend`() {
+    fun `sending the same link never demotes a confirmed friend`() {
         val store = FriendStore(tempDir)
         store.accept(signedLink(), "Robin", NOW)
 
         val received = assertIs<Either.Right<SavedFriend>>(
-            store.receiveRequest(signedLink(), "Robin", NOW),
+            store.sendRequest(signedLink(), "Robin", NOW),
         ).value
 
         assertEquals(
@@ -76,11 +76,11 @@ class FriendStoreTest {
             received.relationshipStatus,
         )
         assertEquals(PEER_ID, store.all().single().peerId)
-        assertTrue(store.pendingRequests().isEmpty())
+        assertTrue(store.outgoingRequests().isEmpty())
     }
 
     @Test
-    fun `legacy unverified relationships migrate to pending`() {
+    fun `legacy unverified relationships migrate to outgoing`() {
         val store = FriendStore(tempDir)
         store.accept(signedLink(), "Robin", NOW)
         stripRelationshipStatus()
@@ -88,7 +88,22 @@ class FriendStoreTest {
         val migrated = FriendStore(tempDir)
 
         assertTrue(migrated.all().isEmpty())
-        assertEquals(PEER_ID, migrated.pendingRequests().single().peerId)
+        assertEquals(PEER_ID, migrated.outgoingRequests().single().peerId)
+    }
+
+    @Test
+    fun `broken incoming status migrates to outgoing`() {
+        val store = FriendStore(tempDir)
+        store.sendRequest(signedLink(), "Robin", NOW)
+        replaceRelationshipStatus(
+            from = "PENDING_OUTGOING",
+            to = "PENDING_INCOMING",
+        )
+
+        val migrated = FriendStore(tempDir)
+
+        assertTrue(migrated.all().isEmpty())
+        assertEquals(PEER_ID, migrated.outgoingRequests().single().peerId)
     }
 
     @Test
@@ -104,7 +119,7 @@ class FriendStoreTest {
         val migrated = FriendStore(tempDir)
 
         assertEquals(PEER_ID, migrated.all().single().peerId)
-        assertTrue(migrated.pendingRequests().isEmpty())
+        assertTrue(migrated.outgoingRequests().isEmpty())
     }
 
     @Test
@@ -244,6 +259,17 @@ class FriendStoreTest {
             "",
         )
         Files.writeString(file, withoutStatus)
+    }
+
+    private fun replaceRelationshipStatus(
+        from: String,
+        to: String,
+    ) {
+        val file = tempDir.resolve(FriendStore.FILE_NAME)
+        Files.writeString(
+            file,
+            Files.readString(file).replace(from, to),
+        )
     }
 
     private companion object {

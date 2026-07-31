@@ -33,7 +33,7 @@ data class FriendPermissions(
 )
 
 enum class FriendRelationshipStatus {
-    PENDING_INCOMING,
+    PENDING_OUTGOING,
     CONFIRMED,
 }
 
@@ -90,10 +90,10 @@ class FriendStore(
         }
 
     @Synchronized
-    fun pendingRequests(): List<SavedFriend> =
+    fun outgoingRequests(): List<SavedFriend> =
         read().filter {
             it.relationshipStatus ==
-                FriendRelationshipStatus.PENDING_INCOMING
+                FriendRelationshipStatus.PENDING_OUTGOING
         }
 
     @Synchronized
@@ -110,7 +110,7 @@ class FriendStore(
         )
 
     @Synchronized
-    fun receiveRequest(
+    fun sendRequest(
         invitationUri: String,
         displayName: String,
         now: Instant = Instant.now(),
@@ -119,12 +119,12 @@ class FriendStore(
             invitationUri = invitationUri,
             displayName = displayName,
             relationshipStatus =
-                FriendRelationshipStatus.PENDING_INCOMING,
+                FriendRelationshipStatus.PENDING_OUTGOING,
             now = now,
         )
 
     @Synchronized
-    fun confirmPending(
+    fun confirmOutgoing(
         peerId: String,
     ): Either<FriendStoreError, SavedFriend> = update(peerId) { friend ->
         friend.copy(
@@ -294,7 +294,7 @@ class FriendStore(
         )
         val relationshipStatus = json
             .optionalString("relationshipStatus")
-            ?.let(FriendRelationshipStatus::valueOf)
+            ?.let(::parseRelationshipStatus)
             ?: legacyRelationshipStatus(
                 minecraftUuid = minecraftUuid,
                 permissions = parsedPermissions,
@@ -433,7 +433,16 @@ class FriendStore(
             ) {
                 FriendRelationshipStatus.CONFIRMED
             } else {
-                FriendRelationshipStatus.PENDING_INCOMING
+                FriendRelationshipStatus.PENDING_OUTGOING
+            }
+
+        private fun parseRelationshipStatus(
+            value: String,
+        ): FriendRelationshipStatus =
+            if (value == "PENDING_INCOMING") {
+                FriendRelationshipStatus.PENDING_OUTGOING
+            } else {
+                FriendRelationshipStatus.valueOf(value)
             }
 
         private fun isValidCapability(value: String): Boolean =

@@ -27,14 +27,14 @@ data class FriendSummary(
     val worldName: String? = null,
 )
 
-data class PendingFriendSummary(
+data class OutgoingFriendRequestSummary(
     val peerId: String,
     val displayName: String,
 )
 
 data class FriendsUiState(
     val friends: List<FriendSummary> = emptyList(),
-    val pendingRequests: List<PendingFriendSummary> = emptyList(),
+    val outgoingRequests: List<OutgoingFriendRequestSummary> = emptyList(),
     val safeMessage: String? = null,
 )
 
@@ -47,19 +47,19 @@ class FriendsViewModel(
 
     val state: StateFlow<FriendsUiState> = mutableState.asStateFlow()
 
-    fun receiveRequest(
+    fun sendRequest(
         invitationUri: String,
         displayName: String,
         now: Instant = Instant.now(),
-    ): Boolean =
-        store.receiveRequest(invitationUri, displayName, now).fold(
+    ): String? =
+        store.sendRequest(invitationUri, displayName, now).fold(
             ifLeft = { failure ->
                 update { copy(safeMessage = failure.safeMessage) }
-                false
+                null
             },
-            ifRight = {
+            ifRight = { request ->
                 refresh()
-                true
+                request.peerId
             },
         )
 
@@ -124,12 +124,12 @@ class FriendsViewModel(
         return browser.join(friend, authMode)
     }
 
-    suspend fun joinPending(
+    suspend fun joinOutgoing(
         peerId: String,
         browser: FabricShareBrowser,
         authMode: DirectP2pAuthMode,
     ): Either<GuestJoinFailure, GuestJoinTarget> {
-        val request = pendingRequest(peerId)
+        val request = outgoingRequest(peerId)
             ?: return GuestJoinFailure.NoRoute.left()
         return browser.join(request, authMode)
     }
@@ -139,9 +139,9 @@ class FriendsViewModel(
             store.all().firstOrNull { it.peerId == peerId }
         }.getOrNull()
 
-    internal fun pendingRequest(peerId: String): SavedFriend? =
+    internal fun outgoingRequest(peerId: String): SavedFriend? =
         runCatching {
-            store.pendingRequests().firstOrNull {
+            store.outgoingRequests().firstOrNull {
                 it.peerId == peerId
             }
         }.getOrNull()
@@ -165,8 +165,8 @@ class FriendsViewModel(
     private fun currentState(): FriendsUiState =
         FriendsUiState(
             friends = store.all().map { it.summary() },
-            pendingRequests = store.pendingRequests().map {
-                PendingFriendSummary(
+            outgoingRequests = store.outgoingRequests().map {
+                OutgoingFriendRequestSummary(
                     peerId = it.peerId,
                     displayName = it.displayName,
                 )

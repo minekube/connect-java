@@ -84,7 +84,7 @@ object FriendCardNetworking {
                                 FriendCardPayload(invitation),
                             )
                             scope.launch(Dispatchers.IO) {
-                                receiver.confirmPending(exchange.peerId)
+                                receiver.confirmOutgoing(exchange.peerId)
                             }
                         }
                     }
