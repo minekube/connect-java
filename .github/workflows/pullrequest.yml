@@ -11,13 +11,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Run the full build (incl. the per-platform plugin startup tests) on more than one JDK so a
-        # JDK-version-dependent DI/reflective startup regression is caught in CI. 17 is the primary
-        # (release) toolchain and the only one that publishes artifacts; 21 is the highest JDK
-        # Gradle 8.5 can run on. The Java-26-class reflective/DI failures (Guice 7 provisioning,
-        # Libp2pEndpointRuntime constructor arity) are additionally guarded by signature-level
-        # reflective tests that are independent of the running JDK, so they are covered even though
-        # the build cannot run on JDK 26 until Gradle is upgraded.
+        # Run the legacy Connect build (incl. the per-platform plugin startup tests) on more than
+        # one JDK so JDK-version-dependent DI/reflective startup regressions are caught in CI.
+        # Fabric Share modules are skipped here and built by dedicated jobs because each Minecraft
+        # version has its own JVM floor and toolchain.
         java: ['17', '21']
 
     steps:
@@ -37,7 +34,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Build
-        run: ./gradlew build
+        run: ./gradlew -Pskip-share=true build
 
       - name: Archive artifacts (Connect Bungee)
         uses: actions/upload-artifact@v4
