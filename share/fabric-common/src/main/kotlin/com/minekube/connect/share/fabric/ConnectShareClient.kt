@@ -132,7 +132,11 @@ object ConnectShareClient {
 
     @JvmStatic
     fun armFriendCardExchange(peerId: String) {
-        friendCardConsent.arm(peerId)
+        installation?.friendsViewModel
+            ?.relationshipId(peerId)
+            ?.let { relationshipId ->
+                friendCardConsent.arm(peerId, relationshipId)
+            }
     }
 
     @JvmStatic

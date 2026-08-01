@@ -574,7 +574,7 @@ class ShareJoinScreen(
             ).withValues(FriendAccessPolicy.entries)
                 .create(
                     width / 2 - 155,
-                    126,
+                    148,
                     310,
                     20,
                     Component.translatable("connect_share.friends.access"),
@@ -588,10 +588,20 @@ class ShareJoinScreen(
                 .selected(friend.permissions.canSeeMyWorlds)
                 .build(),
         )
+        val guestInternetDirect = addRenderableWidget(
+            Checkbox.builder(
+                Component.translatable(
+                    "connect_share.friends.internet_direct",
+                ),
+                font,
+            ).pos(width / 2 - 155, 126)
+                .selected(friend.internetDirectGuestOptIn)
+                .build(),
+        )
         safeMessage().let { message ->
             if (message != null) {
                 addRenderableWidget(
-                    centered(Component.literal(message), 154)
+                    centered(Component.literal(message), 176)
                         .setMaxWidth(CONTENT_WIDTH),
                 )
             }
@@ -606,6 +616,10 @@ class ShareJoinScreen(
                 activeScope.launch {
                     withContext(Dispatchers.IO) {
                         friends.rename(friend.peerId, nameValue)
+                        friends.updateInternetDirectGuestOptIn(
+                            friend.peerId,
+                            guestInternetDirect.selected(),
+                        )
                         friends.updatePermissions(
                             friend.peerId,
                             FriendPermissions(
@@ -910,6 +924,9 @@ class ShareJoinScreen(
                     invitation = hostCard,
                     displayName = displayName,
                     authenticatedMinecraftUuid = null,
+                    relationshipId = friends.state.value.outgoingRequests
+                        .firstOrNull { it.peerId == peerId }
+                        ?.relationshipId,
                 )
             }
             if (accepted.isLeft()) {

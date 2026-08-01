@@ -47,10 +47,11 @@ class FabricDirectShareIngress private constructor(
         accessIdentityStore: ShareAccessIdentityStore =
             ShareAccessIdentityStore(dataDirectory),
         displayName: () -> String,
+        identityFile: Path = dataDirectory.resolve(IDENTITY_FILE_NAME),
     ) : this(
         nodeFactory = {
             CoreFabricDirectNode(
-                DirectP2pNode(dataDirectory.resolve(IDENTITY_FILE_NAME)),
+                DirectP2pNode(identityFile),
             )
         },
         now = Instant::now,

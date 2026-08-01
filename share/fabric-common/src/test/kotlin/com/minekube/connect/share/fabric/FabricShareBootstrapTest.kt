@@ -2,6 +2,7 @@ package com.minekube.connect.share.fabric
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class FabricShareBootstrapTest {
     @Test
@@ -15,6 +16,13 @@ class FabricShareBootstrapTest {
             FabricShareBootstrap.watchHttpUrl(
                 mapOf("CONNECT_WATCH_URL" to "ws://localhost:8080/watch"),
             ).toString(),
+        )
+    }
+
+    @Test
+    fun `social control hosting always exposes direct internet candidates`() {
+        assertTrue(
+            FabricShareBootstrap.socialControlOptions().allowInternetDirect,
         )
     }
 }

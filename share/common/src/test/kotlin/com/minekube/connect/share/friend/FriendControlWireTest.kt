@@ -1,5 +1,6 @@
 package com.minekube.connect.share.friend
 
+import java.io.ByteArrayOutputStream
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -25,6 +26,22 @@ class FriendControlWireTest {
         assertEquals(request, decoded.value)
         assertEquals(encoded.size, decoded.consumedBytes)
         assertFalse(FriendControlWire.isStatusHandshake(encoded))
+    }
+
+    @Test
+    fun `new decoder accepts legacy request frames with request id fallback`() {
+        val request = FriendControlRequest(
+            requestId = REQUEST_ID,
+            displayName = "bob",
+            invitation = "minekube://share/signed-bob-card",
+        )
+
+        val decoded = assertIs<FriendControlDecode.Decoded<FriendControlRequest>>(
+            FriendControlWire.decodeRequest(legacyRequest(request)),
+        )
+
+        assertEquals(REQUEST_ID, decoded.value.requestId)
+        assertEquals(REQUEST_ID, decoded.value.relationshipId)
     }
 
     @Test
@@ -118,6 +135,16 @@ class FriendControlWireTest {
     }
 
     @Test
+    fun `new decoder accepts legacy removal frames with operation id fallback`() {
+        val decoded = assertIs<FriendControlDecode.Decoded<FriendRemovalRequest>>(
+            FriendControlWire.decodeRemoval(legacyRemoval(REQUEST_ID)),
+        )
+
+        assertEquals(REQUEST_ID, decoded.value.operationId)
+        assertEquals(REQUEST_ID, decoded.value.relationshipId)
+    }
+
+    @Test
     fun `partial and oversized control frames are never accepted`() {
         val encoded = FriendControlWire.encodeRequest(
             request = FriendControlRequest(
@@ -142,5 +169,46 @@ class FriendControlWireTest {
             UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
         val PLAYER_UUID: UUID =
             UUID.fromString("11111111-2222-3333-4444-555555555555")
+
+        fun legacyRequest(request: FriendControlRequest): ByteArray {
+            val current = FriendControlWire.encodeRequest(request)
+            val bodyStart = varIntLength(current)
+            val body = current.copyOfRange(bodyStart, current.size)
+            val packetIdLength = varIntLength(body)
+            val legacyBody = body.copyOfRange(0, packetIdLength + 16) +
+                body.copyOfRange(packetIdLength + 32, body.size)
+            return frame(legacyBody)
+        }
+
+        fun legacyRemoval(operationId: UUID): ByteArray {
+            val current = FriendControlWire.encodeRemoval(
+                FriendRemovalRequest(operationId),
+            )
+            val bodyStart = varIntLength(current)
+            val body = current.copyOfRange(bodyStart, current.size)
+            val packetIdLength = varIntLength(body)
+            return frame(body.copyOfRange(0, packetIdLength + 16))
+        }
+
+        fun frame(body: ByteArray): ByteArray = ByteArrayOutputStream().apply {
+            writeVarInt(body.size)
+            write(body)
+        }.toByteArray()
+
+        fun varIntLength(bytes: ByteArray): Int {
+            var index = 0
+            while (bytes[index++].toInt() and 0x80 != 0) Unit
+            return index
+        }
+
+        fun ByteArrayOutputStream.writeVarInt(value: Int) {
+            var remaining = value
+            do {
+                var byte = remaining and 0x7f
+                remaining = remaining ushr 7
+                if (remaining != 0) byte = byte or 0x80
+                write(byte)
+            } while (remaining != 0)
+        }
     }
 }

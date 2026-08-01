@@ -4,9 +4,11 @@ import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.network.codec.StreamCodec
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload
 import net.minecraft.resources.ResourceLocation
+import java.util.UUID
 
 data class FriendCardPayload(
     val invitation: String,
+    val relationshipId: UUID = UUID.randomUUID(),
 ) : CustomPacketPayload {
     override fun type(): CustomPacketPayload.Type<FriendCardPayload> = TYPE
 
@@ -28,10 +30,12 @@ data class FriendCardPayload(
                         payload.invitation,
                         MAX_CARD_CHARS,
                     )
+                    buffer.writeUUID(payload.relationshipId)
                 },
                 { buffer ->
                     FriendCardPayload(
-                        buffer.readUtf(MAX_CARD_CHARS),
+                        invitation = buffer.readUtf(MAX_CARD_CHARS),
+                        relationshipId = buffer.readUUID(),
                     )
                 },
             )

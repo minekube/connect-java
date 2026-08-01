@@ -1,7 +1,10 @@
 package com.minekube.connect.share.fabric
 
+import java.util.UUID
+
 data class FriendCardExchangeProof(
     val peerId: String,
+    val relationshipId: UUID,
 )
 
 class FriendCardExchangeConsent(
@@ -10,10 +13,10 @@ class FriendCardExchangeConsent(
     private var armed: TimedExchange? = null
 
     @Synchronized
-    fun arm(peerId: String) {
+    fun arm(peerId: String, relationshipId: UUID = UUID.randomUUID()) {
         require(peerId.isNotBlank())
         armed = TimedExchange(
-            proof = FriendCardExchangeProof(peerId),
+            proof = FriendCardExchangeProof(peerId, relationshipId),
             armedAtMillis = nowMillis(),
         )
     }
