@@ -18,6 +18,7 @@ import net.minecraftforge.network.NetworkDirection
 import net.minecraftforge.network.NetworkRegistry
 import net.minecraftforge.network.PacketDistributor
 import net.minecraftforge.network.simple.SimpleChannel
+import java.util.UUID
 
 object ForgeFriendCardNetworking {
     private const val PROTOCOL = "1"
@@ -49,8 +50,16 @@ object ForgeFriendCardNetworking {
             0,
             NetworkDirection.PLAY_TO_SERVER,
         )
-            .encoder { message, buffer -> buffer.writeUtf(message.invitation, MAX_CARD_CHARS) }
-            .decoder { buffer -> FriendCardMessage(buffer.readUtf(MAX_CARD_CHARS)) }
+            .encoder { message, buffer ->
+                buffer.writeUtf(message.invitation, MAX_CARD_CHARS)
+                buffer.writeUUID(message.relationshipId)
+            }
+            .decoder { buffer ->
+                FriendCardMessage(
+                    buffer.readUtf(MAX_CARD_CHARS),
+                    buffer.readUUID(),
+                )
+            }
             .consumerMainThread { message, source ->
                 val player = source.get().sender ?: return@consumerMainThread
                 val handlers = installed.get() ?: return@consumerMainThread
@@ -64,6 +73,7 @@ object ForgeFriendCardNetworking {
                         displayName = player.gameProfile.name,
                         authenticatedMinecraftUuid = proof.authenticatedMinecraftUuid,
                         allowAutomaticJoin = true,
+                        relationshipId = message.relationshipId,
                     )
                 }
             }
@@ -84,7 +94,12 @@ object ForgeFriendCardNetworking {
                     handlers.issuer.issue().getOrNull()?.let { invitation ->
                         Minecraft.getInstance().execute {
                             if (Minecraft.getInstance().connection != null) {
-                                channel.sendToServer(FriendCardMessage(invitation))
+                                channel.sendToServer(
+                                    FriendCardMessage(
+                                        invitation,
+                                        exchange.relationshipId,
+                                    ),
+                                )
                                 handlers.scope.launch(Dispatchers.IO) {
                                     handlers.receiver.confirmOutgoing(exchange.peerId)
                                 }
@@ -115,6 +130,7 @@ object ForgeFriendCardNetworking {
 
     private data class FriendCardMessage(
         val invitation: String,
+        val relationshipId: UUID = UUID.randomUUID(),
     )
 
     private data object FriendCardRequestMessage

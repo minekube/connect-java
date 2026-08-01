@@ -77,6 +77,21 @@ class FriendStoreTest {
     }
 
     @Test
+    fun `guest internet consent is durable and disabled by default`() {
+        val store = FriendStore(tempDir)
+        val saved = store.accept(signedLink(), "Robin", NOW)
+            .getOrNull()!!
+
+        assertFalse(saved.internetDirectGuestOptIn)
+        assertIs<Either.Right<SavedFriend>>(
+            store.setInternetDirectGuestOptIn(PEER_ID, true),
+        )
+
+        val reloaded = FriendStore(tempDir).all().single()
+        assertTrue(reloaded.internetDirectGuestOptIn)
+    }
+
+    @Test
     fun `confirming an outgoing request promotes it across restarts`() {
         val store = FriendStore(tempDir)
         store.sendRequest(signedLink(), "Robin", NOW)
@@ -111,6 +126,66 @@ class FriendStoreTest {
         )
         assertEquals(PEER_ID, store.all().single().peerId)
         assertTrue(store.outgoingRequests().isEmpty())
+    }
+
+    @Test
+    fun `confirmed incoming generation replaces the old generation`() {
+        val store = FriendStore(tempDir)
+        val firstGeneration = UUID.fromString(
+            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        )
+        val secondGeneration = UUID.fromString(
+            "11111111-2222-3333-4444-555555555555",
+        )
+
+        store.accept(
+            signedLink(),
+            "Robin",
+            NOW,
+            relationshipId = firstGeneration,
+        )
+        val merged = store.accept(
+            signedLink(),
+            "Robin",
+            NOW,
+            relationshipId = secondGeneration,
+        ).getOrNull()!!
+
+        assertEquals(secondGeneration, merged.relationshipId)
+        assertEquals(secondGeneration, store.all().single().relationshipId)
+    }
+
+    @Test
+    fun `version five relationships migrate without trusting asymmetric generations`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        val file = tempDir.resolve(FriendStore.FILE_NAME)
+        Files.writeString(
+            file,
+            Files.readString(file)
+                .replace("\"version\":7", "\"version\":5")
+                .replace(Regex("\"relationshipId\":\"[^\"]+\",?"), "")
+                .replace(Regex("\"relationshipIdKnown\":(true|false),?"), ""),
+        )
+
+        val migrated = FriendStore(tempDir)
+        val legacy = migrated.all().single()
+
+        assertFalse(legacy.relationshipIdKnown)
+        assertEquals(
+            null,
+            migrated.applyRemoteRemoval(PEER_ID, legacy.relationshipId),
+        )
+        val generation = UUID.randomUUID()
+        val synchronized = migrated.accept(
+            signedLink(),
+            "Robin",
+            NOW,
+            relationshipId = generation,
+        ).getOrNull()!!
+
+        assertTrue(synchronized.relationshipIdKnown)
+        assertEquals(generation, synchronized.relationshipId)
     }
 
     @Test

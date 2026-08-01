@@ -22,8 +22,8 @@ object FriendCardNetworking {
         ServerPlayNetworking.registerGlobalReceiver(
             FriendCardChannels.CARD,
         ) { server, player, _, buffer, _ ->
-            val invitation = runCatching {
-                buffer.readUtf(FriendCardChannels.MAX_CARD_CHARS)
+            val payload = runCatching {
+                FriendCardCodec.decode(buffer)
             }.getOrNull() ?: return@registerGlobalReceiver
             server.execute {
                 val proof = approvedJoins.consume(
@@ -31,10 +31,11 @@ object FriendCardNetworking {
                     player.uuid,
                 ) ?: return@execute
                 receiver.receive(
-                    invitation = invitation,
+                    invitation = payload.invitation,
                     displayName = player.gameProfile.name,
                     authenticatedMinecraftUuid = proof.authenticatedMinecraftUuid,
                     allowAutomaticJoin = true,
+                    relationshipId = payload.relationshipId,
                 )
             }
         }
@@ -71,6 +72,7 @@ object FriendCardNetworking {
                                 invitation,
                                 FriendCardChannels.MAX_CARD_CHARS,
                             )
+                            buffer.writeUUID(exchange.relationshipId)
                             ClientPlayNetworking.send(FriendCardChannels.CARD, buffer)
                             scope.launch(Dispatchers.IO) {
                                 receiver.confirmOutgoing(exchange.peerId)

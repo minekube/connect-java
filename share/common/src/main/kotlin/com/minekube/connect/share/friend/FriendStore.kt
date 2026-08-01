@@ -68,9 +68,11 @@ data class SavedFriend(
     val shareId: UUID,
     val capability: String,
     val relationshipId: UUID = UUID.randomUUID(),
+    val relationshipIdKnown: Boolean = true,
     val connectAddress: String?,
     val internetDirectEnabled: Boolean = false,
     val directCandidates: List<String> = emptyList(),
+    val internetDirectGuestOptIn: Boolean = false,
     val displayName: String,
     val minecraftUuid: UUID? = null,
     val permissions: FriendPermissions = FriendPermissions(),
@@ -169,7 +171,7 @@ class FriendStore(
         invitationUri: String,
         displayName: String,
         now: Instant = Instant.now(),
-        relationshipId: UUID = UUID.randomUUID(),
+        relationshipId: UUID? = null,
     ): Either<FriendStoreError, SavedFriend> =
         storeInvitation(
             invitationUri = invitationUri,
@@ -184,7 +186,7 @@ class FriendStore(
         invitationUri: String,
         displayName: String,
         now: Instant = Instant.now(),
-        relationshipId: UUID = UUID.randomUUID(),
+        relationshipId: UUID? = null,
     ): Either<FriendStoreError, SavedFriend> =
         storeInvitation(
             invitationUri = invitationUri,
@@ -226,7 +228,7 @@ class FriendStore(
         relationshipStatus: FriendRelationshipStatus,
         allowAutomaticJoin: Boolean = false,
         now: Instant,
-        relationshipId: UUID,
+        relationshipId: UUID?,
     ): Either<FriendStoreError, SavedFriend> = either {
         val invite = ShareInviteCodec.decode(invitationUri.trim(), now)
             .mapLeft(FriendStoreError::InvalidInvitation)
@@ -259,10 +261,22 @@ class FriendStore(
             publicKeyBase64 = publicKey,
             shareId = invite.payload.shareId,
             capability = invite.payload.capability,
-            relationshipId = existing?.relationshipId ?: relationshipId,
+            relationshipId = when {
+                existing == null -> relationshipId ?: UUID.randomUUID()
+                relationshipStatus == FriendRelationshipStatus.CONFIRMED &&
+                    relationshipId != null -> relationshipId
+                else -> existing.relationshipId
+            },
+            relationshipIdKnown = when {
+                existing == null -> true
+                relationshipStatus == FriendRelationshipStatus.CONFIRMED &&
+                    relationshipId != null -> true
+                else -> existing.relationshipIdKnown
+            },
             connectAddress = invite.payload.connectAddress,
             internetDirectEnabled = invite.payload.internetDirectEnabled,
             directCandidates = invite.payload.directCandidates,
+            internetDirectGuestOptIn = existing?.internetDirectGuestOptIn == true,
             displayName = existing?.displayName ?: normalizedName,
             minecraftUuid = existing?.minecraftUuid,
             permissions = (existing?.permissions ?: FriendPermissions())
@@ -308,6 +322,14 @@ class FriendStore(
         permissions: FriendPermissions,
     ): Either<FriendStoreError, SavedFriend> = update(peerId) { friend ->
         friend.copy(permissions = permissions)
+    }
+
+    @Synchronized
+    fun setInternetDirectGuestOptIn(
+        peerId: String,
+        enabled: Boolean,
+    ): Either<FriendStoreError, SavedFriend> = update(peerId) { friend ->
+        friend.copy(internetDirectGuestOptIn = enabled)
     }
 
     @Synchronized
@@ -387,7 +409,9 @@ class FriendStore(
     ): SavedFriend? {
         val current = read()
         val removed = current.firstOrNull { it.peerId == peerId }
-            ?.takeIf { it.relationshipId == relationshipId }
+            ?.takeIf {
+                it.relationshipIdKnown && it.relationshipId == relationshipId
+            }
             ?: return null
         write(data().copy(friends = current.filterNot { it.peerId == peerId }))
         return removed
@@ -441,7 +465,7 @@ class FriendStore(
             val entries = root.getAsJsonArray("friends")
                 ?: throw IOException("Friends file is missing friends")
             val friends = entries.map { element ->
-                parseFriend(element.asJsonObject)
+                parseFriend(element.asJsonObject, version)
             }
             if (friends.size > MAX_FRIENDS) {
                 throw IOException("Friends file contains too many entries")
@@ -451,7 +475,7 @@ class FriendStore(
             }
             val removals = if (version >= 2) {
                 root.getAsJsonArray("pendingRemovals")
-                    ?.map { element -> parseRemoval(element.asJsonObject) }
+                    ?.map { element -> parseRemoval(element.asJsonObject, version) }
                     ?: emptyList()
             } else {
                 emptyList()
@@ -479,13 +503,15 @@ class FriendStore(
         }
     }
 
-    private fun parseRemoval(json: JsonObject): PendingFriendRemoval =
+    private fun parseRemoval(
+        json: JsonObject,
+        version: Int,
+    ): PendingFriendRemoval =
         PendingFriendRemoval(
             operationId = UUID.fromString(json.requiredString("operationId")),
-            friend = parseFriend(
-                json.getAsJsonObject("friend")
-                    ?: throw IOException("Removal is missing friend"),
-            ),
+            friend = json.getAsJsonObject("friend")?.let {
+                parseFriend(it, version)
+            } ?: throw IOException("Removal is missing friend"),
             removedAt = Instant.ofEpochMilli(
                 json.get("removedAtEpochMillis")?.asLong
                     ?: throw IOException("Removal is missing time"),
@@ -505,7 +531,10 @@ class FriendStore(
             ),
         )
 
-    private fun parseFriend(json: JsonObject): SavedFriend {
+    private fun parseFriend(
+        json: JsonObject,
+        version: Int,
+    ): SavedFriend {
         val peerId = json.requiredString("peerId")
         val publicKey = json.requiredString("publicKey")
         val shareId = UUID.fromString(json.requiredString("shareId"))
@@ -513,12 +542,16 @@ class FriendStore(
         val relationshipId = json.optionalString("relationshipId")
             ?.let(UUID::fromString)
             ?: legacyRelationshipId(peerId, shareId, capability)
+        val relationshipIdKnown = json.optionalBoolean("relationshipIdKnown")
+            ?: (version >= 6 && json.has("relationshipId"))
         val connectAddress = json.optionalString("connectAddress")
         val internetDirectEnabled =
             json.optionalBoolean("internetDirectEnabled") ?: false
         val directCandidates = json.getAsJsonArray("directCandidates")
             ?.map { it.asString }
             ?: emptyList()
+        val internetDirectGuestOptIn =
+            json.optionalBoolean("internetDirectGuestOptIn") ?: false
         val displayName = json.requiredString("displayName")
         val minecraftUuid = json.optionalString("minecraftUuid")
             ?.let(UUID::fromString)
@@ -568,9 +601,11 @@ class FriendStore(
             shareId = shareId,
             capability = capability,
             relationshipId = relationshipId,
+            relationshipIdKnown = relationshipIdKnown,
             connectAddress = connectAddress,
             internetDirectEnabled = internetDirectEnabled,
             directCandidates = directCandidates,
+            internetDirectGuestOptIn = internetDirectGuestOptIn,
             displayName = displayName,
             minecraftUuid = minecraftUuid,
             permissions = parsedPermissions,
@@ -638,12 +673,14 @@ class FriendStore(
         addProperty("publicKey", publicKeyBase64)
         addProperty("shareId", shareId.toString())
         addProperty("relationshipId", relationshipId.toString())
+        addProperty("relationshipIdKnown", relationshipIdKnown)
         addProperty("capability", capability)
         connectAddress?.let { addProperty("connectAddress", it) }
         addProperty("internetDirectEnabled", internetDirectEnabled)
         add("directCandidates", JsonArray().apply {
             directCandidates.forEach(::add)
         })
+        addProperty("internetDirectGuestOptIn", internetDirectGuestOptIn)
         addProperty("displayName", displayName)
         minecraftUuid?.let { addProperty("minecraftUuid", it.toString()) }
         addProperty("relationshipStatus", relationshipStatus.name)
@@ -718,7 +755,7 @@ class FriendStore(
     companion object {
         const val FILE_NAME = "friends.json"
         private const val MIN_WIRE_VERSION = 1
-        private const val WIRE_VERSION = 6
+        private const val WIRE_VERSION = 7
         private const val MAX_FRIENDS = 256
         private const val MAX_DIRECT_CANDIDATES = 4
         private const val MAX_DIRECT_CANDIDATE_LENGTH = 8_192

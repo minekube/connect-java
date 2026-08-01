@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import java.util.UUID
 
 class FriendCardExchangeConsentTest {
     private var nowMillis = 1_000L
@@ -32,6 +33,14 @@ class FriendCardExchangeConsentTest {
         consent.cancel()
 
         assertNull(consent.consume())
+    }
+
+    @Test
+    fun `consent carries the relationship generation`() {
+        val relationshipId = UUID.randomUUID()
+        consent.arm(PEER_ID, relationshipId)
+
+        assertEquals(relationshipId, consent.consume()!!.relationshipId)
     }
 
     @Test

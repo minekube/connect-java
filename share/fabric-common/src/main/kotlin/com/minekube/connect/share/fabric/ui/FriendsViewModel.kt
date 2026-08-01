@@ -35,6 +35,7 @@ data class FriendSummary(
     val displayName: String,
     val connectAvailable: Boolean,
     val permissions: FriendPermissions,
+    val internetDirectGuestOptIn: Boolean = false,
     val onlineViaLan: Boolean = false,
     val onlineViaConnect: Boolean = false,
     val worldName: String? = null,
@@ -135,6 +136,21 @@ class FriendsViewModel(
             },
         )
     }
+
+    fun updateInternetDirectGuestOptIn(
+        peerId: String,
+        enabled: Boolean,
+    ) {
+        store.setInternetDirectGuestOptIn(peerId, enabled).fold(
+            ifLeft = { failure ->
+                update { copy(safeMessage = failure.safeMessage) }
+            },
+            ifRight = { refresh() },
+        )
+    }
+
+    internal fun relationshipId(peerId: String): UUID? =
+        store.relationship(peerId).getOrNull()?.relationshipId
 
     fun remove(peerId: String): Boolean =
         Either.catch {
@@ -376,6 +392,7 @@ class FriendsViewModel(
             displayName = displayName,
             connectAvailable = connectAddress != null,
             permissions = permissions,
+            internetDirectGuestOptIn = internetDirectGuestOptIn,
             onlineViaLan = remote?.route == ShareRoute.DIRECT_LAN,
             onlineViaConnect = remote?.route == ShareRoute.CONNECT,
             worldName = remote?.description,

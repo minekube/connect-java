@@ -248,7 +248,7 @@ class FabricShareBrowser private constructor(
             } else {
                 reportRoute(ROUTE_DIRECT_LAN_UNAVAILABLE)
             }
-            if (friend.internetDirectEnabled) {
+            if (friend.internetDirectEnabled && friend.internetDirectGuestOptIn) {
                 var attempted = false
                 for (address in friend.directCandidates) {
                     attempted = true
@@ -300,7 +300,7 @@ class FabricShareBrowser private constructor(
                     timeout = LAN_TIMEOUT,
                 )?.let { return@withContext it.right() }
             }
-            if (friend.internetDirectEnabled) {
+            if (friend.internetDirectEnabled && friend.internetDirectGuestOptIn) {
                 for (address in friend.directCandidates) {
                     openDirect(
                         route = ShareRoute.DIRECT_INTERNET,
@@ -358,7 +358,7 @@ class FabricShareBrowser private constructor(
                 }
             }
         }
-        if (friend.internetDirectEnabled) {
+        if (friend.internetDirectEnabled && friend.internetDirectGuestOptIn) {
             for (address in friend.directCandidates) {
                 val direct = openDirect(
                     route = ShareRoute.DIRECT_INTERNET,

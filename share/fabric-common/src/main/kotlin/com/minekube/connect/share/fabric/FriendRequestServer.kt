@@ -237,22 +237,17 @@ class FriendRequestServer(
             if (existing.publicKeyBase64 != senderKey) {
                 return FriendControlResponse.Invalid
             }
-            if (
-                existing.relationshipStatus ==
-                FriendRelationshipStatus.PENDING_OUTGOING
-            ) {
-                val accepted = receiver.receive(
-                    invitation = request.invitation,
-                    displayName = request.displayName,
-                    authenticatedMinecraftUuid = null,
-                    relationshipId = request.relationshipId,
-                    now = instant,
-                )
-                if (accepted.isLeft()) {
-                    return FriendControlResponse.Invalid
-                }
-                notifyRelationshipChanged()
+            val accepted = receiver.receive(
+                invitation = request.invitation,
+                displayName = request.displayName,
+                authenticatedMinecraftUuid = null,
+                relationshipId = request.relationshipId,
+                now = instant,
+            )
+            if (accepted.isLeft()) {
+                return FriendControlResponse.Invalid
             }
+            notifyRelationshipChanged()
             return issueHostCard(instant)
         }
 

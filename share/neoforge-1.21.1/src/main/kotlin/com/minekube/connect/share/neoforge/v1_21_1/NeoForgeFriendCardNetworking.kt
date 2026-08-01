@@ -16,6 +16,7 @@ import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
 import net.neoforged.neoforge.network.PacketDistributor
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent
+import java.util.UUID
 
 object NeoForgeFriendCardNetworking {
     private const val PROTOCOL = "1"
@@ -36,7 +37,10 @@ object NeoForgeFriendCardNetworking {
                     Minecraft.getInstance().execute {
                         if (Minecraft.getInstance().connection != null) {
                             PacketDistributor.sendToServer(
-                                FriendCardPayload(invitation),
+                                FriendCardPayload(
+                                    invitation,
+                                    exchange.relationshipId,
+                                ),
                             )
                             handlers.scope.launch(Dispatchers.IO) {
                                 handlers.receiver.confirmOutgoing(exchange.peerId)
@@ -63,6 +67,7 @@ object NeoForgeFriendCardNetworking {
                     displayName = player.gameProfile.name,
                     authenticatedMinecraftUuid = proof.authenticatedMinecraftUuid,
                     allowAutomaticJoin = true,
+                    relationshipId = payload.relationshipId,
                 )
             }
         }
@@ -97,6 +102,7 @@ object NeoForgeFriendCardNetworking {
 
 private data class FriendCardPayload(
     val invitation: String,
+    val relationshipId: UUID = UUID.randomUUID(),
 ) : CustomPacketPayload {
     override fun type(): CustomPacketPayload.Type<FriendCardPayload> = TYPE
 
@@ -113,8 +119,14 @@ private data class FriendCardPayload(
             CustomPacketPayload.codec(
                 { payload, buffer ->
                     buffer.writeUtf(payload.invitation, MAX_CARD_CHARS)
+                    buffer.writeUUID(payload.relationshipId)
                 },
-                { buffer -> FriendCardPayload(buffer.readUtf(MAX_CARD_CHARS)) },
+                { buffer ->
+                    FriendCardPayload(
+                        buffer.readUtf(MAX_CARD_CHARS),
+                        buffer.readUUID(),
+                    )
+                },
             )
     }
 }

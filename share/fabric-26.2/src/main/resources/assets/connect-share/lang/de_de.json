@@ -145,5 +145,6 @@
   "connect_share.compatibility.pack_copied": "Modpack-Link kopiert",
   "connect_share.compatibility.try_anyway": "Trotzdem versuchen",
   "connect_share.diagnostics.copy": "Sichere Diagnose kopieren",
-  "connect_share.diagnostics.copied": "Diagnose kopiert"
+  "connect_share.diagnostics.copied": "Diagnose kopiert",
+  "connect_share.friends.internet_direct": "Direkte Internetverbindungen für diesen Freund erlauben"
 }

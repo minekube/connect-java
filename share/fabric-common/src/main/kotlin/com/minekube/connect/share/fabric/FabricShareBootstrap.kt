@@ -122,11 +122,15 @@ object FabricShareBootstrap {
         )
         val accessIdentityStore = ShareAccessIdentityStore(dataDirectory)
         val directIngressReference = AtomicReference<PersistentDirectIngress?>()
+        val socialIdentityFile = dataDirectory.resolve(
+            SOCIAL_IDENTITY_FILE_NAME,
+        )
         val friendCardIssuer = FriendCardIssuer(
             dataDirectory = dataDirectory,
             displayName = playerDisplayName,
             connectAddress = { ownConnectAddress.get() },
             accessIdentityStore = accessIdentityStore,
+            identityFile = socialIdentityFile,
             directRoute = {
                 directIngressReference.get()
                     ?.awaitInvitation()
@@ -192,7 +196,15 @@ object FabricShareBootstrap {
             val directIngress = PersistentDirectIngress(
                 directPeer.ingress,
             )
-            directIngressReference.set(directIngress)
+            val socialIngress = PersistentDirectIngress(
+                FabricDirectShareIngress(
+                    dataDirectory = dataDirectory,
+                    accessIdentityStore = accessIdentityStore,
+                    displayName = worldDisplayName,
+                    identityFile = socialIdentityFile,
+                ),
+            )
+            directIngressReference.set(socialIngress)
             val coordinator = ShareCoordinator(
                 bridge = bridge,
                 ingress = ingress,
@@ -212,12 +224,8 @@ object FabricShareBootstrap {
             startedControlPlane.start()
             val startedDirectControlPlane = DirectControlPlane(
                 scope = scope,
-                ingress = directIngress,
-                options = ShareOptions(
-                    gameMode = ShareGameMode.SURVIVAL,
-                    allowCheats = false,
-                    allowInternetDirect = false,
-                ),
+                ingress = socialIngress,
+                options = socialControlOptions(),
                 target = gateway.directAddress,
                 connectAddress = { ownConnectAddress.get() },
                 failureReporter = logger::warn,
@@ -400,6 +408,12 @@ object FabricShareBootstrap {
         ).toHttpUrlOrNull()
             ?: normalizeWebSocketScheme(DEFAULT_WATCH_URL).toHttpUrl()
 
+    internal fun socialControlOptions(): ShareOptions = ShareOptions(
+        gameMode = ShareGameMode.SURVIVAL,
+        allowCheats = false,
+        allowInternetDirect = true,
+    )
+
     private fun normalizeWebSocketScheme(value: String): String = when {
         value.startsWith("wss://", ignoreCase = true) ->
             "https://${value.substring(WSS_SCHEME_LENGTH)}"
@@ -418,6 +432,8 @@ object FabricShareBootstrap {
     private const val DEFAULT_MAX_GUESTS = 8
     private const val REMOVAL_SYNC_MILLIS = 10_000L
     private const val ACTIVITY_REFRESH_MILLIS = 10_000L
+    private const val SOCIAL_IDENTITY_FILE_NAME =
+        "share-libp2p-social-identity.key"
 }
 
 private class FabricConnectLogger(

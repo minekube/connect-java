@@ -5,22 +5,23 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
 import net.minecraft.network.FriendlyByteBuf
+import java.util.UUID
 
 class FriendCardPayloadTest {
     @Test
     fun `signed friend card survives the network payload codec`() {
         val invitation = "minekube://share/" + "signed-card".repeat(500)
+        val relationshipId = UUID.randomUUID()
         val buffer = FriendlyByteBuf(Unpooled.buffer())
 
         FriendCardPayload.CODEC.encode(
             buffer,
-            FriendCardPayload(invitation),
+            FriendCardPayload(invitation, relationshipId),
         )
 
-        assertEquals(
-            invitation,
-            FriendCardPayload.CODEC.decode(buffer).invitation,
-        )
+        val decoded = FriendCardPayload.CODEC.decode(buffer)
+        assertEquals(invitation, decoded.invitation)
+        assertEquals(relationshipId, decoded.relationshipId)
     }
 
     @Test

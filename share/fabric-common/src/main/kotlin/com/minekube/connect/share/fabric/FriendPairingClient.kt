@@ -87,6 +87,7 @@ class FriendPairingClient(
                     invitation = hostCard,
                     displayName = friendDisplayName,
                     authenticatedMinecraftUuid = null,
+                    relationshipId = pending.relationshipId,
                     now = now(),
                 ).mapLeft(FriendPairingFailure::Store).bind()
             }

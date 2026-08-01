@@ -2,9 +2,11 @@ package com.minekube.connect.share.fabric.v1_20_1
 
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.network.FriendlyByteBuf
+import java.util.UUID
 
 data class FriendCardPayload(
     val invitation: String,
+    val relationshipId: UUID = UUID.randomUUID(),
 ) {
     companion object {
         val CODEC = FriendCardCodec
@@ -18,10 +20,14 @@ data object FriendCardRequestPayload {
 object FriendCardCodec {
     fun encode(buffer: FriendlyByteBuf, payload: FriendCardPayload) {
         buffer.writeUtf(payload.invitation, FriendCardChannels.MAX_CARD_CHARS)
+        buffer.writeUUID(payload.relationshipId)
     }
 
     fun decode(buffer: FriendlyByteBuf): FriendCardPayload =
-        FriendCardPayload(buffer.readUtf(FriendCardChannels.MAX_CARD_CHARS))
+        FriendCardPayload(
+            invitation = buffer.readUtf(FriendCardChannels.MAX_CARD_CHARS),
+            relationshipId = buffer.readUUID(),
+        )
 }
 
 object FriendCardRequestCodec {

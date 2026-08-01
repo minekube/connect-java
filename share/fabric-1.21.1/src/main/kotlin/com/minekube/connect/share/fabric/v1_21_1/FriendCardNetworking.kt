@@ -42,6 +42,7 @@ object FriendCardNetworking {
                     authenticatedMinecraftUuid =
                         proof.authenticatedMinecraftUuid,
                     allowAutomaticJoin = true,
+                    relationshipId = payload.relationshipId,
                 )
             }
         }
@@ -82,7 +83,10 @@ object FriendCardNetworking {
                             )
                         ) {
                             ClientPlayNetworking.send(
-                                FriendCardPayload(invitation),
+                                FriendCardPayload(
+                                    invitation,
+                                    exchange.relationshipId,
+                                ),
                             )
                             scope.launch(Dispatchers.IO) {
                                 receiver.confirmOutgoing(exchange.peerId)

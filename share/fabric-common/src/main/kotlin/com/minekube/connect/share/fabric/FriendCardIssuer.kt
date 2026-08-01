@@ -44,14 +44,14 @@ class FriendCardReceiver(
                 invitation,
                 displayName,
                 now,
-                relationshipId ?: UUID.randomUUID(),
+                relationshipId,
             )
         } else {
             store.accept(
                 invitation,
                 displayName,
                 now,
-                relationshipId ?: UUID.randomUUID(),
+                relationshipId,
             )
         }).flatMap { friend ->
             authenticatedMinecraftUuid?.let { minecraftUuid ->
@@ -69,6 +69,8 @@ class FriendCardIssuer(
     private val accessIdentityStore: ShareAccessIdentityStore =
         ShareAccessIdentityStore(dataDirectory),
     private val directRoute: suspend () -> FriendDirectRoute? = { null },
+    private val identityFile: Path =
+        dataDirectory.resolve(IDENTITY_FILE_NAME),
     private val connectAddress: suspend () -> String?,
 ) {
     suspend fun issue(
@@ -84,7 +86,7 @@ class FriendCardIssuer(
         Either.catch {
             val access = accessIdentityStore.currentOrCreate()
             DirectP2pNode(
-                dataDirectory.resolve(IDENTITY_FILE_NAME),
+                identityFile,
             ).use { node ->
                 val route = directRoute()
                 val payload = ShareInvitePayload(

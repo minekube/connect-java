@@ -142,7 +142,7 @@ object FriendControlWire {
         if (bytes.size > MAX_REQUEST_BYTES) {
             return FriendControlDecode.Invalid
         }
-        return decode(bytes) {
+        val current = decode(bytes) {
             val control = readPacket()
             ensure(control.readVarInt() == CONTROL_REQUEST_PACKET_ID)
             val requestId = UUID(
@@ -167,6 +167,37 @@ object FriendControlWire {
                 invitation = invitation,
             )
         }
+        if (current is FriendControlDecode.Decoded) {
+            return current
+        }
+        val legacy = decode(bytes) {
+            val control = readPacket()
+            ensure(control.readVarInt() == CONTROL_REQUEST_PACKET_ID)
+            val requestId = UUID(
+                control.readLong(),
+                control.readLong(),
+            )
+            val displayName = control
+                .readString(MAX_DISPLAY_NAME_BYTES)
+                .trim()
+            ensure(displayName.isNotEmpty())
+            val invitation = control.readString(MAX_INVITATION_BYTES)
+            ensure(invitation.isNotEmpty())
+            control.ensureFinished()
+            FriendControlRequest(
+                requestId = requestId,
+                relationshipId = requestId,
+                displayName = displayName,
+                invitation = invitation,
+            )
+        }
+        return when {
+            legacy is FriendControlDecode.Decoded -> legacy
+            current is FriendControlDecode.Incomplete ||
+                legacy is FriendControlDecode.Incomplete ->
+                FriendControlDecode.Incomplete
+            else -> FriendControlDecode.Invalid
+        }
     }
 
     fun encodeRemoval(request: FriendRemovalRequest): ByteArray {
@@ -187,7 +218,7 @@ object FriendControlWire {
         if (bytes.size > MAX_REQUEST_BYTES) {
             return FriendControlDecode.Invalid
         }
-        return decode(bytes) {
+        val current = decode(bytes) {
             val control = readPacket()
             ensure(control.readVarInt() == CONTROL_REMOVAL_PACKET_ID)
             val request = FriendRemovalRequest(
@@ -196,6 +227,26 @@ object FriendControlWire {
             )
             control.ensureFinished()
             request
+        }
+        if (current is FriendControlDecode.Decoded) {
+            return current
+        }
+        val legacy = decode(bytes) {
+            val control = readPacket()
+            ensure(control.readVarInt() == CONTROL_REMOVAL_PACKET_ID)
+            val operationId = UUID(control.readLong(), control.readLong())
+            control.ensureFinished()
+            FriendRemovalRequest(
+                operationId = operationId,
+                relationshipId = operationId,
+            )
+        }
+        return when {
+            legacy is FriendControlDecode.Decoded -> legacy
+            current is FriendControlDecode.Incomplete ||
+                legacy is FriendControlDecode.Incomplete ->
+                FriendControlDecode.Incomplete
+            else -> FriendControlDecode.Invalid
         }
     }
 
