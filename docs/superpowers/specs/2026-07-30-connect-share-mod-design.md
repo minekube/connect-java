@@ -4,6 +4,11 @@
 **Status:** Approved for implementation
 **Epic:** [minekube/connect-java#83](https://github.com/minekube/connect-java/issues/83)
 
+> Historical scope note: this document records the initial implementation
+> slice. The delivered feature expanded beyond it; current supported targets,
+> behavior, and acceptance requirements live in [Connect Share](../../connect-share.md)
+> and [Connect Share acceptance](../../connect-share-testing.md).
+
 ## Summary
 
 Connect Share is a client-side Minecraft mod that lets a player share the

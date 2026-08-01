@@ -15,7 +15,7 @@ Please refer to https://connect.minekube.com for more documentation.
 
 ## Connect Share mod
 
-Connect Share is an in-development client-side Fabric, Forge, and NeoForge mod.
+Connect Share is a client-side Fabric, Forge, and NeoForge mod.
 It supports Fabric 1.20.1, 1.21.1, 1.21.11, and 26.2; Forge 1.20.1; and
 NeoForge 1.21.1. It shares a singleplayer world through Minekube Connect or
 directly between two modded clients without exposing Minecraft's listener to
@@ -33,8 +33,8 @@ The current implementation provides:
 - a stable `*.play.minekube.net` address for unmodified Java clients;
 - signed friend links and temporary world invitations for modded clients;
 - automatic same-LAN discovery and direct libp2p transport;
-- direct libp2p friend delivery across LANs from explicitly shared friend links,
-  plus opt-in internet-direct gameplay attempts;
+- direct libp2p friend delivery from explicitly shared friend links when a
+  direct route exists, plus opt-in internet-direct gameplay attempts;
 - exactly-once fallback to Connect, which is the only relay;
 - host approval before each new guest reaches the world;
 - explicit support for authenticated and unverified offline-mode guests; and

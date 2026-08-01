@@ -4,6 +4,10 @@
 **Status:** Approved for implementation
 **Parent design:** `2026-07-30-connect-share-mod-design.md`
 
+> Historical scope note: this design covers the initial 1.21.11 and 26.2
+> implementation slice. See [Connect Share](../../connect-share.md) for the
+> current supported targets and behavior.
+
 ## Problem
 
 Connect Share advertises active modded hosts on the local network through
