@@ -73,11 +73,11 @@ jobs:
             loader: Fabric
             artifact: connect-share-fabric-1.21.1-*.jar
           - minecraft: 1.20.1
-            project: forge-1.20.1
+            project: forge-1-20-1
             loader: Forge
             artifact: connect-share-forge-1.20.1-*.jar
           - minecraft: 1.21.1
-            project: neoforge-1.21.1
+            project: neoforge-1-21-1
             loader: NeoForge
             artifact: connect-share-neoforge-1.21.1-*.jar
 
