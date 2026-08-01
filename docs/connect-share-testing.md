@@ -1,10 +1,11 @@
 # Connect Share acceptance
 
-Connect Share is built separately for Fabric 1.20.1, 1.21.1, and 1.21.11,
-Forge 1.20.1, and NeoForge 1.21.1 on a Java 21 build toolchain. The Minecraft
-1.20.1 artifacts target Java 17 and the 1.21.x artifacts target Java 21. Fabric
-26.2 builds on and targets Java 25. Run this pass against every artifact before
-calling the singleplayer and direct-sharing implementation release-ready.
+Connect Share is built separately for Fabric 1.20.1, 1.21.1, 1.21.11, and 26.2,
+Forge 1.20.1, and NeoForge 1.21.1 on their respective Java toolchains. The
+Minecraft 1.20.1 artifacts target Java 17 and the 1.21.x artifacts target Java
+21. Fabric 26.2 builds on and targets Java 25. Run this pass against every
+artifact before calling the singleplayer and direct-sharing implementation
+release-ready.
 
 The mod build does not publish a Connect Java plugin release, rebuild a hub
 image, or roll anything out to production.
