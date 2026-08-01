@@ -103,7 +103,7 @@ class FabricDirectShareIngress private constructor(
             } else {
                 emptyList()
             }
-            val invitation = invitation(
+            val invitation = createInvitation(
                 node = node,
                 host = host,
                 shareId = id,
@@ -112,13 +112,23 @@ class FabricDirectShareIngress private constructor(
                 options = options,
             )
             val currentInvitation = AtomicReference(invitation)
-            node.publish(invitation)
+            node.publish(
+                invitation,
+                createInvitation(
+                    node = node,
+                    host = host,
+                    shareId = id,
+                    secret = secret,
+                    connectAddress = connectAddress,
+                    options = options.copy(allowInternetDirect = false),
+                ),
+            )
             val renewalScope = CoroutineScope(SupervisorJob() + renewalDispatcher)
             val renewalJob = renewalScope.launch {
                 while (isActive) {
                     delay(INVITATION_RENEWAL_MILLIS)
                     try {
-                        val renewed = invitation(
+                        val renewed = createInvitation(
                             node = node,
                             host = host,
                             shareId = id,
@@ -126,7 +136,19 @@ class FabricDirectShareIngress private constructor(
                             connectAddress = connectAddress,
                             options = options,
                         )
-                        node.publish(renewed)
+                        node.publish(
+                            renewed,
+                            createInvitation(
+                                node = node,
+                                host = host,
+                                shareId = id,
+                                secret = secret,
+                                connectAddress = connectAddress,
+                                options = options.copy(
+                                    allowInternetDirect = false,
+                                ),
+                            ),
+                        )
                         currentInvitation.set(renewed)
                     } catch (cancellation: CancellationException) {
                         throw cancellation
@@ -165,7 +187,7 @@ class FabricDirectShareIngress private constructor(
         }
     }
 
-    private fun invitation(
+    private fun createInvitation(
         node: FabricDirectNode,
         host: DirectP2pHostInfo,
         shareId: UUID,
@@ -278,7 +300,10 @@ internal interface FabricDirectNode : AutoCloseable {
 
     fun sign(payload: ByteArray): ByteArray
 
-    fun publish(invitation: String)
+    fun publish(
+        invitation: String,
+        discoveryInvitation: String,
+    )
 }
 
 private class CoreFabricDirectNode(
@@ -291,8 +316,11 @@ private class CoreFabricDirectNode(
 
     override fun sign(payload: ByteArray): ByteArray = node.sign(payload)
 
-    override fun publish(invitation: String) {
-        node.publish(invitation)
+    override fun publish(
+        invitation: String,
+        discoveryInvitation: String,
+    ) {
+        node.publish(invitation, discoveryInvitation)
     }
 
     override fun close() {

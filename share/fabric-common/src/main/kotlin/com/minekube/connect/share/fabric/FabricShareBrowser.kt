@@ -248,6 +248,27 @@ class FabricShareBrowser private constructor(
             } else {
                 reportRoute(ROUTE_DIRECT_LAN_UNAVAILABLE)
             }
+            if (friend.internetDirectEnabled) {
+                var attempted = false
+                for (address in friend.directCandidates) {
+                    attempted = true
+                    val direct = openDirect(
+                        route = ShareRoute.DIRECT_INTERNET,
+                        address = address,
+                        shareId = friend.shareId.toString(),
+                        capability = friend.capability,
+                        authMode = authMode,
+                        timeout = INTERNET_TIMEOUT,
+                    )
+                    if (direct != null) {
+                        reportRoute(ROUTE_DIRECT_INTERNET)
+                        return@withContext direct.right()
+                    }
+                }
+                if (attempted) {
+                    reportRoute(ROUTE_DIRECT_INTERNET_UNAVAILABLE)
+                }
+            }
             if (
                 connectAddressesMatch(
                     friend.connectAddress,
@@ -312,6 +333,52 @@ class FabricShareBrowser private constructor(
         direct.use {
             probe.probe(direct.localAddress.statusAddress()).getOrNull()
         }
+    }
+
+    suspend fun probeDirect(
+        friend: SavedFriend,
+        authMode: DirectP2pAuthMode,
+        probe: FriendStatusProbe,
+    ): ServerPresence? = withContext(ioDispatcher) {
+        matchingLanShare(friend)?.let { discovered ->
+            val direct = openDirect(
+                route = ShareRoute.DIRECT_LAN,
+                address = discovered.lanAddress,
+                shareId = friend.shareId.toString(),
+                capability = friend.capability,
+                authMode = authMode,
+                timeout = LAN_TIMEOUT,
+            )
+            if (direct != null) {
+                val presence = direct.use {
+                    probe.probe(direct.localAddress.statusAddress()).getOrNull()
+                }
+                if (presence != null) {
+                    return@withContext presence.copy(route = ShareRoute.DIRECT_LAN)
+                }
+            }
+        }
+        if (friend.internetDirectEnabled) {
+            for (address in friend.directCandidates) {
+                val direct = openDirect(
+                    route = ShareRoute.DIRECT_INTERNET,
+                    address = address,
+                    shareId = friend.shareId.toString(),
+                    capability = friend.capability,
+                    authMode = authMode,
+                    timeout = INTERNET_TIMEOUT,
+                ) ?: continue
+                val presence = direct.use {
+                    probe.probe(direct.localAddress.statusAddress()).getOrNull()
+                }
+                if (presence != null) {
+                    return@withContext presence.copy(
+                        route = ShareRoute.DIRECT_INTERNET,
+                    )
+                }
+            }
+        }
+        null
     }
 
     override fun close() {

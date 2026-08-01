@@ -7,12 +7,14 @@ import java.util.UUID
 
 data class FriendControlRequest(
     val requestId: UUID,
+    val relationshipId: UUID = requestId,
     val displayName: String,
     val invitation: String,
 )
 
 data class FriendRemovalRequest(
     val operationId: UUID,
+    val relationshipId: UUID = operationId,
 )
 
 data class FriendActivityRequest(val requestId: UUID)
@@ -122,6 +124,8 @@ object FriendControlWire {
             writeVarInt(CONTROL_REQUEST_PACKET_ID)
             writeLong(request.requestId.mostSignificantBits)
             writeLong(request.requestId.leastSignificantBits)
+            writeLong(request.relationshipId.mostSignificantBits)
+            writeLong(request.relationshipId.leastSignificantBits)
             writeString(request.displayName.trim())
             writeString(request.invitation)
         }
@@ -145,6 +149,10 @@ object FriendControlWire {
                 control.readLong(),
                 control.readLong(),
             )
+            val relationshipId = UUID(
+                control.readLong(),
+                control.readLong(),
+            )
             val displayName = control
                 .readString(MAX_DISPLAY_NAME_BYTES)
                 .trim()
@@ -154,6 +162,7 @@ object FriendControlWire {
             control.ensureFinished()
             FriendControlRequest(
                 requestId = requestId,
+                relationshipId = relationshipId,
                 displayName = displayName,
                 invitation = invitation,
             )
@@ -166,6 +175,8 @@ object FriendControlWire {
             writeVarInt(CONTROL_REMOVAL_PACKET_ID)
             writeLong(request.operationId.mostSignificantBits)
             writeLong(request.operationId.leastSignificantBits)
+            writeLong(request.relationshipId.mostSignificantBits)
+            writeLong(request.relationshipId.leastSignificantBits)
         }
         return output.toByteArray()
     }
@@ -180,6 +191,7 @@ object FriendControlWire {
             val control = readPacket()
             ensure(control.readVarInt() == CONTROL_REMOVAL_PACKET_ID)
             val request = FriendRemovalRequest(
+                UUID(control.readLong(), control.readLong()),
                 UUID(control.readLong(), control.readLong()),
             )
             control.ensureFinished()

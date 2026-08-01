@@ -132,7 +132,10 @@ class FabricDirectPeerRuntimeTest {
                 sign()
             }
 
-        override fun publish(invitation: String) {
+        override fun publish(
+            invitation: String,
+            discoveryInvitation: String,
+        ) {
             publishes++
         }
 

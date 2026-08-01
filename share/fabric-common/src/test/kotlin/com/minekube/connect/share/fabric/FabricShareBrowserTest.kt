@@ -183,22 +183,24 @@ class FabricShareBrowserTest {
             authMode = DirectP2pAuthMode.OFFLINE,
         )
 
-        assertIs<Either.Right<GuestJoinTarget.Connect>>(result)
-        assertTrue(node.openedAddresses.isEmpty())
+        val target = assertIs<Either.Right<GuestJoinTarget.Direct>>(result).value
+        assertEquals(ShareRoute.DIRECT_INTERNET, target.route)
+        assertEquals(listOf(INTERNET_ADDRESS), node.openedAddresses)
         assertEquals(
             listOf(
                 "Connect Share route: direct LAN unavailable",
-                "Connect Share route: using Connect fallback",
+                "Connect Share route: direct internet",
             ),
             reports,
         )
+        target.close()
         browser.close()
     }
 
     @Test
     fun `saved friend never falls back through this profiles own Connect endpoint`() =
         runTest {
-            val node = FakeGuestNode()
+            val node = FakeGuestNode(failDirect = true)
             val browser = browser(node)
             val friend = savedFriend(invitation())
 
@@ -212,7 +214,33 @@ class FabricShareBrowserTest {
                 GuestJoinFailure.EndpointConflict,
                 result.leftOrNull(),
             )
-            assertTrue(node.openedAddresses.isEmpty())
+            assertEquals(listOf(INTERNET_ADDRESS), node.openedAddresses)
+            browser.close()
+        }
+
+    @Test
+    fun `saved friend falls back to Connect after persisted direct route fails`() =
+        runTest {
+            val node = FakeGuestNode(failDirect = true)
+            val reports = mutableListOf<String>()
+            val browser = browser(node, reports::add)
+            val friend = savedFriend(invitation())
+
+            val result = browser.join(
+                friend = friend,
+                authMode = DirectP2pAuthMode.OFFLINE,
+            )
+
+            assertIs<Either.Right<GuestJoinTarget.Connect>>(result)
+            assertEquals(listOf(INTERNET_ADDRESS), node.openedAddresses)
+            assertEquals(
+                listOf(
+                    "Connect Share route: direct LAN unavailable",
+                    "Connect Share route: direct internet unavailable",
+                    "Connect Share route: using Connect fallback",
+                ),
+                reports,
+            )
             browser.close()
         }
 
@@ -248,6 +276,31 @@ class FabricShareBrowserTest {
             assertTrue(probed.single().endsWith(":41234"))
             browser.close()
         }
+
+    @Test
+    fun `presence probes persisted internet routes after LAN`() = runTest {
+        val node = FakeGuestNode()
+        val browser = browser(node)
+        val friend = savedFriend(invitation())
+        val probed = mutableListOf<String>()
+
+        val presence = browser.probeDirect(
+            friend = friend,
+            authMode = DirectP2pAuthMode.OFFLINE,
+            probe = FriendStatusProbe { address ->
+                probed += address
+                Either.Right(ServerPresence("Robin's World"))
+            },
+        )
+
+        assertEquals(
+            ServerPresence("Robin's World", ShareRoute.DIRECT_INTERNET),
+            presence,
+        )
+        assertEquals(1, probed.size)
+        assertEquals(listOf(INTERNET_ADDRESS), node.openedAddresses)
+        browser.close()
+    }
 
     @Test
     fun `pasted invitation ignores discovery with a different peer`() = runTest {

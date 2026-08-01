@@ -48,6 +48,7 @@ data class FriendSummary(
 data class OutgoingFriendRequestSummary(
     val peerId: String,
     val displayName: String,
+    val relationshipId: UUID = UUID.randomUUID(),
 )
 
 data class IncomingFriendRequestSummary(
@@ -343,6 +344,7 @@ class FriendsViewModel(
                 OutgoingFriendRequestSummary(
                     peerId = it.peerId,
                     displayName = it.displayName,
+                    relationshipId = it.relationshipId,
                 )
             },
             incomingRequests = incomingRequests,

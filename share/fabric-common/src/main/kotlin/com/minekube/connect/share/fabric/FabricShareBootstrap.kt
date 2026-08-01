@@ -216,7 +216,7 @@ object FabricShareBootstrap {
                 options = ShareOptions(
                     gameMode = ShareGameMode.SURVIVAL,
                     allowCheats = false,
-                    allowInternetDirect = true,
+                    allowInternetDirect = false,
                 ),
                 target = gateway.directAddress,
                 connectAddress = { ownConnectAddress.get() },
@@ -281,11 +281,13 @@ object FabricShareBootstrap {
                         )
                     },
                     ifRight = { target ->
-                        friendRequestClient.remove(
-                            target,
-                            com.minekube.connect.share.friend
-                                .FriendRemovalRequest(removal.operationId),
-                        )
+                            friendRequestClient.remove(
+                                target,
+                                com.minekube.connect.share.friend.FriendRemovalRequest(
+                                    operationId = removal.operationId,
+                                    relationshipId = removal.friend.relationshipId,
+                                ),
+                            )
                     },
                 )
             }

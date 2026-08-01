@@ -5,6 +5,7 @@ import arrow.core.raise.either
 import arrow.core.raise.ensure
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
+import com.minekube.connect.share.direct.ShareRoute
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -17,6 +18,7 @@ import kotlinx.coroutines.withContext
 
 data class ServerPresence(
     val description: String,
+    val route: ShareRoute? = null,
 )
 
 sealed interface StatusProbeError {

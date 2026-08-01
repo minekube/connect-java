@@ -302,13 +302,34 @@ class FriendStoreTest {
     fun `remote removal is idempotent and does not create a reply tombstone`() {
         val store = FriendStore(tempDir)
         store.accept(signedLink(), "Robin", NOW)
+        val relationshipId = store.relationship(PEER_ID).getOrNull()!!.relationshipId
 
-        assertTrue(store.applyRemoteRemoval(PEER_ID))
-        assertFalse(store.applyRemoteRemoval(PEER_ID))
+        assertEquals(
+            relationshipId,
+            store.applyRemoteRemoval(PEER_ID, relationshipId)?.relationshipId,
+        )
+        assertEquals(null, store.applyRemoteRemoval(PEER_ID, relationshipId))
 
         val reloaded = FriendStore(tempDir)
         assertTrue(reloaded.all().isEmpty())
         assertTrue(reloaded.pendingRemovals().isEmpty())
+    }
+
+    @Test
+    fun `stale remote removal cannot delete a re-established relationship`() {
+        val store = FriendStore(tempDir)
+        val link = signedLink()
+        store.accept(link, "Robin", NOW)
+        store.remove(PEER_ID, NOW)
+        val stale = store.pendingRemovals().single()
+
+        val readded = store.accept(link, "Robin", NOW.plusSeconds(1)).getOrNull()!!
+
+        assertEquals(
+            null,
+            store.applyRemoteRemoval(PEER_ID, stale.friend.relationshipId),
+        )
+        assertEquals(readded, store.all().single())
     }
 
     @Test
