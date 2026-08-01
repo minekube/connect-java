@@ -11,6 +11,7 @@ import com.minekube.connect.share.friend.ModLoader
 import java.nio.file.Path
 import kotlinx.coroutines.CoroutineScope
 import net.minecraft.client.Minecraft
+import net.neoforged.bus.api.IEventBus
 import net.neoforged.bus.api.SubscribeEvent
 import net.neoforged.fml.ModList
 import net.neoforged.fml.common.Mod
@@ -18,12 +19,18 @@ import net.neoforged.fml.loading.FMLPaths
 import net.neoforged.neoforge.common.NeoForge
 import net.neoforged.neoforge.client.event.ClientTickEvent
 import net.neoforged.neoforge.event.GameShuttingDownEvent
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent
 
 @Mod("connect_share")
-class NeoForgeConnectShare1211Client {
+class NeoForgeConnectShare1211Client(modEventBus: IEventBus) {
     private val platform = NeoForgePlatform()
 
     init {
+        modEventBus.addListener(
+            RegisterPayloadHandlersEvent::class.java,
+        ) { event ->
+            NeoForgeFriendCardNetworking.register(event)
+        }
         ConnectShare1211Runtime(platform).initialize()
         NeoForge.EVENT_BUS.register(platform)
     }
@@ -60,7 +67,17 @@ class NeoForgeConnectShare1211Client {
             issuer: FriendCardIssuer,
             receiver: FriendCardReceiver,
             approvedJoins: ApprovedJoinTracker,
-        ) = Unit
+        ) = NeoForgeFriendCardNetworking.install(
+            scope,
+            issuer,
+            receiver,
+            approvedJoins,
+        )
+
+        @SubscribeEvent
+        fun onPlayerLoggedIn(event: net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent) {
+            NeoForgeFriendCardNetworking.onPlayerLoggedIn(event)
+        }
 
         @SubscribeEvent
         fun onClientTick(event: ClientTickEvent.Post) {

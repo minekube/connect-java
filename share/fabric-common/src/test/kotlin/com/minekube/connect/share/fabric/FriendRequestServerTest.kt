@@ -1,6 +1,9 @@
 package com.minekube.connect.share.fabric
 
 import com.minekube.connect.share.admission.AdmissionController
+import com.minekube.connect.share.admission.AdmissionIdentity
+import com.minekube.connect.share.admission.AdmissionAnswer
+import com.minekube.connect.share.admission.AuthSource
 import com.minekube.connect.share.admission.AdmissionPurpose
 import com.minekube.connect.share.admission.Ingress
 import com.minekube.connect.share.direct.ShareInviteCodec
@@ -25,6 +28,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.future.await
@@ -193,9 +197,32 @@ class FriendRequestServerTest {
             .getOrNull()!!.payload.peerId
         val hostStore = FriendStore(tempDir.resolve("host-store"))
         hostStore.accept(senderCard, "bob", NOW)
+        val admission = admission()
+        val authenticated = AdmissionIdentity.Authenticated(
+            name = "bob",
+            uuid = PLAYER_UUID,
+            source = AuthSource.MOJANG,
+            ingress = Ingress.DIRECT_LAN,
+            directPeerId = senderPeerId,
+        )
+        val approval = async {
+            admission.request(authenticated)
+        }
+        runCurrent()
+        admission.answer(admission.pending.value.single().requestId, true)
+        assertEquals(AdmissionAnswer.ALLOW, approval.await())
+        admission.approveNextJoin(
+            AdmissionIdentity.UnverifiedOffline(
+                name = "bob",
+                uuid = PLAYER_UUID,
+                connectionId = "friend-join",
+                ingress = Ingress.DIRECT_LAN,
+                directPeerId = senderPeerId,
+            ),
+        )
         val server = FriendRequestServer(
             scope = backgroundScope,
-            admission = admission(),
+            admission = admission,
             issuer = issuer("host"),
             receiver = FriendCardReceiver(hostStore),
             friendStore = hostStore,
@@ -218,6 +245,13 @@ class FriendRequestServerTest {
         )
         assertTrue(hostStore.all().isEmpty())
         assertTrue(hostStore.pendingRemovals().isEmpty())
+        val afterRemoval = async {
+            admission.request(authenticated)
+        }
+        runCurrent()
+        assertEquals(1, admission.pending.value.size)
+        admission.resetShare()
+        assertEquals(AdmissionAnswer.STOPPED, afterRemoval.await())
     }
 
     @Test

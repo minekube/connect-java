@@ -22,6 +22,15 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 class FabricDirectShareIngress private constructor(
     private val nodeFactory: () -> FabricDirectNode,
@@ -30,6 +39,7 @@ class FabricDirectShareIngress private constructor(
     private val displayName: () -> String,
     private val localSocket: (SocketAddress, DirectP2pSession) -> Socket,
     private val closeNodeOnHandleClose: Boolean,
+    private val renewalDispatcher: kotlinx.coroutines.CoroutineDispatcher,
 ) : DirectShareIngress {
     constructor(
         dataDirectory: Path,
@@ -47,6 +57,7 @@ class FabricDirectShareIngress private constructor(
         displayName = displayName,
         localSocket = ::openTaggedLoopbackSocket,
         closeNodeOnHandleClose = true,
+        renewalDispatcher = kotlinx.coroutines.Dispatchers.IO,
     )
 
     internal constructor(
@@ -62,6 +73,7 @@ class FabricDirectShareIngress private constructor(
         displayName = displayName,
         localSocket = ::openTaggedLoopbackSocket,
         closeNodeOnHandleClose = false,
+        renewalDispatcher = kotlinx.coroutines.Dispatchers.IO,
     )
 
     override suspend fun start(
@@ -90,30 +102,36 @@ class FabricDirectShareIngress private constructor(
             } else {
                 emptyList()
             }
-            val payload = ShareInvitePayload(
-                wireVersion = ShareInviteCodec.WIRE_VERSION,
+            val invitation = invitation(
+                node = node,
+                host = host,
                 shareId = id,
-                expiresAtEpochMillis = now()
-                    .plusSeconds(INVITATION_LIFETIME_SECONDS)
-                    .toEpochMilli(),
+                secret = secret,
                 connectAddress = connectAddress,
-                peerId = host.peerId(),
-                internetDirectEnabled = options.allowInternetDirect,
-                directCandidates = internetCandidates,
-                capability = secret,
-            )
-            val unsigned = ShareInviteCodec.unsignedBytes(
-                payload,
-                host.publicKey(),
-            )
-            val invitation = ShareInviteCodec.encode(
-                SignedShareInvite(
-                    payload = payload,
-                    publicKey = host.publicKey(),
-                    signature = node.sign(unsigned),
-                ),
+                options = options,
             )
             node.publish(invitation)
+            val renewalScope = CoroutineScope(SupervisorJob() + renewalDispatcher)
+            val renewalJob = renewalScope.launch {
+                while (isActive) {
+                    delay(INVITATION_RENEWAL_MILLIS)
+                    try {
+                        node.publish(
+                            invitation(
+                                node = node,
+                                host = host,
+                                shareId = id,
+                                secret = secret,
+                                connectAddress = connectAddress,
+                                options = options,
+                            ),
+                        )
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: RuntimeException) {
+                    }
+                }
+            }
             val closed = AtomicBoolean()
             return DirectShareHandle(
                 invitation = invitation,
@@ -122,11 +140,12 @@ class FabricDirectShareIngress private constructor(
                     options.allowInternetDirect &&
                         internetCandidates.isNotEmpty(),
                 close = {
-                    if (
-                        closeNodeOnHandleClose &&
-                        closed.compareAndSet(false, true)
-                    ) {
-                        node.close()
+                    if (closed.compareAndSet(false, true)) {
+                        renewalJob.cancelAndJoin()
+                        renewalScope.cancel()
+                        if (closeNodeOnHandleClose) {
+                            node.close()
+                        }
                     }
                 },
             )
@@ -144,6 +163,45 @@ class FabricDirectShareIngress private constructor(
         }
     }
 
+    private fun invitation(
+        node: FabricDirectNode,
+        host: DirectP2pHostInfo,
+        shareId: UUID,
+        secret: String,
+        connectAddress: String?,
+        options: ShareOptions,
+    ): String {
+        val internetCandidates = if (options.allowInternetDirect) {
+            host.internetAddresses()
+        } else {
+            emptyList()
+        }
+        val payload = ShareInvitePayload(
+            wireVersion = ShareInviteCodec.WIRE_VERSION,
+            shareId = shareId,
+            expiresAtEpochMillis = now()
+                .plusSeconds(INVITATION_LIFETIME_SECONDS)
+                .toEpochMilli(),
+            connectAddress = connectAddress,
+            peerId = host.peerId(),
+            internetDirectEnabled = options.allowInternetDirect,
+            directCandidates = internetCandidates,
+            capability = secret,
+        )
+        return ShareInviteCodec.encode(
+            SignedShareInvite(
+                payload = payload,
+                publicKey = host.publicKey(),
+                signature = node.sign(
+                    ShareInviteCodec.unsignedBytes(
+                        payload,
+                        host.publicKey(),
+                    ),
+                ),
+            ),
+        )
+    }
+
     companion object {
         internal fun testing(
             nodeFactory: () -> FabricDirectNode,
@@ -152,6 +210,8 @@ class FabricDirectShareIngress private constructor(
             capability: () -> String,
             displayName: () -> String,
             localSocket: (SocketAddress, DirectP2pSession) -> Socket,
+            renewalDispatcher: kotlinx.coroutines.CoroutineDispatcher =
+                kotlinx.coroutines.Dispatchers.IO,
         ) = FabricDirectShareIngress(
             nodeFactory = nodeFactory,
             now = now,
@@ -164,6 +224,7 @@ class FabricDirectShareIngress private constructor(
             displayName = displayName,
             localSocket = localSocket,
             closeNodeOnHandleClose = true,
+            renewalDispatcher = renewalDispatcher,
         )
 
         private fun openTaggedLoopbackSocket(
@@ -202,6 +263,7 @@ class FabricDirectShareIngress private constructor(
         private const val DEFAULT_DISPLAY_NAME = "Minecraft world"
         private const val IDENTITY_FILE_NAME = "share-libp2p-identity.key"
         private const val INVITATION_LIFETIME_SECONDS = 24 * 60 * 60L
+        private const val INVITATION_RENEWAL_MILLIS = 12 * 60 * 60 * 1_000L
         private const val LOCAL_CONNECT_TIMEOUT_MILLIS = 3_000
     }
 }

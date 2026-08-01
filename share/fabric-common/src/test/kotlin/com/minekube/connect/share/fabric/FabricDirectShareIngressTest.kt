@@ -20,9 +20,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.io.TempDir
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class FabricDirectShareIngressTest {
     @TempDir
     lateinit var tempDir: Path
@@ -104,6 +108,35 @@ class FabricDirectShareIngressTest {
     }
 
     @Test
+    fun `persistent direct host republishes before its invitation expires`() = runTest {
+        val node = FakeDirectNode()
+        val ingress = FabricDirectShareIngress.testing(
+            nodeFactory = { node },
+            now = { Instant.ofEpochMilli(NOW) },
+            shareId = { SHARE_ID },
+            capability = { CAPABILITY },
+            displayName = { "World" },
+            localSocket = { _, _ -> error("not opened during setup") },
+            renewalDispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        val handle = ingress.start(
+            OPTIONS,
+            InetSocketAddress(
+                java.net.InetAddress.getLoopbackAddress(),
+                25_565,
+            ),
+            null,
+        )
+        runCurrent()
+        advanceTimeBy(12 * 60 * 60 * 1_000L)
+        runCurrent()
+
+        assertTrue(node.publishedInvitations.size >= 2)
+        handle.close()
+    }
+
+    @Test
     fun `partial startup closes the isolated node`() = runTest {
         val node = FakeDirectNode(failPublish = true)
         val ingress = FabricDirectShareIngress.testing(
@@ -181,6 +214,7 @@ class FabricDirectShareIngressTest {
             ),
         )
         var published: String? = null
+        val publishedInvitations = mutableListOf<String>()
         var closed = false
 
         override fun startHost(
@@ -200,6 +234,7 @@ class FabricDirectShareIngressTest {
                 error("publish failed")
             }
             published = invitation
+            publishedInvitations += invitation
         }
 
         override fun close() {

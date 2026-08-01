@@ -79,10 +79,10 @@ class FriendRequestServer(
                 ) {
                     FriendControlResponse.Invalid
                 } else {
-                    admission.denyDirectPeer(
-                        peerId,
-                        AdmissionPurpose.FRIEND,
-                    )
+                    val minecraftUuid = friendStore.relationship(peerId)
+                        .getOrNull()
+                        ?.minecraftUuid
+                    admission.revokeDirectPeer(peerId, minecraftUuid)
                     if (friendStore.applyRemoteRemoval(peerId)) {
                         notifyRelationshipChanged()
                     }

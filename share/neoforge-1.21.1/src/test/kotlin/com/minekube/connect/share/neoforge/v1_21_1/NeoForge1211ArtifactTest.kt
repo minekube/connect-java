@@ -22,6 +22,12 @@ class NeoForge1211ArtifactTest {
                 jar.getJarEntry("connect-share-fabric-1.21.1.mixins.json"),
             )
             assertNotNull(jar.getJarEntry("META-INF/connect/libp2p-runtime.jar"))
+            assertNotNull(
+                jar.getJarEntry(
+                    "com/minekube/connect/share/neoforge/v1_21_1/" +
+                        "NeoForgeFriendCardNetworking.class",
+                ),
+            )
             assertNotNull(jar.getJarEntry("pack.mcmeta"))
             val names = jar.entries().asSequence().map { it.name }.toList()
             assertFalse(names.any { it.startsWith("io/libp2p/") })

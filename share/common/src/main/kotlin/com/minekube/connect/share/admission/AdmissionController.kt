@@ -23,7 +23,7 @@ class AdmissionController(
 ) {
     private val lock = Any()
     private val requests = linkedMapOf<AdmissionKey, PendingRequest>()
-    private val authenticatedApprovals = mutableSetOf<UUID>()
+    private val authenticatedApprovals = mutableSetOf<AuthenticatedApproval>()
     private val preapprovedJoins = mutableSetOf<PreapprovedJoin>()
     private val mutablePending = MutableStateFlow<List<PendingAdmission>>(emptyList())
 
@@ -70,7 +70,7 @@ class AdmissionController(
             if (
                 purpose == AdmissionPurpose.JOIN &&
                 identity is AdmissionIdentity.Authenticated &&
-                identity.uuid in authenticatedApprovals
+                authenticatedApprovals.any { it.matches(identity) }
             ) {
                 return@synchronized RequestLookup.Immediate(AdmissionAnswer.ALLOW)
             }
@@ -119,7 +119,11 @@ class AdmissionController(
             ) {
                 val identity = entry.value.pending.identity
                 if (identity is AdmissionIdentity.Authenticated) {
-                    authenticatedApprovals += identity.uuid
+                    authenticatedApprovals += AuthenticatedApproval(
+                        uuid = identity.uuid,
+                        directPeerId = identity.directPeerId,
+                        ingress = identity.ingress,
+                    )
                 }
             }
             publishPending()
@@ -144,6 +148,31 @@ class AdmissionController(
         }
         denied.forEach { complete(it, AdmissionAnswer.DENY) }
         return denied.size
+    }
+
+    fun revokeDirectPeer(
+        peerId: String,
+        minecraftUuid: UUID? = null,
+    ): Int {
+        val revoked = synchronized(lock) {
+            preapprovedJoins.removeIf { it.directPeerId == peerId }
+            authenticatedApprovals.removeIf {
+                it.directPeerId == peerId ||
+                    (
+                        it.directPeerId == null &&
+                            minecraftUuid != null &&
+                            it.uuid == minecraftUuid
+                        )
+            }
+            val matches = requests.entries.filter { entry ->
+                entry.value.pending.identity.directPeerId == peerId
+            }
+            matches.forEach { requests.remove(it.key) }
+            if (matches.isNotEmpty()) publishPending()
+            matches.map { it.value }
+        }
+        revoked.forEach { complete(it, AdmissionAnswer.DENY) }
+        return revoked.size
     }
 
     fun resetShare() {
@@ -250,8 +279,31 @@ class AdmissionController(
         val minecraftUuid: UUID,
     ) {
         fun matches(identity: AdmissionIdentity): Boolean =
-            (directPeerId != null && directPeerId == identity.directPeerId) ||
-                minecraftUuid == identity.uuid
+            minecraftUuid == identity.uuid &&
+                (
+                    directPeerId == identity.directPeerId ||
+                        (
+                            directPeerId != null &&
+                                identity.directPeerId == null &&
+                                when (identity) {
+                                    is AdmissionIdentity.Authenticated ->
+                                        identity.ingress == Ingress.CONNECT
+                                    is AdmissionIdentity.UnverifiedOffline ->
+                                        identity.ingress == Ingress.CONNECT
+                                }
+                            )
+                    )
+    }
+
+    private data class AuthenticatedApproval(
+        val uuid: UUID,
+        val directPeerId: String?,
+        val ingress: Ingress,
+    ) {
+        fun matches(identity: AdmissionIdentity.Authenticated): Boolean =
+            uuid == identity.uuid &&
+                (directPeerId == null || directPeerId == identity.directPeerId) &&
+                (directPeerId != null || ingress == identity.ingress)
     }
 
     private class PendingRequest(

@@ -60,7 +60,12 @@ class ForgeConnectShare1201Client {
             issuer: FriendCardIssuer,
             receiver: FriendCardReceiver,
             approvedJoins: ApprovedJoinTracker,
-        ) = Unit
+        ) = ForgeFriendCardNetworking.install(
+            scope,
+            issuer,
+            receiver,
+            approvedJoins,
+        )
 
         @SubscribeEvent
         fun onClientTick(event: TickEvent.ClientTickEvent) {

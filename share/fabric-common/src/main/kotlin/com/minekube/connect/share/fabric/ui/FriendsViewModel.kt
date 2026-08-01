@@ -74,6 +74,7 @@ class FriendsViewModel(
     private val store: FriendStore,
     private val followController: FollowNextSessionController =
         FollowNextSessionController(),
+    private val onPeerRemoved: (String) -> Unit = {},
     private val onRemovalQueued: () -> Unit = {},
 ) {
     private var discovered: List<DiscoveredLanShare> = emptyList()
@@ -145,6 +146,7 @@ class FriendsViewModel(
             ifRight = { removed ->
                 refresh()
                 if (removed) {
+                    notifyPeerRemoved(peerId)
                     onRemovalQueued()
                 }
                 removed
@@ -159,7 +161,10 @@ class FriendsViewModel(
             },
             ifRight = { blocked ->
                 refresh()
-                if (blocked) onRemovalQueued()
+                if (blocked) {
+                    notifyPeerRemoved(peerId)
+                    onRemovalQueued()
+                }
                 blocked
             },
         )
@@ -351,6 +356,13 @@ class FriendsViewModel(
 
     private fun update(transform: FriendsUiState.() -> FriendsUiState) {
         mutableState.value = mutableState.value.transform()
+    }
+
+    private fun notifyPeerRemoved(peerId: String) {
+        try {
+            onPeerRemoved(peerId)
+        } catch (_: RuntimeException) {
+        }
     }
 
     private fun SavedFriend.summary(): FriendSummary {
