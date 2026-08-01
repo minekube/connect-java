@@ -32,6 +32,12 @@ class Forge1201ArtifactTest {
             )
             assertNotNull(jar.getJarEntry("pack.mcmeta"))
             assertNotNull(jar.getJarEntry("META-INF/connect/libp2p-runtime.jar"))
+            assertNotNull(
+                jar.getJarEntry(
+                    "com/minekube/connect/share/forge/v1_20_1/" +
+                        "ForgeFriendCardNetworking.class",
+                ),
+            )
             assertEquals(
                 "connect-share-forge-1.20.1.mixins.json",
                 jar.manifest.mainAttributes.getValue("MixinConfigs"),

@@ -31,9 +31,11 @@ import java.util.logging.Logger
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -137,6 +139,8 @@ object FabricShareBootstrap {
         )
         val gateway = ShareConnectionGateway.bind(friendRequestServer)
         var browser: FabricShareBrowser? = null
+        var controlPlane: ConnectControlPlane? = null
+        var directControlPlane: DirectControlPlane? = null
         try {
             val directPeer = FabricDirectPeerRuntime(
                 dataDirectory = dataDirectory,
@@ -180,14 +184,16 @@ object FabricShareBootstrap {
                 directIngress = directIngress,
                 failureReporter = logger::warn,
             )
-            val controlPlane = ConnectControlPlane(
+            val startedControlPlane = ConnectControlPlane(
                 scope = scope,
                 ingress = ingress,
                 identity = identityStore::currentOrCreate,
                 target = gateway.serverSocketAddress,
                 failureReporter = logger::warn,
-            ).also(ConnectControlPlane::start)
-            val directControlPlane = DirectControlPlane(
+            )
+            controlPlane = startedControlPlane
+            startedControlPlane.start()
+            val startedDirectControlPlane = DirectControlPlane(
                 scope = scope,
                 ingress = directIngress,
                 options = ShareOptions(
@@ -198,7 +204,9 @@ object FabricShareBootstrap {
                 target = gateway.directAddress,
                 connectAddress = { ownConnectAddress.get() },
                 failureReporter = logger::warn,
-            ).also(DirectControlPlane::start)
+            )
+            directControlPlane = startedDirectControlPlane
+            startedDirectControlPlane.start()
             val viewModel = ShareViewModel(
                 scope = scope,
                 shareState = coordinator.state,
@@ -228,7 +236,7 @@ object FabricShareBootstrap {
                         "${identityStore.currentOrCreate().endpoint}" +
                             ".play.minekube.net",
                     )
-                    controlPlane.restart()
+                    startedControlPlane.restart()
                 },
                 startShare = coordinator::start,
                 stopShare = coordinator::stop,
@@ -263,11 +271,21 @@ object FabricShareBootstrap {
                     },
                 )
             }
-            val friendsViewModel = FriendsViewModel(friendStore) {
-                scope.launch(Dispatchers.IO) {
-                    removalSync.sync()
-                }
-            }
+            val friendsViewModel = FriendsViewModel(
+                store = friendStore,
+                onPeerRemoved = { peerId ->
+                    val minecraftUuid = friendStore.pendingRemovals()
+                        .lastOrNull { it.friend.peerId == peerId }
+                        ?.friend
+                        ?.minecraftUuid
+                    admission.revokeDirectPeer(peerId, minecraftUuid)
+                },
+                onRemovalQueued = {
+                    scope.launch(Dispatchers.IO) {
+                        removalSync.sync()
+                    }
+                },
+            )
             val activityMonitor = FriendActivityMonitor(
                 store = friendStore,
                 query = { friend ->
@@ -329,8 +347,8 @@ object FabricShareBootstrap {
                 minecraftVersion = minecraftVersion,
                 modVersion = modVersion,
                 approvedJoins = approvedJoins,
-                controlPlane = controlPlane,
-                directControlPlane = directControlPlane,
+                controlPlane = startedControlPlane,
+                directControlPlane = startedDirectControlPlane,
                 browser = activeBrowser,
                 friendActivity = activityMonitor,
                 gateway = gateway,
@@ -339,8 +357,18 @@ object FabricShareBootstrap {
                 guestScreens = guestScreens,
             )
         } catch (failure: Throwable) {
-            browser?.close()
-            gateway.close()
+            try {
+                withContext(NonCancellable) {
+                    directControlPlane?.shutdown()
+                    controlPlane?.shutdown()
+                    browser?.close()
+                    gateway.close()
+                }
+            } catch (cleanupFailure: Throwable) {
+                if (cleanupFailure !== failure) {
+                    failure.addSuppressed(cleanupFailure)
+                }
+            }
             throw failure
         }
     }

@@ -281,7 +281,31 @@ class AdmissionControllerTest {
     }
 
     @Test
-    fun `approved friend request also authorizes Connect fallback by player UUID`() = runTest {
+    fun `approved friend request does not authorize another gameplay identity`() = runTest {
+        val controller = controller()
+        val requestedIdentity = offline("RoboFlax2", "friend-request").copy(
+            uuid = AUTHENTICATED_UUID,
+            directPeerId = "12D3KooWFriend",
+            ingress = Ingress.DIRECT_LAN,
+        )
+        controller.approveNextJoin(requestedIdentity)
+
+        val otherIdentity = async {
+            controller.request(
+                authenticated("RoboFlax2", AUTHENTICATED_UUID).copy(
+                    directPeerId = "12D3KooWOtherFriend",
+                ),
+            )
+        }
+        runCurrent()
+
+        assertEquals(1, controller.pending.value.size)
+        controller.resetShare()
+        assertEquals(AdmissionAnswer.STOPPED, otherIdentity.await())
+    }
+
+    @Test
+    fun `approved direct join allows the matching Connect fallback identity`() = runTest {
         val controller = controller()
         val requestedIdentity = offline("RoboFlax2", "friend-request").copy(
             uuid = AUTHENTICATED_UUID,
@@ -293,10 +317,44 @@ class AdmissionControllerTest {
         assertEquals(
             AdmissionAnswer.ALLOW,
             controller.request(
-                authenticated("RoboFlax2", AUTHENTICATED_UUID),
+                requestedIdentity.copy(
+                    connectionId = "connect-gameplay",
+                    directPeerId = null,
+                    ingress = Ingress.CONNECT,
+                ),
             ),
         )
-        assertTrue(controller.pending.value.isEmpty())
+    }
+
+    @Test
+    fun `removing a direct peer revokes every peer-scoped admission grant`() = runTest {
+        val controller = controller()
+        val peerId = "12D3KooWRemovedFriend"
+        val authenticated = authenticated("Alex", AUTHENTICATED_UUID).copy(
+            directPeerId = peerId,
+        )
+        val pending = async { controller.request(authenticated) }
+        runCurrent()
+        controller.answer(controller.pending.value.single().requestId, allow = true)
+        assertEquals(AdmissionAnswer.ALLOW, pending.await())
+
+        val offline = offline("Alex", "friend-request").copy(
+            uuid = AUTHENTICATED_UUID,
+            directPeerId = peerId,
+        )
+        controller.approveNextJoin(offline)
+
+        assertEquals(0, controller.revokeDirectPeer(peerId))
+        val revokedAuthenticated = async { controller.request(authenticated) }
+        val revokedOffline = async {
+            controller.request(offline.copy(connectionId = "gameplay"))
+        }
+        runCurrent()
+
+        assertEquals(2, controller.pending.value.size)
+        controller.resetShare()
+        assertEquals(AdmissionAnswer.STOPPED, revokedAuthenticated.await())
+        assertEquals(AdmissionAnswer.STOPPED, revokedOffline.await())
     }
 
     private fun kotlinx.coroutines.test.TestScope.controller(
