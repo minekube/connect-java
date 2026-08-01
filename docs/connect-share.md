@@ -19,6 +19,12 @@ IP addresses or create a new link for every world.
    requests and presence themselves are authenticated libp2p traffic and never
    use Connect as a social relay.
 
+Friend links carry signed direct candidates when the local libp2p host has a
+usable internet route. This lets the social plane reach a friend outside the
+LAN without Connect; copying and sending the link is the explicit disclosure
+of that route. A reciprocal card exchange refreshes saved candidates when
+friends reconnect from a new network. No circuit relay is accepted.
+
 **Follow next session** waits for one friend for up to 30 minutes. It sends at
 most one request for a world session, can be cancelled from the Friends screen,
 and never pulls the follower out of active gameplay. Automatic admission still
@@ -47,9 +53,11 @@ or blocking cannot be bypassed with an old attempt.
 - Removing a friend revokes future presence and admissions and is synchronized
   when the peer is reachable. Blocking also prevents the identity from being
   added again until explicitly unblocked.
-- Internet-direct is opt-in on both sides because it can reveal public IP
-  addresses to that friend. Direct LAN addresses, endpoint tokens, invitation
-  capabilities, and private keys are never shown in the social UI.
+- Internet-direct gameplay remains opt-in on both sides. A copied friend link
+  may contain signed direct candidates so the recipient can deliver the friend
+  request without Connect; only send it to someone you trust. Direct addresses,
+  endpoint tokens, invitation capabilities, and private keys are never rendered
+  in the social UI.
 - **Copy safe diagnostics** is an explicit, local action. Its report contains
   version and join-stage outcomes, but no names, addresses, links, tokens, or
   keys.

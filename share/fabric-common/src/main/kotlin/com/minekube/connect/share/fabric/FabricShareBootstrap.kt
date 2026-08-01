@@ -9,6 +9,7 @@ import com.minekube.connect.share.ShareOptions
 import com.minekube.connect.share.VersionedMinecraftBridge
 import com.minekube.connect.share.admission.AdmissionController
 import com.minekube.connect.share.admission.AdmissionIdentity
+import com.minekube.connect.share.direct.ShareInviteCodec
 import com.minekube.connect.share.fabric.ui.ShareViewModel
 import com.minekube.connect.share.fabric.ui.FriendsViewModel
 import com.minekube.connect.share.fabric.ui.StoredEndpointIdentityUiActions
@@ -120,11 +121,25 @@ object FabricShareBootstrap {
             "${endpointIdentity.endpoint}.play.minekube.net",
         )
         val accessIdentityStore = ShareAccessIdentityStore(dataDirectory)
+        val directIngressReference = AtomicReference<PersistentDirectIngress?>()
         val friendCardIssuer = FriendCardIssuer(
             dataDirectory = dataDirectory,
             displayName = playerDisplayName,
             connectAddress = { ownConnectAddress.get() },
             accessIdentityStore = accessIdentityStore,
+            directRoute = {
+                directIngressReference.get()
+                    ?.awaitInvitation()
+                    ?.let { ShareInviteCodec.decode(it).getOrNull() }
+                    ?.payload
+                    ?.let { payload ->
+                        FriendDirectRoute(
+                            internetDirectEnabled =
+                                payload.internetDirectEnabled,
+                            candidates = payload.directCandidates,
+                        )
+                    }
+            },
         )
         val friendCardReceiver = FriendCardReceiver(friendStore)
         val friendRequestServer = FriendRequestServer(
@@ -133,6 +148,7 @@ object FabricShareBootstrap {
             issuer = friendCardIssuer,
             receiver = friendCardReceiver,
             friendStore = friendStore,
+            approvedJoins = approvedJoins,
             activity = friendActivity,
             presencePrivacy = { preferences.get().presence },
             joinTarget = friendJoinTarget,
@@ -176,6 +192,7 @@ object FabricShareBootstrap {
             val directIngress = PersistentDirectIngress(
                 directPeer.ingress,
             )
+            directIngressReference.set(directIngress)
             val coordinator = ShareCoordinator(
                 bridge = bridge,
                 ingress = ingress,
@@ -199,7 +216,7 @@ object FabricShareBootstrap {
                 options = ShareOptions(
                     gameMode = ShareGameMode.SURVIVAL,
                     allowCheats = false,
-                    allowInternetDirect = false,
+                    allowInternetDirect = true,
                 ),
                 target = gateway.directAddress,
                 connectAddress = { ownConnectAddress.get() },
@@ -241,6 +258,7 @@ object FabricShareBootstrap {
                 startShare = coordinator::start,
                 stopShare = coordinator::stop,
                 answerAdmission = admission::answer,
+                currentInvitation = coordinator::currentInvitation,
             )
             viewModelReference.set(viewModel)
             val runtime = ConnectShareRuntime(
@@ -279,6 +297,7 @@ object FabricShareBootstrap {
                         ?.friend
                         ?.minecraftUuid
                     admission.revokeDirectPeer(peerId, minecraftUuid)
+                    approvedJoins.revokeDirectPeer(peerId, minecraftUuid)
                 },
                 onRemovalQueued = {
                     scope.launch(Dispatchers.IO) {

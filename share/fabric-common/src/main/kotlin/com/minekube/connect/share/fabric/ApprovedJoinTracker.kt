@@ -34,6 +34,7 @@ class ApprovedJoinTracker(
                 authenticatedMinecraftUuid =
                     (identity as? AdmissionIdentity.Authenticated)?.uuid,
             ),
+            directPeerId = identity.directPeerId,
             approvedAtMillis = now,
         )
     }
@@ -67,6 +68,22 @@ class ApprovedJoinTracker(
         }
     }
 
+    fun revokeDirectPeer(
+        peerId: String,
+        minecraftUuid: UUID? = null,
+    ): Int {
+        val matches = approved.entries.filter {
+            it.value.directPeerId == peerId ||
+                (
+                    it.value.directPeerId == null &&
+                        minecraftUuid != null &&
+                        it.key.uuid == minecraftUuid
+                    )
+        }
+        matches.forEach { approved.remove(it.key, it.value) }
+        return matches.size
+    }
+
     private fun String.normalized(): String =
         lowercase(Locale.ROOT)
 
@@ -77,6 +94,7 @@ class ApprovedJoinTracker(
 
     private data class TimedProof(
         val proof: ApprovedJoinProof,
+        val directPeerId: String?,
         val approvedAtMillis: Long,
     )
 

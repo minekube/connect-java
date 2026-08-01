@@ -99,6 +99,13 @@ redesigned for Kotlin.
   authentication. Otherwise an offline Prism friend is rejected as "Invalid
   session" before admission runs. `ONLINE` direct sessions must never silently
   downgrade.
+- Persistent friend cards must retain signed direct candidates and friend
+  control must try those candidates after mDNS, without ever using Connect as a
+  social relay. Copying a friend link is the disclosure boundary for those
+  routes; removal must revoke both admission grants and reciprocal-card proofs.
+- Invitation renewal is not complete when only mDNS receives a fresh token.
+  Every copy action must resolve the current handle invitation so a long-running
+  share never copies the original expired token.
 - For no-click friend-request E2E, temporarily enable automatic joins only for
   the confirmed test friend, send the real libp2p join request, and restore the
   permission afterwards. Keep machine-specific instance paths and credentials

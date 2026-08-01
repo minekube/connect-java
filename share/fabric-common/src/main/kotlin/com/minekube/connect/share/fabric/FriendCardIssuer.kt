@@ -18,6 +18,11 @@ import java.util.UUID
 
 data object FriendCardIssueFailure
 
+data class FriendDirectRoute(
+    val internetDirectEnabled: Boolean,
+    val candidates: List<String>,
+)
+
 class FriendCardReceiver(
     private val store: FriendStore,
 ) {
@@ -52,6 +57,7 @@ class FriendCardIssuer(
     private val displayName: () -> String? = { null },
     private val accessIdentityStore: ShareAccessIdentityStore =
         ShareAccessIdentityStore(dataDirectory),
+    private val directRoute: suspend () -> FriendDirectRoute? = { null },
     private val connectAddress: suspend () -> String?,
 ) {
     suspend fun issue(
@@ -69,6 +75,7 @@ class FriendCardIssuer(
             DirectP2pNode(
                 dataDirectory.resolve(IDENTITY_FILE_NAME),
             ).use { node ->
+                val route = directRoute()
                 val payload = ShareInvitePayload(
                     wireVersion = ShareInviteCodec.WIRE_VERSION,
                     shareId = access.shareId,
@@ -77,8 +84,9 @@ class FriendCardIssuer(
                         .toEpochMilli(),
                     connectAddress = connectAddress(),
                     peerId = node.peerId(),
-                    internetDirectEnabled = false,
-                    directCandidates = emptyList(),
+                    internetDirectEnabled =
+                        route?.internetDirectEnabled == true,
+                    directCandidates = route?.candidates.orEmpty(),
                     capability = access.capability,
                     displayName = normalizedDisplayName,
                 )

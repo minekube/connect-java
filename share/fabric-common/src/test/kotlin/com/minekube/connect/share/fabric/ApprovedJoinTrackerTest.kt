@@ -53,6 +53,23 @@ class ApprovedJoinTrackerTest {
         assertNull(tracker.consume("Robin", PLAYER_UUID))
     }
 
+    @Test
+    fun `removing a peer revokes its direct and linked uuid proofs`() {
+        val peerId = "12D3KooWRemovedFriend"
+        tracker.record(
+            AUTHENTICATED.copy(directPeerId = peerId),
+            AdmissionAnswer.ALLOW,
+        )
+        tracker.record(
+            AUTHENTICATED.copy(name = "LinkedConnectPlayer"),
+            AdmissionAnswer.ALLOW,
+        )
+
+        assertEquals(2, tracker.revokeDirectPeer(peerId, PLAYER_UUID))
+        assertEquals(false, tracker.hasProof("Robin", PLAYER_UUID))
+        assertEquals(false, tracker.hasProof("LinkedConnectPlayer", PLAYER_UUID))
+    }
+
     private companion object {
         val PLAYER_UUID: UUID =
             UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")

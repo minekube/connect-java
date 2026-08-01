@@ -43,12 +43,12 @@ class ShareStatusScreen(
             Button.builder(
                 Component.translatable("connect_share.status.copy_invitation"),
             ) {
-                sharing?.invitation?.let(
+                viewModel.currentInvitation()?.let(
                     minecraft!!.keyboardHandler::setClipboard,
                 )
             }.bounds(width / 2 - 155, 50, 150, 20).build(),
         )
-        copyInvitation.active = sharing?.invitation != null
+        copyInvitation.active = viewModel.currentInvitation() != null
         val copyAddress = addRenderableWidget(
             Button.builder(
                 Component.translatable("connect_share.status.copy_address"),

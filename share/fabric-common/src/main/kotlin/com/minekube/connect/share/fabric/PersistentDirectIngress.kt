@@ -11,8 +11,12 @@ import java.util.concurrent.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 sealed interface PersistentDirectState {
     data object Idle : PersistentDirectState
@@ -56,6 +60,24 @@ class PersistentDirectIngress(
 
     val state: StateFlow<PersistentDirectState> =
         mutableState.asStateFlow()
+
+    suspend fun currentInvitation(): String? = lifecycle.withLock {
+        active?.handle?.invitation
+    }
+
+    suspend fun awaitInvitation(
+        timeout: Duration = 3.seconds,
+    ): String? {
+        currentInvitation()?.let { return it }
+        return withTimeoutOrNull(timeout) {
+            state.first {
+                it is PersistentDirectState.Available ||
+                    it is PersistentDirectState.Failed ||
+                    it is PersistentDirectState.Closed
+            }
+            currentInvitation()
+        }
+    }
 
     suspend fun startControl(
         options: ShareOptions,

@@ -357,6 +357,26 @@ class AdmissionControllerTest {
         assertEquals(AdmissionAnswer.STOPPED, revokedOffline.await())
     }
 
+    @Test
+    fun `removing a linked peer denies uuid-bound pending Connect admission`() = runTest {
+        val controller = controller()
+        val pendingIdentity = authenticated("Alex", AUTHENTICATED_UUID).copy(
+            directPeerId = null,
+        )
+        val pending = async { controller.request(pendingIdentity) }
+        runCurrent()
+
+        assertEquals(
+            1,
+            controller.revokeDirectPeer(
+                peerId = "12D3KooWRemovedFriend",
+                minecraftUuid = AUTHENTICATED_UUID,
+            ),
+        )
+        assertEquals(AdmissionAnswer.DENY, pending.await())
+        assertTrue(controller.pending.value.isEmpty())
+    }
+
     private fun kotlinx.coroutines.test.TestScope.controller(
         connectedCount: () -> Int = { 0 },
         maxGuests: () -> Int = { 8 },

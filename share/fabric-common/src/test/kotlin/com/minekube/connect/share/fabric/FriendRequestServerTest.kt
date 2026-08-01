@@ -220,12 +220,15 @@ class FriendRequestServerTest {
                 directPeerId = senderPeerId,
             ),
         )
+        val approvedJoins = ApprovedJoinTracker()
+        approvedJoins.record(authenticated, AdmissionAnswer.ALLOW)
         val server = FriendRequestServer(
             scope = backgroundScope,
             admission = admission,
             issuer = issuer("host"),
             receiver = FriendCardReceiver(hostStore),
             friendStore = hostStore,
+            approvedJoins = approvedJoins,
             now = { NOW },
             ioDispatcher = StandardTestDispatcher(testScheduler),
         )
@@ -245,6 +248,7 @@ class FriendRequestServerTest {
         )
         assertTrue(hostStore.all().isEmpty())
         assertTrue(hostStore.pendingRemovals().isEmpty())
+        assertFalse(approvedJoins.hasProof("bob", PLAYER_UUID))
         val afterRemoval = async {
             admission.request(authenticated)
         }

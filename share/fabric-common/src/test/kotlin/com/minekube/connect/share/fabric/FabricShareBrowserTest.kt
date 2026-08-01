@@ -145,6 +145,24 @@ class FabricShareBrowserTest {
     }
 
     @Test
+    fun `friend control uses saved direct internet route outside the LAN`() = runTest {
+        val node = FakeGuestNode()
+        val browser = browser(node)
+        val friend = savedFriend(invitation())
+
+        val result = browser.openFriendControl(
+            friend = friend,
+            authMode = DirectP2pAuthMode.OFFLINE,
+        )
+
+        val target = assertIs<Either.Right<GuestJoinTarget.Direct>>(result).value
+        assertEquals(ShareRoute.DIRECT_INTERNET, target.route)
+        assertEquals(listOf(INTERNET_ADDRESS), node.openedAddresses)
+        target.close()
+        browser.close()
+    }
+
+    @Test
     fun `saved friend ignores LAN metadata signed by a different identity`() = runTest {
         val node = FakeGuestNode()
         val reports = mutableListOf<String>()
@@ -385,6 +403,8 @@ class FabricShareBrowserTest {
             shareId = invitation.payload.shareId,
             capability = invitation.payload.capability,
             connectAddress = invitation.payload.connectAddress,
+            internetDirectEnabled = invitation.payload.internetDirectEnabled,
+            directCandidates = invitation.payload.directCandidates,
             displayName = "Robin",
         )
     }
