@@ -28,6 +28,7 @@ class ShareCoordinator(
 ) {
     private val lifecycleMutex = Mutex()
     private val mutableState = MutableStateFlow<ShareState>(ShareState.Idle)
+    @Volatile
     private var active: ActiveShare? = null
 
     val state: StateFlow<ShareState> = mutableState.asStateFlow()
@@ -102,7 +103,7 @@ class ShareCoordinator(
                 internetDirectAvailable =
                     acquired.direct?.internetAvailable == true,
             )
-            active = ActiveShare(release)
+            active = ActiveShare(release, acquired.direct)
             mutableState.value = sharing
             Either.Right(sharing)
         } catch (cancellation: CancellationException) {
@@ -162,6 +163,8 @@ class ShareCoordinator(
 
     suspend fun worldReplaced(): Either<ShareLifecycleError, Unit> = stop()
 
+    fun currentInvitation(): String? = active?.direct?.invitation
+
     private data class AcquiredShare(
         val target: LocalShareTarget,
         val connect: ConnectShareHandle?,
@@ -170,6 +173,7 @@ class ShareCoordinator(
 
     private data class ActiveShare(
         val release: suspend (ExitCase) -> Unit,
+        val direct: DirectShareHandle?,
     )
 
     @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)

@@ -269,16 +269,29 @@ class FabricShareBrowser private constructor(
         authMode: DirectP2pAuthMode,
     ): Either<GuestJoinFailure, GuestJoinTarget.Direct> =
         withContext(ioDispatcher) {
-            val discovered = matchingLanShare(friend)
-                ?: return@withContext GuestJoinFailure.NoRoute.left()
-            openDirect(
-                route = ShareRoute.DIRECT_LAN,
-                address = discovered.lanAddress,
-                shareId = friend.shareId.toString(),
-                capability = friend.capability,
-                authMode = authMode,
-                timeout = LAN_TIMEOUT,
-            )?.right() ?: GuestJoinFailure.NoRoute.left()
+            matchingLanShare(friend)?.let { discovered ->
+                openDirect(
+                    route = ShareRoute.DIRECT_LAN,
+                    address = discovered.lanAddress,
+                    shareId = friend.shareId.toString(),
+                    capability = friend.capability,
+                    authMode = authMode,
+                    timeout = LAN_TIMEOUT,
+                )?.let { return@withContext it.right() }
+            }
+            if (friend.internetDirectEnabled) {
+                for (address in friend.directCandidates) {
+                    openDirect(
+                        route = ShareRoute.DIRECT_INTERNET,
+                        address = address,
+                        shareId = friend.shareId.toString(),
+                        capability = friend.capability,
+                        authMode = authMode,
+                        timeout = INTERNET_TIMEOUT,
+                    )?.let { return@withContext it.right() }
+                }
+            }
+            GuestJoinFailure.NoRoute.left()
         }
 
     suspend fun probeLan(

@@ -134,6 +134,27 @@ class ShareCoordinatorTest {
     }
 
     @Test
+    fun `copyable invitation follows renewal while share stays active`() = runTest {
+        var invitation = "minekube://share/first"
+        val fixture = fixture(
+            events = mutableListOf(),
+            directStart = { _, _, _ ->
+                DirectShareHandle(
+                    invitationProvider = { invitation },
+                    lanAvailable = true,
+                    internetAvailable = true,
+                    close = {},
+                )
+            },
+        )
+        fixture.coordinator.start(OPTIONS)
+
+        assertEquals("minekube://share/first", fixture.coordinator.currentInvitation())
+        invitation = "minekube://share/renewed"
+        assertEquals("minekube://share/renewed", fixture.coordinator.currentInvitation())
+    }
+
+    @Test
     fun `Connect sharing remains available when direct setup fails`() = runTest {
         val events = mutableListOf<String>()
         val fixture = fixture(

@@ -165,7 +165,13 @@ class AdmissionController(
                         )
             }
             val matches = requests.entries.filter { entry ->
-                entry.value.pending.identity.directPeerId == peerId
+                val identity = entry.value.pending.identity
+                identity.directPeerId == peerId ||
+                    (
+                        identity.directPeerId == null &&
+                            minecraftUuid != null &&
+                            identity.uuid == minecraftUuid
+                        )
             }
             matches.forEach { requests.remove(it.key) }
             if (matches.isNotEmpty()) publishPending()

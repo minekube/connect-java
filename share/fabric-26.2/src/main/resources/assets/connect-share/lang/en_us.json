@@ -48,7 +48,7 @@
   "connect_share.friends.page": "Page %s of %s",
   "connect_share.friends.description": "Friends appear here when they're ready to play.",
   "connect_share.friends.copy_my_link": "Copy my friend link",
-  "connect_share.friends.copy_my_link.tooltip": "Share your stable friend link from any menu. No world needs to be open.",
+  "connect_share.friends.copy_my_link.tooltip": "Includes a direct route so this person can reach you. Only send it to someone you trust.",
   "connect_share.friends.copying_my_link": "Creating friend link…",
   "connect_share.friends.my_link_copied": "Friend link copied",
   "connect_share.friends.copy_my_link_failed": "Could not copy friend link",

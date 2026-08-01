@@ -36,6 +36,7 @@ class FriendRequestServer(
     private val issuer: FriendCardIssuer,
     private val receiver: FriendCardReceiver,
     private val friendStore: FriendStore,
+    private val approvedJoins: ApprovedJoinTracker? = null,
     private val now: () -> Instant = Instant::now,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val onRelationshipChanged: () -> Unit = {},
@@ -83,6 +84,7 @@ class FriendRequestServer(
                         .getOrNull()
                         ?.minecraftUuid
                     admission.revokeDirectPeer(peerId, minecraftUuid)
+                    approvedJoins?.revokeDirectPeer(peerId, minecraftUuid)
                     if (friendStore.applyRemoteRemoval(peerId)) {
                         notifyRelationshipChanged()
                     }

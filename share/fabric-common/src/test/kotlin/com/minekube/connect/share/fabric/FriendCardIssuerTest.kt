@@ -139,7 +139,41 @@ class FriendCardIssuerTest {
             )
         }
 
+    @Test
+    fun `friend card carries current direct internet social candidates`() =
+        runBlocking {
+            val peerId = ShareInviteCodec.decode(
+                FriendCardIssuer(
+                    dataDirectory = tempDir,
+                    connectAddress = { null },
+                ).issue(NOW).getOrNull()!!,
+                NOW,
+            ).getOrNull()!!.payload.peerId
+            val internetAddress = internetAddress(peerId)
+            val issuer = FriendCardIssuer(
+                dataDirectory = tempDir,
+                connectAddress = { "saved-endpoint.play.minekube.net" },
+                directRoute = {
+                    FriendDirectRoute(
+                        internetDirectEnabled = true,
+                        candidates = listOf(internetAddress),
+                    )
+                },
+            )
+
+            val card = issuer.issue(NOW).getOrNull()!!
+            val invite = ShareInviteCodec.decode(card, NOW).getOrNull()!!
+
+            assertTrue(invite.payload.internetDirectEnabled)
+            assertEquals(
+                listOf(internetAddress),
+                invite.payload.directCandidates,
+            )
+        }
+
     private companion object {
         val NOW: Instant = Instant.parse("2026-07-31T00:00:00Z")
+        fun internetAddress(peerId: String) =
+            "/ip6/2001:db8::20/tcp/4001/p2p/$peerId"
     }
 }

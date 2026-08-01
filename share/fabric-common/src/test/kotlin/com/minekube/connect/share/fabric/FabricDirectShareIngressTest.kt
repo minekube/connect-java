@@ -110,9 +110,10 @@ class FabricDirectShareIngressTest {
     @Test
     fun `persistent direct host republishes before its invitation expires`() = runTest {
         val node = FakeDirectNode()
+        var currentTime = Instant.ofEpochMilli(NOW)
         val ingress = FabricDirectShareIngress.testing(
             nodeFactory = { node },
-            now = { Instant.ofEpochMilli(NOW) },
+            now = { currentTime },
             shareId = { SHARE_ID },
             capability = { CAPABILITY },
             displayName = { "World" },
@@ -128,11 +129,15 @@ class FabricDirectShareIngressTest {
             ),
             null,
         )
+        val originalInvitation = handle.invitation
         runCurrent()
+        currentTime = currentTime.plusSeconds(12 * 60 * 60L)
         advanceTimeBy(12 * 60 * 60 * 1_000L)
         runCurrent()
 
         assertTrue(node.publishedInvitations.size >= 2)
+        assertTrue(handle.invitation != originalInvitation)
+        assertEquals(node.publishedInvitations.last(), handle.invitation)
         handle.close()
     }
 

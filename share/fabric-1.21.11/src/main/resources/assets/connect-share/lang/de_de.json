@@ -48,7 +48,7 @@
   "connect_share.friends.page": "Seite %s von %s",
   "connect_share.friends.description": "Spielbereite Freunde erscheinen hier.",
   "connect_share.friends.copy_my_link": "Meinen Freundeslink kopieren",
-  "connect_share.friends.copy_my_link.tooltip": "Teile deinen dauerhaften Freundeslink aus jedem Menü. Es muss keine Welt geöffnet sein.",
+  "connect_share.friends.copy_my_link.tooltip": "Enthält eine direkte Route, damit diese Person dich erreicht. Sende ihn nur an vertraute Personen.",
   "connect_share.friends.copying_my_link": "Freundeslink wird erstellt…",
   "connect_share.friends.my_link_copied": "Freundeslink kopiert",
   "connect_share.friends.copy_my_link_failed": "Freundeslink konnte nicht kopiert werden",

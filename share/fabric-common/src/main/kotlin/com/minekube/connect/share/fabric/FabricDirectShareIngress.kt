@@ -22,6 +22,7 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -110,22 +111,23 @@ class FabricDirectShareIngress private constructor(
                 connectAddress = connectAddress,
                 options = options,
             )
+            val currentInvitation = AtomicReference(invitation)
             node.publish(invitation)
             val renewalScope = CoroutineScope(SupervisorJob() + renewalDispatcher)
             val renewalJob = renewalScope.launch {
                 while (isActive) {
                     delay(INVITATION_RENEWAL_MILLIS)
                     try {
-                        node.publish(
-                            invitation(
-                                node = node,
-                                host = host,
-                                shareId = id,
-                                secret = secret,
-                                connectAddress = connectAddress,
-                                options = options,
-                            ),
+                        val renewed = invitation(
+                            node = node,
+                            host = host,
+                            shareId = id,
+                            secret = secret,
+                            connectAddress = connectAddress,
+                            options = options,
                         )
+                        node.publish(renewed)
+                        currentInvitation.set(renewed)
                     } catch (cancellation: CancellationException) {
                         throw cancellation
                     } catch (_: RuntimeException) {
@@ -134,7 +136,7 @@ class FabricDirectShareIngress private constructor(
             }
             val closed = AtomicBoolean()
             return DirectShareHandle(
-                invitation = invitation,
+                invitationProvider = currentInvitation::get,
                 lanAvailable = true,
                 internetAvailable =
                     options.allowInternetDirect &&

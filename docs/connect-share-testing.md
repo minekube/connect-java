@@ -98,6 +98,11 @@ address, such as a publicly routed host or an explicitly configured network.
 The mod does not open a public Minecraft listener, configure UPnP, or use a
 self-hosted libp2p relay.
 
+Friend control is separate from gameplay fallback. Copying a friend link is an
+explicit disclosure action and may include signed direct candidates. A saved
+friend tries fresh mDNS first, then those candidates; requests, presence, and
+removal must never use Connect.
+
 1. Copy the signed invitation from the host status screen and paste it into
    **Join Connect Share** on a guest outside the LAN.
 2. With internet-direct disabled on either peer, confirm the guest does not
@@ -115,6 +120,13 @@ self-hosted libp2p relay.
 7. Modify, truncate, expire, or reuse a signed invitation with a different
    libp2p peer address. Confirm it is rejected before Minecraft connects and no
    capability, candidate, endpoint token, or signature bytes appear in logs.
+8. From two directly reachable networks, send and accept a friend request,
+   observe presence, and synchronize removal using only the signed direct
+   candidates. Confirm the route is `direct internet` and no Connect social
+   ingress is created.
+9. Keep a share active through invitation renewal and copy its invitation from
+   the status screen. Confirm the copied token is the renewed token and remains
+   valid after the original token expires.
 
 ## Listener and lifecycle safety
 

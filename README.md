@@ -33,7 +33,8 @@ The current implementation provides:
 - a stable `*.play.minekube.net` address for unmodified Java clients;
 - signed friend links and temporary world invitations for modded clients;
 - automatic same-LAN discovery and direct libp2p transport;
-- optional internet-direct attempts only when host and guest both opt in;
+- direct libp2p friend delivery across LANs from explicitly shared friend links,
+  plus opt-in internet-direct gameplay attempts;
 - exactly-once fallback to Connect, which is the only relay;
 - host approval before each new guest reaches the world;
 - explicit support for authenticated and unverified offline-mode guests; and

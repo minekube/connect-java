@@ -68,6 +68,8 @@ data class SavedFriend(
     val shareId: UUID,
     val capability: String,
     val connectAddress: String?,
+    val internetDirectEnabled: Boolean = false,
+    val directCandidates: List<String> = emptyList(),
     val displayName: String,
     val minecraftUuid: UUID? = null,
     val permissions: FriendPermissions = FriendPermissions(),
@@ -77,7 +79,8 @@ data class SavedFriend(
     override fun toString(): String =
         "SavedFriend(peerId=$peerId, publicKey=<redacted>, " +
             "shareId=$shareId, capability=<redacted>, " +
-            "connectAddress=$connectAddress, displayName=$displayName, " +
+            "connectAddress=$connectAddress, directCandidates=<redacted>, " +
+            "displayName=$displayName, " +
             "minecraftUuid=$minecraftUuid, permissions=$permissions, " +
             "relationshipStatus=$relationshipStatus)"
 }
@@ -249,6 +252,8 @@ class FriendStore(
             shareId = invite.payload.shareId,
             capability = invite.payload.capability,
             connectAddress = invite.payload.connectAddress,
+            internetDirectEnabled = invite.payload.internetDirectEnabled,
+            directCandidates = invite.payload.directCandidates,
             displayName = existing?.displayName ?: normalizedName,
             minecraftUuid = existing?.minecraftUuid,
             permissions = (existing?.permissions ?: FriendPermissions())
@@ -494,6 +499,11 @@ class FriendStore(
         val shareId = UUID.fromString(json.requiredString("shareId"))
         val capability = json.requiredString("capability")
         val connectAddress = json.optionalString("connectAddress")
+        val internetDirectEnabled =
+            json.optionalBoolean("internetDirectEnabled") ?: false
+        val directCandidates = json.getAsJsonArray("directCandidates")
+            ?.map { it.asString }
+            ?: emptyList()
         val displayName = json.requiredString("displayName")
         val minecraftUuid = json.optionalString("minecraftUuid")
             ?.let(UUID::fromString)
@@ -501,6 +511,15 @@ class FriendStore(
             peerId.isBlank() ||
             publicKey.isBlank() ||
             !isValidCapability(capability) ||
+            directCandidates.size > MAX_DIRECT_CANDIDATES ||
+            (!internetDirectEnabled && directCandidates.isNotEmpty()) ||
+            directCandidates.any {
+                it.isBlank() ||
+                    it.length > MAX_DIRECT_CANDIDATE_LENGTH ||
+                    it.contains("/p2p-circuit") ||
+                    it.contains("/circuit/") ||
+                    it.substringAfterLast("/p2p/", "") != peerId
+            } ||
             displayName.trim().length !in 1..MAX_DISPLAY_NAME_LENGTH
         ) {
             throw IOException("Friends file contains an invalid friend")
@@ -534,6 +553,8 @@ class FriendStore(
             shareId = shareId,
             capability = capability,
             connectAddress = connectAddress,
+            internetDirectEnabled = internetDirectEnabled,
+            directCandidates = directCandidates,
             displayName = displayName,
             minecraftUuid = minecraftUuid,
             permissions = parsedPermissions,
@@ -602,6 +623,10 @@ class FriendStore(
         addProperty("shareId", shareId.toString())
         addProperty("capability", capability)
         connectAddress?.let { addProperty("connectAddress", it) }
+        addProperty("internetDirectEnabled", internetDirectEnabled)
+        add("directCandidates", JsonArray().apply {
+            directCandidates.forEach(::add)
+        })
         addProperty("displayName", displayName)
         minecraftUuid?.let { addProperty("minecraftUuid", it.toString()) }
         addProperty("relationshipStatus", relationshipStatus.name)
@@ -667,14 +692,19 @@ class FriendStore(
         get(name)?.takeUnless { it.isJsonNull }?.asBoolean
             ?: throw IOException("Friends file is missing $name")
 
+    private fun JsonObject.optionalBoolean(name: String): Boolean? =
+        get(name)?.takeUnless { it.isJsonNull }?.asBoolean
+
     private val friendsFile: Path
         get() = directory.resolve(FILE_NAME)
 
     companion object {
         const val FILE_NAME = "friends.json"
         private const val MIN_WIRE_VERSION = 1
-        private const val WIRE_VERSION = 4
+        private const val WIRE_VERSION = 5
         private const val MAX_FRIENDS = 256
+        private const val MAX_DIRECT_CANDIDATES = 4
+        private const val MAX_DIRECT_CANDIDATE_LENGTH = 8_192
         private const val MAX_DISPLAY_NAME_LENGTH = 64
         private val GSON = Gson()
 

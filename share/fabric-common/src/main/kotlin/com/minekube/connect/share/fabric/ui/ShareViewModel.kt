@@ -124,8 +124,11 @@ class ShareViewModel(
     private val answerAdmission: (UUID, Boolean) -> Unit,
     private val operationDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val onIdentityChanged: suspend () -> Unit = {},
+    private val currentInvitation: () -> String? = { null },
 ) {
     private val operationMutex = Mutex()
+
+    fun currentInvitation(): String? = currentInvitation.invoke()
     private val mutableState = MutableStateFlow(
         ShareUiState(
             worldAvailable = initialWorldAvailable,

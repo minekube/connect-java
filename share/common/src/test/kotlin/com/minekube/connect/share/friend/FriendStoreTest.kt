@@ -60,6 +60,23 @@ class FriendStoreTest {
     }
 
     @Test
+    fun `direct internet social candidates survive restart`() {
+        val store = FriendStore(tempDir)
+        val saved = store.accept(
+            signedLink(
+                internetDirectEnabled = true,
+                directCandidates = listOf(INTERNET_ADDRESS),
+            ),
+            "Robin",
+            NOW,
+        ).getOrNull()!!
+
+        assertTrue(saved.internetDirectEnabled)
+        assertEquals(listOf(INTERNET_ADDRESS), saved.directCandidates)
+        assertEquals(saved, FriendStore(tempDir).all().single())
+    }
+
+    @Test
     fun `confirming an outgoing request promotes it across restarts`() {
         val store = FriendStore(tempDir)
         store.sendRequest(signedLink(), "Robin", NOW)
@@ -325,6 +342,8 @@ class FriendStoreTest {
 
     private fun signedLink(
         expiresAt: Instant = NOW.plusSeconds(3_600),
+        internetDirectEnabled: Boolean = false,
+        directCandidates: List<String> = emptyList(),
     ): String {
         val payload = ShareInvitePayload(
             wireVersion = ShareInviteCodec.WIRE_VERSION,
@@ -332,8 +351,8 @@ class FriendStoreTest {
             expiresAtEpochMillis = expiresAt.toEpochMilli(),
             connectAddress = CONNECT_ADDRESS,
             peerId = PEER_ID,
-            internetDirectEnabled = false,
-            directCandidates = emptyList(),
+            internetDirectEnabled = internetDirectEnabled,
+            directCandidates = directCandidates,
             capability = CAPABILITY,
         )
         val unsigned = ShareInviteCodec.unsignedBytes(
@@ -383,6 +402,8 @@ class FriendStoreTest {
         const val PEER_ID = "12D3KooWStableFriendPeer"
         const val CONNECT_ADDRESS = "purple-del.play.minekube.net"
         const val CAPABILITY = "friend-capability-123456789"
+        const val INTERNET_ADDRESS =
+            "/ip6/2001:db8::20/tcp/4001/p2p/$PEER_ID"
         val KEY_PAIR: KeyPair =
             KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
     }
