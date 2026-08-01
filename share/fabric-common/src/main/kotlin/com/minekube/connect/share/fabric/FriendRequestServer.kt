@@ -80,12 +80,19 @@ class FriendRequestServer(
                 ) {
                     FriendControlResponse.Invalid
                 } else {
-                    val minecraftUuid = friendStore.relationship(peerId)
-                        .getOrNull()
-                        ?.minecraftUuid
-                    admission.revokeDirectPeer(peerId, minecraftUuid)
-                    approvedJoins?.revokeDirectPeer(peerId, minecraftUuid)
-                    if (friendStore.applyRemoteRemoval(peerId)) {
+                    val removed = friendStore.applyRemoteRemoval(
+                        peerId,
+                        request.relationshipId,
+                    )
+                    if (removed != null) {
+                        admission.revokeDirectPeer(
+                            peerId,
+                            removed.minecraftUuid,
+                        )
+                        approvedJoins?.revokeDirectPeer(
+                            peerId,
+                            removed.minecraftUuid,
+                        )
                         notifyRelationshipChanged()
                     }
                     FriendControlResponse.Removed
@@ -238,6 +245,7 @@ class FriendRequestServer(
                     invitation = request.invitation,
                     displayName = request.displayName,
                     authenticatedMinecraftUuid = null,
+                    relationshipId = request.relationshipId,
                     now = instant,
                 )
                 if (accepted.isLeft()) {
@@ -266,6 +274,7 @@ class FriendRequestServer(
                     invitation = request.invitation,
                     displayName = request.displayName,
                     authenticatedMinecraftUuid = null,
+                    relationshipId = request.relationshipId,
                     now = instant,
                 )
                 if (received.isLeft()) {

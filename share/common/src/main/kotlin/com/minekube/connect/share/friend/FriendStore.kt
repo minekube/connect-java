@@ -67,6 +67,7 @@ data class SavedFriend(
     val publicKeyBase64: String,
     val shareId: UUID,
     val capability: String,
+    val relationshipId: UUID = UUID.randomUUID(),
     val connectAddress: String?,
     val internetDirectEnabled: Boolean = false,
     val directCandidates: List<String> = emptyList(),
@@ -168,12 +169,14 @@ class FriendStore(
         invitationUri: String,
         displayName: String,
         now: Instant = Instant.now(),
+        relationshipId: UUID = UUID.randomUUID(),
     ): Either<FriendStoreError, SavedFriend> =
         storeInvitation(
             invitationUri = invitationUri,
             displayName = displayName,
             relationshipStatus = FriendRelationshipStatus.CONFIRMED,
             now = now,
+            relationshipId = relationshipId,
         )
 
     @Synchronized
@@ -181,6 +184,7 @@ class FriendStore(
         invitationUri: String,
         displayName: String,
         now: Instant = Instant.now(),
+        relationshipId: UUID = UUID.randomUUID(),
     ): Either<FriendStoreError, SavedFriend> =
         storeInvitation(
             invitationUri = invitationUri,
@@ -188,6 +192,7 @@ class FriendStore(
             relationshipStatus = FriendRelationshipStatus.CONFIRMED,
             allowAutomaticJoin = true,
             now = now,
+            relationshipId = relationshipId,
         )
 
     @Synchronized
@@ -195,6 +200,7 @@ class FriendStore(
         invitationUri: String,
         displayName: String,
         now: Instant = Instant.now(),
+        relationshipId: UUID = UUID.randomUUID(),
     ): Either<FriendStoreError, SavedFriend> =
         storeInvitation(
             invitationUri = invitationUri,
@@ -202,6 +208,7 @@ class FriendStore(
             relationshipStatus =
                 FriendRelationshipStatus.PENDING_OUTGOING,
             now = now,
+            relationshipId = relationshipId,
         )
 
     @Synchronized
@@ -219,6 +226,7 @@ class FriendStore(
         relationshipStatus: FriendRelationshipStatus,
         allowAutomaticJoin: Boolean = false,
         now: Instant,
+        relationshipId: UUID,
     ): Either<FriendStoreError, SavedFriend> = either {
         val invite = ShareInviteCodec.decode(invitationUri.trim(), now)
             .mapLeft(FriendStoreError::InvalidInvitation)
@@ -251,6 +259,7 @@ class FriendStore(
             publicKeyBase64 = publicKey,
             shareId = invite.payload.shareId,
             capability = invite.payload.capability,
+            relationshipId = existing?.relationshipId ?: relationshipId,
             connectAddress = invite.payload.connectAddress,
             internetDirectEnabled = invite.payload.internetDirectEnabled,
             directCandidates = invite.payload.directCandidates,
@@ -372,13 +381,16 @@ class FriendStore(
     }
 
     @Synchronized
-    fun applyRemoteRemoval(peerId: String): Boolean {
+    fun applyRemoteRemoval(
+        peerId: String,
+        relationshipId: UUID,
+    ): SavedFriend? {
         val current = read()
-        if (current.none { it.peerId == peerId }) {
-            return false
-        }
+        val removed = current.firstOrNull { it.peerId == peerId }
+            ?.takeIf { it.relationshipId == relationshipId }
+            ?: return null
         write(data().copy(friends = current.filterNot { it.peerId == peerId }))
-        return true
+        return removed
     }
 
     @Synchronized
@@ -498,6 +510,9 @@ class FriendStore(
         val publicKey = json.requiredString("publicKey")
         val shareId = UUID.fromString(json.requiredString("shareId"))
         val capability = json.requiredString("capability")
+        val relationshipId = json.optionalString("relationshipId")
+            ?.let(UUID::fromString)
+            ?: legacyRelationshipId(peerId, shareId, capability)
         val connectAddress = json.optionalString("connectAddress")
         val internetDirectEnabled =
             json.optionalBoolean("internetDirectEnabled") ?: false
@@ -552,6 +567,7 @@ class FriendStore(
             publicKeyBase64 = publicKey,
             shareId = shareId,
             capability = capability,
+            relationshipId = relationshipId,
             connectAddress = connectAddress,
             internetDirectEnabled = internetDirectEnabled,
             directCandidates = directCandidates,
@@ -621,6 +637,7 @@ class FriendStore(
         addProperty("peerId", peerId)
         addProperty("publicKey", publicKeyBase64)
         addProperty("shareId", shareId.toString())
+        addProperty("relationshipId", relationshipId.toString())
         addProperty("capability", capability)
         connectAddress?.let { addProperty("connectAddress", it) }
         addProperty("internetDirectEnabled", internetDirectEnabled)
@@ -701,7 +718,7 @@ class FriendStore(
     companion object {
         const val FILE_NAME = "friends.json"
         private const val MIN_WIRE_VERSION = 1
-        private const val WIRE_VERSION = 5
+        private const val WIRE_VERSION = 6
         private const val MAX_FRIENDS = 256
         private const val MAX_DIRECT_CANDIDATES = 4
         private const val MAX_DIRECT_CANDIDATE_LENGTH = 8_192
@@ -733,6 +750,14 @@ class FriendStore(
         private fun isValidCapability(value: String): Boolean =
             value.length in 16..512 &&
                 value.none(Char::isWhitespace)
+
+        private fun legacyRelationshipId(
+            peerId: String,
+            shareId: UUID,
+            capability: String,
+        ): UUID = UUID.nameUUIDFromBytes(
+            "$peerId|$shareId|$capability".toByteArray(StandardCharsets.UTF_8),
+        )
     }
 
     private data class StoreData(

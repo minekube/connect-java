@@ -82,7 +82,7 @@ class FriendPresenceMonitor private constructor(
                 description = directPresence?.description,
                 notifyWhenOnline =
                     friend.permissions.notifyWhenOnline,
-                route = directPresence?.let { ShareRoute.DIRECT_LAN },
+                route = directPresence?.route ?: ShareRoute.DIRECT_LAN,
             )
         }
         mutableState.value = results.toMap()

@@ -83,8 +83,11 @@ private class CoreFabricDirectPeerNode(
 
     override fun sign(payload: ByteArray): ByteArray = node.sign(payload)
 
-    override fun publish(invitation: String) {
-        node.publish(invitation)
+    override fun publish(
+        invitation: String,
+        discoveryInvitation: String,
+    ) {
+        node.publish(invitation, discoveryInvitation)
     }
 
     override fun openProxy(

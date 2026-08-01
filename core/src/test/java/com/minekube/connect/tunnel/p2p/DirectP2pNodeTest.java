@@ -216,7 +216,9 @@ class DirectP2pNodeTest {
                         "Robin's World",
                         false),
                 ignored -> new Socket());
-        host.publish("minekube://share/signed-secret-payload");
+        host.publish(
+                "minekube://share/signed-secret-payload",
+                "minekube://share/signed-lan-payload");
 
         guest = new DirectP2pNode();
         DirectP2pDiscoveredShare discovered = guest.inspect(
@@ -226,9 +228,9 @@ class DirectP2pNodeTest {
         assertEquals("Robin's World", discovered.displayName());
         assertEquals(hostInfo.peerId(), discovered.peerId());
         assertEquals(
-                "minekube://share/signed-secret-payload",
+                "minekube://share/signed-lan-payload",
                 discovered.invitation());
-        assertFalse(discovered.toString().contains("signed-secret-payload"));
+        assertFalse(discovered.toString().contains("signed-lan-payload"));
         assertFalse(discovered.toString().contains(hostInfo.lanAddresses().get(0)));
     }
 

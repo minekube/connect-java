@@ -65,7 +65,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           for minecraft in 1.20.1 1.21.1 1.21.11 26.2; do
-            project="fabric-${minecraft//./-}"
+            project="fabric-$minecraft"
             source="$(find "share/$project/build/libs" -maxdepth 1 -type f \
               -name "connect-share-fabric-$minecraft-*.jar" \
               ! -name '*-sources.jar' ! -name '*-dev-*.jar' \

@@ -98,7 +98,7 @@ class ConnectShare1201Runtime(
         val remotePresence = FriendPresenceMonitor(
             store = friendStore,
             directProbe = { friend ->
-                browserReference.get()?.probeLan(
+                browserReference.get()?.probeDirect(
                     friend = friend,
                     authMode = DirectP2pAuthMode.OFFLINE,
                     probe = statusProbe,

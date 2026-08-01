@@ -107,6 +107,7 @@ final class DirectP2pNodeRuntime {
     private DirectP2pHostConfig hostConfig;
     private DirectP2pHostHandler hostHandler;
     private volatile String invitation;
+    private volatile String discoveryInvitation;
     private JmDNS discovery;
     private DirectP2pDiscoveryListener discoveryListener;
     private boolean started;
@@ -183,11 +184,16 @@ final class DirectP2pNodeRuntime {
     }
 
     synchronized void publish(String invitation) {
+        publish(invitation, invitation);
+    }
+
+    synchronized void publish(String invitation, String discoveryInvitation) {
         ensureOpen();
         if (hostConfig == null || host == null) {
             throw new IllegalStateException("Connect Share direct host is not started");
         }
         this.invitation = requireInvitation(invitation);
+        this.discoveryInvitation = requireInvitation(discoveryInvitation);
         startMdns();
     }
 
@@ -605,7 +611,7 @@ final class DirectP2pNodeRuntime {
     }
 
     private byte[] encodeInfoResponse() {
-        String currentInvitation = invitation;
+        String currentInvitation = discoveryInvitation;
         DirectP2pHostConfig currentConfig = hostConfig;
         if (currentInvitation == null || currentConfig == null) {
             return null;

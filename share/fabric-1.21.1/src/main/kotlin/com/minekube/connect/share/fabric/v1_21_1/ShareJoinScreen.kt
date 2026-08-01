@@ -867,6 +867,19 @@ class ShareJoinScreen(
                 target = target,
                 request = FriendControlRequest(
                     requestId = UUID.randomUUID(),
+                    relationshipId = friends.state.value.outgoingRequests
+                        .firstOrNull { it.peerId == peerId }
+                        ?.relationshipId
+                        ?: run {
+                            target.close()
+                            requestFailed(
+                                peerId,
+                                Component.translatable(
+                                    "connect_share.friends.request_failed",
+                                ).string,
+                            )
+                            return@launch
+                        },
                     displayName = minecraft!!.user.name,
                     invitation = senderCard,
                 ),

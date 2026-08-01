@@ -66,18 +66,22 @@ jobs:
         include:
           - minecraft: 1.20.1
             project: fabric-1-20-1
+            directory: fabric-1.20.1
             loader: Fabric
             artifact: connect-share-fabric-1.20.1-*.jar
           - minecraft: 1.21.1
             project: fabric-1-21-1
+            directory: fabric-1.21.1
             loader: Fabric
             artifact: connect-share-fabric-1.21.1-*.jar
           - minecraft: 1.20.1
             project: forge-1-20-1
+            directory: forge-1.20.1
             loader: Forge
             artifact: connect-share-forge-1.20.1-*.jar
           - minecraft: 1.21.1
             project: neoforge-1-21-1
+            directory: neoforge-1.21.1
             loader: NeoForge
             artifact: connect-share-neoforge-1.21.1-*.jar
 
@@ -105,12 +109,12 @@ jobs:
         with:
           name: Connect Share ${{ matrix.loader }} ${{ matrix.minecraft }}
           path: |
-            share/${{ matrix.project }}/build/libs/${{ matrix.artifact }}
-            !share/${{ matrix.project }}/build/libs/*-sources.jar
-            !share/${{ matrix.project }}/build/libs/*-dev-*.jar
-            !share/${{ matrix.project }}/build/libs/*-dev-shadow.jar
-            !share/${{ matrix.project }}/build/libs/*-unshaded.jar
-            !share/${{ matrix.project }}/build/libs/*-parent-shadow.jar
+            share/${{ matrix.directory }}/build/libs/${{ matrix.artifact }}
+            !share/${{ matrix.directory }}/build/libs/*-sources.jar
+            !share/${{ matrix.directory }}/build/libs/*-dev-*.jar
+            !share/${{ matrix.directory }}/build/libs/*-dev-shadow.jar
+            !share/${{ matrix.directory }}/build/libs/*-unshaded.jar
+            !share/${{ matrix.directory }}/build/libs/*-parent-shadow.jar
 
   share-1-21-11:
     name: Connect Share / Minecraft 1.21.11

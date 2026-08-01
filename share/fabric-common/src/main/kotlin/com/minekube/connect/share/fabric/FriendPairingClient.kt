@@ -77,6 +77,7 @@ class FriendPairingClient(
                     target = target,
                     request = FriendControlRequest(
                         requestId = UUID.randomUUID(),
+                        relationshipId = pending.relationshipId,
                         displayName = senderDisplayName,
                         invitation = senderCard,
                     ),

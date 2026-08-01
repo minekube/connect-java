@@ -38,6 +38,7 @@ public final class DirectP2pNode implements AutoCloseable {
     private Method startHost;
     private Method sign;
     private Method publish;
+    private Method publishWithDiscoveryInvitation;
     private Method inspect;
     private Method startDiscovery;
     private Method openProxy;
@@ -73,6 +74,10 @@ public final class DirectP2pNode implements AutoCloseable {
             sign = accessible(runtimeClass.getDeclaredMethod("sign", byte[].class));
             publish = accessible(runtimeClass.getDeclaredMethod(
                     "publish",
+                    String.class));
+            publishWithDiscoveryInvitation = accessible(runtimeClass.getDeclaredMethod(
+                    "publish",
+                    String.class,
                     String.class));
             inspect = accessible(runtimeClass.getDeclaredMethod(
                     "inspect",
@@ -118,6 +123,16 @@ public final class DirectP2pNode implements AutoCloseable {
 
     public synchronized void publish(String invitation) {
         invoke(publish, Void.class, Objects.requireNonNull(invitation, "invitation"));
+    }
+
+    public synchronized void publish(
+            String invitation,
+            String discoveryInvitation) {
+        invoke(
+                publishWithDiscoveryInvitation,
+                Void.class,
+                Objects.requireNonNull(invitation, "invitation"),
+                Objects.requireNonNull(discoveryInvitation, "discoveryInvitation"));
     }
 
     public synchronized DirectP2pDiscoveredShare inspect(

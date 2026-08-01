@@ -36,12 +36,23 @@ class FriendCardReceiver(
         displayName: String,
         authenticatedMinecraftUuid: UUID?,
         allowAutomaticJoin: Boolean = false,
+        relationshipId: UUID? = null,
         now: Instant = Instant.now(),
     ): Either<FriendStoreError, SavedFriend> =
         (if (allowAutomaticJoin) {
-            store.acceptAndAllowJoin(invitation, displayName, now)
+            store.acceptAndAllowJoin(
+                invitation,
+                displayName,
+                now,
+                relationshipId ?: UUID.randomUUID(),
+            )
         } else {
-            store.accept(invitation, displayName, now)
+            store.accept(
+                invitation,
+                displayName,
+                now,
+                relationshipId ?: UUID.randomUUID(),
+            )
         }).flatMap { friend ->
             authenticatedMinecraftUuid?.let { minecraftUuid ->
                 store.linkMinecraftIdentity(

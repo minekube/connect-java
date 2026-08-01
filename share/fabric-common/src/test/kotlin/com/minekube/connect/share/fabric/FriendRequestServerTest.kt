@@ -236,7 +236,11 @@ class FriendRequestServerTest {
             ingress = Ingress.DIRECT_LAN,
             directPeerId = senderPeerId,
         )
-        val removal = FriendRemovalRequest(UUID.randomUUID())
+        val removal = FriendRemovalRequest(
+            operationId = UUID.randomUUID(),
+            relationshipId = hostStore.relationship(senderPeerId)
+                .getOrNull()!!.relationshipId,
+        )
 
         assertEquals(
             FriendControlResponse.Removed,

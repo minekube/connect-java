@@ -280,7 +280,10 @@ class FriendPairingDirectE2ETest {
                         assertTrue(
                             requestClient.remove(
                                 removalTarget,
-                                FriendRemovalRequest(removal.operationId),
+                                FriendRemovalRequest(
+                                    operationId = removal.operationId,
+                                    relationshipId = removal.friend.relationshipId,
+                                ),
                             ).isRight(),
                         )
                         senderStore.acknowledgeRemoval(removal.operationId)
@@ -312,8 +315,11 @@ class FriendPairingDirectE2ETest {
         override fun sign(payload: ByteArray): ByteArray =
             node.sign(payload)
 
-        override fun publish(invitation: String) {
-            node.publish(invitation)
+        override fun publish(
+            invitation: String,
+            discoveryInvitation: String,
+        ) {
+            node.publish(invitation, discoveryInvitation)
         }
 
         override fun close() {

@@ -67,6 +67,14 @@ class FabricDirectShareIngressTest {
             assertTrue(handle.lanAvailable)
             assertTrue(handle.internetAvailable)
             assertEquals(handle.invitation, node.published)
+            val discoveryInvite = assertIs<Either.Right<SignedShareInvite>>(
+                ShareInviteCodec.decode(
+                    node.publishedDiscoveryInvitation!!,
+                    Instant.ofEpochMilli(NOW),
+                ),
+            ).value
+            assertFalse(discoveryInvite.payload.internetDirectEnabled)
+            assertTrue(discoveryInvite.payload.directCandidates.isEmpty())
             assertFalse(handle.toString().contains(CAPABILITY))
 
             handle.close()
@@ -219,6 +227,7 @@ class FabricDirectShareIngressTest {
             ),
         )
         var published: String? = null
+        var publishedDiscoveryInvitation: String? = null
         val publishedInvitations = mutableListOf<String>()
         var closed = false
 
@@ -234,11 +243,15 @@ class FabricDirectShareIngressTest {
                 sign()
             }
 
-        override fun publish(invitation: String) {
+        override fun publish(
+            invitation: String,
+            discoveryInvitation: String,
+        ) {
             if (failPublish) {
                 error("publish failed")
             }
             published = invitation
+            publishedDiscoveryInvitation = discoveryInvitation
             publishedInvitations += invitation
         }
 
