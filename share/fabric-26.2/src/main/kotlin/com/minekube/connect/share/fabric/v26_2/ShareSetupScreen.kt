@@ -104,6 +104,13 @@ class ShareSetupScreen(
             }.bounds(width / 2 - 155, height - 28, 150, 20).build(),
         )
         addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.privacy.title"),
+            ) {
+                minecraft.gui.setScreen(SharePrivacyScreen(this))
+            }.bounds(width / 2 - 75, height - 52, 150, 20).build(),
+        )
+        addRenderableWidget(
             Button.builder(CommonComponents.GUI_CANCEL) { onClose() }
                 .bounds(width / 2 + 5, height - 28, 150, 20)
                 .build(),

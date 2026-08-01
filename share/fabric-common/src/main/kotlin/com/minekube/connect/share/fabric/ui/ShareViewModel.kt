@@ -11,6 +11,7 @@ import com.minekube.connect.share.identity.CredentialValidationError
 import com.minekube.connect.share.identity.EndpointCredentialValidator
 import com.minekube.connect.share.identity.EndpointIdentity
 import com.minekube.connect.share.identity.EndpointIdentityStore
+import com.minekube.connect.share.friend.PresencePrivacy
 import java.nio.file.Path
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -23,6 +24,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class EndpointIdentitySummary(
     val endpoint: String,
@@ -52,6 +55,7 @@ data class ShareUiState(
     val options: ShareOptions,
     val pendingAdmissions: List<PendingAdmission>,
     val shareWithFriendsEnabled: Boolean = false,
+    val presencePrivacy: PresencePrivacy = PresencePrivacy(),
     val identity: EndpointIdentitySummary? = null,
     val importDraft: IdentityImportDraft = IdentityImportDraft(),
     val operationInProgress: Boolean = false,
@@ -112,6 +116,8 @@ class ShareViewModel(
     private val identityActions: EndpointIdentityUiActions,
     initialShareWithFriendsEnabled: Boolean = false,
     private val persistShareWithFriendsEnabled: (Boolean) -> Unit = {},
+    initialPresencePrivacy: PresencePrivacy = PresencePrivacy(),
+    private val persistPresencePrivacy: (PresencePrivacy) -> Unit = {},
     private val startShare:
         suspend (ShareOptions) -> Either<ShareLifecycleError, ShareState.Sharing>,
     private val stopShare: suspend () -> Either<ShareLifecycleError, Unit>,
@@ -119,6 +125,7 @@ class ShareViewModel(
     private val operationDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val onIdentityChanged: suspend () -> Unit = {},
 ) {
+    private val operationMutex = Mutex()
     private val mutableState = MutableStateFlow(
         ShareUiState(
             worldAvailable = initialWorldAvailable,
@@ -129,6 +136,7 @@ class ShareViewModel(
             ),
             pendingAdmissions = pendingAdmissions.value,
             shareWithFriendsEnabled = initialShareWithFriendsEnabled,
+            presencePrivacy = initialPresencePrivacy,
         ),
     )
 
@@ -189,10 +197,22 @@ class ShareViewModel(
         }
     }
 
+    fun setPresencePrivacy(privacy: PresencePrivacy) {
+        update { copy(presencePrivacy = privacy) }
+        scope.launch(context = operationDispatcher) {
+            try {
+                persistPresencePrivacy(privacy)
+            } catch (_: Exception) {
+                update { copy(safeMessage = PREFERENCES_FAILURE_MESSAGE) }
+            }
+        }
+    }
+
     fun start() {
         if (!state.value.startEnabled) return
         scope.launch(context = operationDispatcher) {
             runOperation {
+                if (!canStartCurrentWorld()) return@runOperation
                 setShareWithFriendsEnabled(true)
                 startCurrentWorld()
             }
@@ -202,6 +222,7 @@ class ShareViewModel(
     fun stop() {
         scope.launch(context = operationDispatcher) {
             runOperation {
+                if (!canStopCurrentWorld()) return@runOperation
                 try {
                     setShareWithFriendsEnabled(false)
                 } finally {
@@ -220,6 +241,7 @@ class ShareViewModel(
         }
         kotlinx.coroutines.withContext(operationDispatcher) {
             runOperation {
+                if (!canStartCurrentWorld()) return@runOperation
                 startCurrentWorld()
             }
         }
@@ -343,7 +365,12 @@ class ShareViewModel(
                 update { copy(safeMessage = failure.safeMessage) }
             },
             ifRight = {
-                update { copy(safeMessage = null) }
+                update {
+                    copy(
+                        shareState = it,
+                        safeMessage = null,
+                    )
+                }
             },
         )
     }
@@ -354,22 +381,43 @@ class ShareViewModel(
                 update { copy(safeMessage = failure.safeMessage) }
             },
             ifRight = {
-                update { copy(safeMessage = null) }
+                update {
+                    copy(
+                        shareState = ShareState.Idle,
+                        safeMessage = null,
+                    )
+                }
             },
         )
     }
 
     private suspend fun runOperation(operation: suspend () -> Unit) {
-        update { copy(operationInProgress = true) }
-        try {
-            operation()
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (_: Exception) {
-            update { copy(safeMessage = GENERIC_FAILURE_MESSAGE) }
-        } finally {
-            update { copy(operationInProgress = false) }
+        operationMutex.withLock {
+            update { copy(operationInProgress = true) }
+            try {
+                operation()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                update { copy(safeMessage = GENERIC_FAILURE_MESSAGE) }
+            } finally {
+                update { copy(operationInProgress = false) }
+            }
         }
+    }
+
+    private fun canStartCurrentWorld(): Boolean =
+        state.value.worldAvailable && state.value.shareState is ShareState.Idle
+
+    private fun canStopCurrentWorld(): Boolean = when (state.value.shareState) {
+        ShareState.Idle,
+        is ShareState.Failed,
+        -> false
+
+        ShareState.Starting,
+        is ShareState.Sharing,
+        ShareState.Stopping,
+        -> true
     }
 
     private fun update(transform: ShareUiState.() -> ShareUiState) {
@@ -409,6 +457,8 @@ class ShareViewModel(
             "Could not update Connect Share"
         const val IDENTITY_ACTIVE_MESSAGE =
             "Stop sharing before changing Connect credentials"
+        const val PREFERENCES_FAILURE_MESSAGE =
+            "Connect Share privacy settings could not be saved"
     }
 }
 

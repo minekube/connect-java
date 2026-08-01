@@ -1,0 +1,22 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.minekube.connect.share.fabric.v1_20_1.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "ConnectionAccessor",
+    "ServerConnectionListenerAccessor",
+    "ServerConnectionListenerMixin",
+    "ServerLoginPacketListenerMixin"
+  ],
+  "client": [
+    "IntegratedServerAccessor",
+    "IntegratedServerMixin",
+    "LanServerPingerAccessor",
+    "PauseScreenMixin",
+    "TitleScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

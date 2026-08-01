@@ -42,6 +42,19 @@ class FriendControlWireTest {
                 FriendActivity(
                     FriendActivityKind.PLAYING_SERVER,
                     "Hypixel",
+                    compatibility = CompatibilityProfile(
+                        minecraftVersion = "1.21.1",
+                        loader = ModLoader.FABRIC,
+                        requiredMods = listOf(
+                            RequiredMod("fabric-api", "1.0"),
+                        ),
+                        pack = PackReference(
+                            platform = PackPlatform.MODRINTH,
+                            projectId = "example-pack",
+                            versionId = "v1",
+                            url = "https://modrinth.com/modpack/example-pack/version/v1",
+                        ),
+                    ),
                 ),
             ),
             FriendControlResponse.JoinAccepted("mc.hypixel.net"),

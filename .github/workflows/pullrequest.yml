@@ -57,6 +57,61 @@ jobs:
           name: Connect Velocity
           path: velocity/build/libs/connect-velocity.jar
 
+  share-anchor-versions:
+    name: Connect Share / ${{ matrix.loader }} ${{ matrix.minecraft }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - minecraft: 1.20.1
+            project: fabric-1-20-1
+            loader: Fabric
+            artifact: connect-share-fabric-1.20.1-*.jar
+          - minecraft: 1.21.1
+            project: fabric-1-21-1
+            loader: Fabric
+            artifact: connect-share-fabric-1.21.1-*.jar
+          - minecraft: 1.20.1
+            project: forge-1.20.1
+            loader: Forge
+            artifact: connect-share-forge-1.20.1-*.jar
+          - minecraft: 1.21.1
+            project: neoforge-1.21.1
+            loader: NeoForge
+            artifact: connect-share-neoforge-1.21.1-*.jar
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and verify packaged Connect Share
+        run: ./gradlew :share:${{ matrix.project }}:build
+
+      - name: Archive Connect Share
+        uses: actions/upload-artifact@v4
+        with:
+          name: Connect Share ${{ matrix.loader }} ${{ matrix.minecraft }}
+          path: |
+            share/${{ matrix.project }}/build/libs/${{ matrix.artifact }}
+            !share/${{ matrix.project }}/build/libs/*-sources.jar
+            !share/${{ matrix.project }}/build/libs/*-dev-*.jar
+            !share/${{ matrix.project }}/build/libs/*-dev-shadow.jar
+            !share/${{ matrix.project }}/build/libs/*-unshaded.jar
+            !share/${{ matrix.project }}/build/libs/*-parent-shadow.jar
+
   share-1-21-11:
     name: Connect Share / Minecraft 1.21.11
     runs-on: ubuntu-latest

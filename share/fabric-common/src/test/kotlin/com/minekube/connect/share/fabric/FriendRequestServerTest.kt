@@ -13,6 +13,8 @@ import com.minekube.connect.share.friend.FriendActivityKind
 import com.minekube.connect.share.friend.FriendActivityRequest
 import com.minekube.connect.share.friend.FriendJoinRequest
 import com.minekube.connect.share.friend.FriendStore
+import com.minekube.connect.share.friend.FriendAccessPolicy
+import com.minekube.connect.share.friend.PresencePrivacy
 import java.nio.file.Path
 import java.time.Instant
 import java.util.UUID
@@ -112,6 +114,35 @@ class FriendRequestServerTest {
         runCurrent()
 
         assertEquals(FriendControlResponse.Invalid, connect.getNow(null))
+        assertTrue(admission.pending.value.isEmpty())
+        assertTrue(hostStore.all().isEmpty())
+    }
+
+    @Test
+    fun `blocked libp2p identity cannot create another friend prompt`() = runTest {
+        val senderCard = issuer("sender").issue(NOW).getOrNull()!!
+        val senderPeerId = ShareInviteCodec.decode(senderCard, NOW)
+            .getOrNull()!!.payload.peerId
+        val admission = admission()
+        val hostStore = FriendStore(tempDir.resolve("host-store"))
+        hostStore.accept(senderCard, "bob", NOW)
+        hostStore.block(senderPeerId, NOW)
+        val server = FriendRequestServer(
+            scope = backgroundScope,
+            admission = admission,
+            issuer = issuer("host"),
+            receiver = FriendCardReceiver(hostStore),
+            friendStore = hostStore,
+            now = { NOW.plusSeconds(1) },
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        val response = server.handle(
+            FriendControlContext(Ingress.DIRECT_LAN, senderPeerId),
+            request(senderCard),
+        ).await()
+
+        assertEquals(FriendControlResponse.Declined, response)
         assertTrue(admission.pending.value.isEmpty())
         assertTrue(hostStore.all().isEmpty())
     }
@@ -324,6 +355,79 @@ class FriendRequestServerTest {
         assertEquals(
             FriendControlResponse.SharedWorldJoinAccepted,
             response.getNow(null),
+        )
+    }
+
+    @Test
+    fun `never allow declines join without notifying the host`() = runTest {
+        val senderCard = issuer("sender").issue(NOW).getOrNull()!!
+        val senderPeerId = ShareInviteCodec.decode(senderCard, NOW)
+            .getOrNull()!!.payload.peerId
+        val admission = admission()
+        val hostStore = FriendStore(tempDir.resolve("host-store"))
+        val friend = hostStore.accept(senderCard, "bob", NOW).getOrNull()!!
+        hostStore.updatePermissions(
+            senderPeerId,
+            friend.permissions.copy(
+                accessPolicy = FriendAccessPolicy.NEVER_ALLOW,
+            ),
+        )
+        val server = FriendRequestServer(
+            scope = backgroundScope,
+            admission = admission,
+            issuer = issuer("host"),
+            receiver = FriendCardReceiver(hostStore),
+            friendStore = hostStore,
+            activity = {
+                FriendActivity(FriendActivityKind.HOSTING_WORLD, "Survival")
+            },
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        val response = server.handleJoin(
+            FriendControlContext(Ingress.DIRECT_LAN, senderPeerId),
+            FriendJoinRequest(UUID.randomUUID(), "RoboFlax2", PLAYER_UUID),
+        ).await()
+
+        assertEquals(FriendControlResponse.Declined, response)
+        assertTrue(admission.pending.value.isEmpty())
+    }
+
+    @Test
+    fun `presence privacy can hide playing details without hiding online state`() = runTest {
+        val senderCard = issuer("sender").issue(NOW).getOrNull()!!
+        val senderPeerId = ShareInviteCodec.decode(senderCard, NOW)
+            .getOrNull()!!.payload.peerId
+        val hostStore = FriendStore(tempDir.resolve("host-store"))
+        hostStore.accept(senderCard, "bob", NOW)
+        val server = FriendRequestServer(
+            scope = backgroundScope,
+            admission = admission(),
+            issuer = issuer("host"),
+            receiver = FriendCardReceiver(hostStore),
+            friendStore = hostStore,
+            activity = {
+                FriendActivity(FriendActivityKind.PLAYING_SERVER, "Private")
+            },
+            presencePrivacy = {
+                PresencePrivacy(
+                    showOnline = true,
+                    showPlaying = false,
+                    showCurrentServer = false,
+                    showJoinable = false,
+                )
+            },
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        assertEquals(
+            FriendControlResponse.Activity(
+                FriendActivity(FriendActivityKind.ONLINE),
+            ),
+            server.handleActivity(
+                FriendControlContext(Ingress.DIRECT_LAN, senderPeerId),
+                FriendActivityRequest(UUID.randomUUID()),
+            ).await(),
         )
     }
 

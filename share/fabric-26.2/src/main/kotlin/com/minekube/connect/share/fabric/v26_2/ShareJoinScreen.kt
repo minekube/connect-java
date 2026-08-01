@@ -3,7 +3,7 @@ package com.minekube.connect.share.fabric.v26_2
 import com.minekube.connect.share.fabric.ConnectShareClient
 import com.minekube.connect.share.fabric.FabricShareBrowser
 import com.minekube.connect.share.fabric.FriendCardExchangeConsent
-import com.minekube.connect.share.fabric.FriendJoinApproval
+import com.minekube.connect.share.fabric.FriendJoinAttemptFailure
 import com.minekube.connect.share.fabric.FriendPresenceMonitor
 import com.minekube.connect.share.fabric.FriendActivityMonitor
 import com.minekube.connect.share.fabric.GuestJoinTarget
@@ -12,8 +12,12 @@ import com.minekube.connect.share.friend.FriendControlRequest
 import com.minekube.connect.share.friend.FriendJoinRequest
 import com.minekube.connect.share.friend.FriendActivityKind
 import com.minekube.connect.share.fabric.ui.FriendSummary
+import com.minekube.connect.share.fabric.ui.IncomingFriendRequestSummary
+import com.minekube.connect.share.fabric.ui.OutgoingFriendRequestSummary
 import com.minekube.connect.share.fabric.ui.FriendsViewModel
+import com.minekube.connect.share.fabric.ui.page
 import com.minekube.connect.share.friend.FriendPermissions
+import com.minekube.connect.share.friend.FriendAccessPolicy
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.components.Checkbox
+import net.minecraft.client.gui.components.CycleButton
 import net.minecraft.client.gui.components.EditBox
 import net.minecraft.client.gui.components.MultiLineTextWidget
 import net.minecraft.client.gui.components.StringWidget
@@ -65,6 +70,7 @@ class ShareJoinScreen(
     private var removeConfirmation = false
     private var friendLinkState = FriendLinkState.IDLE
     private var requestOperationInProgress = false
+    private var relationshipOffset = 0
     private val requestJobs = mutableMapOf<String, Job>()
     private val requestStates =
         mutableMapOf<String, RequestDeliveryState>()
@@ -151,16 +157,21 @@ class ShareJoinScreen(
         )
 
         val state = friends.state.value
-        val incoming = state.incomingRequests.take(
-            MAX_VISIBLE_RELATIONSHIPS,
+        val relationships = buildList {
+            state.incomingRequests.forEach {
+                add(RelationshipRow.Incoming(it))
+            }
+            state.outgoingRequests.forEach {
+                add(RelationshipRow.Outgoing(it))
+            }
+            state.friends.forEach { add(RelationshipRow.Friend(it)) }
+        }
+        val page = relationships.page(
+            offset = relationshipOffset,
+            size = MAX_VISIBLE_RELATIONSHIPS,
         )
-        val outgoing = state.outgoingRequests.take(
-            MAX_VISIBLE_RELATIONSHIPS - incoming.size,
-        )
-        val saved = state.friends.take(
-            MAX_VISIBLE_RELATIONSHIPS - incoming.size - outgoing.size,
-        )
-        if (incoming.isEmpty() && outgoing.isEmpty() && saved.isEmpty()) {
+        relationshipOffset = page.offset
+        if (relationships.isEmpty()) {
             addRenderableWidget(
                 centeredWrapped(
                     Component.translatable("connect_share.friends.empty"),
@@ -168,123 +179,45 @@ class ShareJoinScreen(
                 ),
             )
         }
-        incoming.forEachIndexed { index, request ->
+        page.items.forEachIndexed { index, relationship ->
             val y = 58 + index * 26
-            addRenderableWidget(
-                StringWidget(
-                    width / 2 - 155,
-                    y,
-                    174,
-                    20,
-                    Component.translatable(
-                        if (request.purpose == com.minekube.connect.share.admission.AdmissionPurpose.FRIEND) {
-                            "connect_share.friends.incoming_request"
-                        } else {
-                            "connect_share.friends.incoming_join_request"
-                        },
-                        request.displayName,
-                        request.ingress.displayName(),
-                    ),
-                    font,
-                ).setMaxWidth(174),
-            )
-            addRenderableWidget(
-                Button.builder(
-                    Component.translatable("connect_share.status.allow"),
-                ) {
-                    ConnectShareClient.viewModel().allow(request.requestId)
-                }.bounds(width / 2 + 23, y, 62, 20).build(),
-            )
-            addRenderableWidget(
-                Button.builder(
-                    Component.translatable("connect_share.status.deny"),
-                ) {
-                    ConnectShareClient.viewModel().deny(request.requestId)
-                }.bounds(width / 2 + 89, y, 66, 20).build(),
-            )
+            when (relationship) {
+                is RelationshipRow.Incoming ->
+                    addIncomingRow(relationship.request, y)
+
+                is RelationshipRow.Outgoing ->
+                    addOutgoingRow(relationship.request, y)
+
+                is RelationshipRow.Friend ->
+                    addFriendRow(relationship.friend, y)
+            }
         }
-        outgoing.forEachIndexed { index, request ->
-            val y = 58 + (incoming.size + index) * 26
-            val deliveryState = requestStates[request.peerId]
-            addRenderableWidget(
-                StringWidget(
-                    width / 2 - 155,
-                    y,
-                    174,
-                    20,
-                    outgoingRequestLabel(
-                        request.displayName,
-                        deliveryState,
-                    ),
-                    font,
+        if (page.pageCount > 1) {
+            val pageTooltip = Tooltip.create(
+                Component.translatable(
+                    "connect_share.friends.page",
+                    page.pageNumber,
+                    page.pageCount,
                 ),
             )
-            addRenderableWidget(
-                Button.builder(
-                    Component.translatable(
-                        deliveryState?.translationKey
-                            ?: "connect_share.friends.retry_request",
-                    ),
-                ) {
-                    deliverOutgoing(request.peerId)
-                }.bounds(width / 2 + 23, y, 62, 20).build().apply {
-                    active = deliveryState == null ||
-                        deliveryState == RequestDeliveryState.FAILED
-                },
-            )
-            addRenderableWidget(
-                Button.builder(
-                    Component.translatable(
-                        "connect_share.friends.cancel_request",
-                    ),
-                ) {
-                    cancelOutgoing(request.peerId)
-                }.bounds(width / 2 + 89, y, 66, 20).build(),
-            )
-        }
-        saved.forEachIndexed { index, friend ->
-            val y =
-                58 + (incoming.size + outgoing.size + index) * 26
-            val actionWidth = if (friend.canRequestJoin || friend.canJoinNow) 86 else 0
-            addRenderableWidget(
-                StringWidget(
-                    width / 2 - 155,
-                    y,
-                    242 - actionWidth,
-                    20,
-                    friendLabel(friend),
-                    font,
-                ).setMaxWidth(242 - actionWidth),
-            )
-            if (actionWidth > 0) {
-                addRenderableWidget(
-                    Button.builder(
-                        Component.translatable(
-                            if (friend.canRequestJoin) {
-                                "connect_share.friends.request_join"
-                            } else {
-                                "connect_share.join.join"
-                            },
-                        ),
-                    ) {
-                        if (friend.canRequestJoin) requestToJoin(friend.peerId)
-                        else joinSaved(friend.peerId)
-                    }.bounds(width / 2 + 1, y, 86, 20).build(),
-                )
-            }
-            addRenderableWidget(
-                Button.builder(
-                    Component.translatable(
-                        "connect_share.friends.manage",
-                    ),
-                ) {
-                    selectedPeerId = friend.peerId
-                    nameValue = friend.displayName
-                    mode = Mode.MANAGE
-                    safeMessage = null
+            val previous = addRenderableWidget(
+                Button.builder(Component.literal("‹")) {
+                    relationshipOffset = page.previousOffset ?: 0
                     rebuildWidgets()
-                }.bounds(width / 2 + 91, y, 64, 20).build(),
+                }.bounds(width / 2 - 155, 14, 24, 20)
+                    .tooltip(pageTooltip)
+                    .build(),
             )
+            previous.active = page.hasPrevious
+            val next = addRenderableWidget(
+                Button.builder(Component.literal("›")) {
+                    relationshipOffset = page.nextOffset ?: page.offset
+                    rebuildWidgets()
+                }.bounds(width / 2 + 131, 14, 24, 20)
+                    .tooltip(pageTooltip)
+                    .build(),
+            )
+            next.active = page.hasNext
         }
 
         safeMessage().let { message ->
@@ -320,9 +253,141 @@ class ShareJoinScreen(
             }.bounds(width / 2 + 5, height - 52, 150, 20).build(),
         )
         addRenderableWidget(
-            Button.builder(CommonComponents.GUI_BACK) { onClose() }
-                .bounds(width / 2 - 75, height - 28, 150, 20)
+            Button.builder(
+                Component.translatable("connect_share.privacy.title"),
+            ) {
+                minecraft.gui.setScreen(SharePrivacyScreen(this))
+            }.bounds(width / 2 - 155, height - 28, 150, 20)
                 .build(),
+        )
+        addRenderableWidget(
+            Button.builder(CommonComponents.GUI_BACK) { onClose() }
+                .bounds(width / 2 + 5, height - 28, 150, 20)
+                .build(),
+        )
+    }
+
+    private fun addIncomingRow(
+        request: IncomingFriendRequestSummary,
+        y: Int,
+    ) {
+        addRenderableWidget(
+            StringWidget(
+                width / 2 - 155,
+                y,
+                174,
+                20,
+                Component.translatable(
+                    if (request.purpose == com.minekube.connect.share.admission.AdmissionPurpose.FRIEND) {
+                        "connect_share.friends.incoming_request"
+                    } else {
+                        "connect_share.friends.incoming_join_request"
+                    },
+                    request.displayName,
+                    request.ingress.displayName(),
+                ),
+                font,
+            ).setMaxWidth(174),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.status.allow"),
+            ) {
+                ConnectShareClient.viewModel().allow(request.requestId)
+            }.bounds(width / 2 + 23, y, 62, 20).build(),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.status.deny"),
+            ) {
+                ConnectShareClient.viewModel().deny(request.requestId)
+            }.bounds(width / 2 + 89, y, 66, 20).build(),
+        )
+    }
+
+    private fun addOutgoingRow(
+        request: OutgoingFriendRequestSummary,
+        y: Int,
+    ) {
+        val deliveryState = requestStates[request.peerId]
+        addRenderableWidget(
+            StringWidget(
+                width / 2 - 155,
+                y,
+                174,
+                20,
+                outgoingRequestLabel(request.displayName, deliveryState),
+                font,
+            ),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable(
+                    deliveryState?.translationKey
+                        ?: "connect_share.friends.retry_request",
+                ),
+            ) {
+                deliverOutgoing(request.peerId)
+            }.bounds(width / 2 + 23, y, 62, 20).build().apply {
+                active = deliveryState == null ||
+                    deliveryState == RequestDeliveryState.FAILED
+            },
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable(
+                    "connect_share.friends.cancel_request",
+                ),
+            ) {
+                cancelOutgoing(request.peerId)
+            }.bounds(width / 2 + 89, y, 66, 20).build(),
+        )
+    }
+
+    private fun addFriendRow(friend: FriendSummary, y: Int) {
+        val actionWidth = 86
+        addRenderableWidget(
+            StringWidget(
+                width / 2 - 155,
+                y,
+                242 - actionWidth,
+                20,
+                friendLabel(friend),
+                font,
+            ).setMaxWidth(242 - actionWidth),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable(
+                    when {
+                        friend.canRequestJoin ->
+                            "connect_share.friends.request_join"
+                        friend.canJoinNow -> "connect_share.join.join"
+                        friend.following ->
+                            "connect_share.friends.cancel_follow"
+                        else -> "connect_share.friends.follow"
+                    },
+                ),
+            ) {
+                when {
+                    friend.canRequestJoin -> requestToJoin(friend.peerId)
+                    friend.canJoinNow -> joinSaved(friend.peerId)
+                    friend.following -> friends.cancelFollow(friend.peerId)
+                    else -> friends.follow(friend.peerId)
+                }
+                rebuildWidgets()
+            }.bounds(width / 2 + 1, y, 86, 20).build(),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.friends.manage"),
+            ) {
+                selectedPeerId = friend.peerId
+                nameValue = friend.displayName
+                mode = Mode.MANAGE
+                safeMessage = null
+                rebuildWidgets()
+            }.bounds(width / 2 + 91, y, 64, 20).build(),
         )
     }
 
@@ -497,20 +562,23 @@ class ShareJoinScreen(
                 .selected(friend.permissions.notifyWhenOnline)
                 .build(),
         )
-        val autoJoin = addRenderableWidget(
-            Checkbox.builder(
-                Component.translatable("connect_share.friends.auto_join"),
-                font,
-            ).pos(width / 2 - 155, 126)
-                .selected(friend.permissions.canJoinAutomatically)
-                .tooltip(
-                    Tooltip.create(
-                        Component.translatable(
-                            "connect_share.friends.auto_join.tooltip",
-                        ),
-                    ),
-                )
-                .build(),
+        var accessPolicy = friend.permissions.accessPolicy
+        addRenderableWidget(
+            CycleButton.builder(
+                { policy: FriendAccessPolicy ->
+                    Component.translatable(
+                        "connect_share.friends.access.${policy.name.lowercase()}",
+                    )
+                },
+                accessPolicy,
+            ).withValues(FriendAccessPolicy.entries)
+                .create(
+                    width / 2 - 155,
+                    126,
+                    310,
+                    20,
+                    Component.translatable("connect_share.friends.access"),
+                ) { _, selected -> accessPolicy = selected },
         )
         val shareWorlds = addRenderableWidget(
             Checkbox.builder(
@@ -543,8 +611,7 @@ class ShareJoinScreen(
                             FriendPermissions(
                                 notifyWhenOnline = notify.selected(),
                                 canSeeMyWorlds = shareWorlds.selected(),
-                                canJoinAutomatically =
-                                    autoJoin.selected(),
+                                accessPolicy = accessPolicy,
                             ),
                         )
                     }
@@ -609,13 +676,33 @@ class ShareJoinScreen(
                     nameValue = ""
                     rebuildWidgets()
                 }
-            }.bounds(width / 2 - 155, height - 28, 150, 20).build(),
+            }.bounds(width / 2 - 155, height - 28, 98, 20).build(),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.friends.block"),
+            ) {
+                val activeScope = scope ?: return@builder
+                requestOperationInProgress = true
+                refresh()
+                activeScope.launch {
+                    withContext(Dispatchers.IO) {
+                        friends.block(friend.peerId)
+                    }
+                    requestOperationInProgress = false
+                    removeConfirmation = false
+                    mode = Mode.FRIENDS
+                    selectedPeerId = null
+                    nameValue = ""
+                    rebuildWidgets()
+                }
+            }.bounds(width / 2 - 51, height - 28, 98, 20).build(),
         )
         addRenderableWidget(
             Button.builder(CommonComponents.GUI_CANCEL) {
                 removeConfirmation = false
                 rebuildWidgets()
-            }.bounds(width / 2 + 5, height - 28, 150, 20).build(),
+            }.bounds(width / 2 + 53, height - 28, 102, 20).build(),
         )
     }
 
@@ -664,7 +751,10 @@ class ShareJoinScreen(
         }
     }
 
-    private fun requestToJoin(peerId: String) {
+    private fun requestToJoin(
+        peerId: String,
+        allowModMismatch: Boolean = false,
+    ) {
         if (joining) return
         joining = true
         joiningPeerId = peerId
@@ -672,53 +762,35 @@ class ShareJoinScreen(
         safeMessage = null
         refresh()
         scope?.launch {
-            val target = friends.routeFriendControl(
+            ConnectShareClient.friendJoinOrchestrator().request(
                 peerId,
-                browser,
-                DirectP2pAuthMode.OFFLINE,
-            ).getOrNull()
-            if (target == null) {
-                joining = false
-                safeMessage = Component.translatable(
-                    "connect_share.friends.friend_unreachable",
-                ).string
-                rebuildWidgets()
-                return@launch
-            }
-            ConnectShareClient.friendRequestClient().requestJoin(
-                target,
                 FriendJoinRequest(
                     requestId = UUID.randomUUID(),
                     playerName = minecraft.user.name,
                     playerUuid = minecraft.user.profileId,
                 ),
+                allowModMismatch = allowModMismatch,
             ).fold(
                 ifLeft = { failure ->
                     joining = false
-                    safeMessage = failure.safeMessage
-                    rebuildWidgets()
-                },
-                ifRight = { approval ->
-                    when (approval) {
-                        is FriendJoinApproval.ExternalServer ->
-                            connect(GuestJoinTarget.Connect(approval.address))
-                        FriendJoinApproval.SharedWorld -> joinApprovedWorld(peerId)
+                    if (failure is FriendJoinAttemptFailure.Compatibility) {
+                        minecraft.gui.setScreen(
+                            CompatibilityMismatchScreen(
+                                parent = this@ShareJoinScreen,
+                                failure = failure,
+                                tryAnyway = {
+                                    requestToJoin(peerId, true)
+                                },
+                            ),
+                        )
+                    } else {
+                        safeMessage = failure.safeMessage
+                        rebuildWidgets()
                     }
                 },
+                ifRight = ::connect,
             )
         }
-    }
-
-    private suspend fun joinApprovedWorld(peerId: String) {
-        friends.join(
-            peerId = peerId,
-            browser = browser,
-            authMode = authMode(),
-            ownConnectAddress = ConnectShareClient.connectPublicAddress(),
-        ).fold(
-            ifLeft = ::joinFailed,
-            ifRight = ::connect,
-        )
     }
 
     private fun createFriendRequest() {
@@ -1075,6 +1147,20 @@ class ShareJoinScreen(
         FRIENDS,
         ADD,
         MANAGE,
+    }
+
+    private sealed interface RelationshipRow {
+        data class Incoming(
+            val request: IncomingFriendRequestSummary,
+        ) : RelationshipRow
+
+        data class Outgoing(
+            val request: OutgoingFriendRequestSummary,
+        ) : RelationshipRow
+
+        data class Friend(
+            val friend: FriendSummary,
+        ) : RelationshipRow
     }
 
     private enum class FriendLinkState(

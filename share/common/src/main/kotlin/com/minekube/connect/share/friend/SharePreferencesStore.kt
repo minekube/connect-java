@@ -15,8 +15,16 @@ import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.StandardOpenOption.TRUNCATE_EXISTING
 import java.nio.file.StandardOpenOption.WRITE
 
+data class PresencePrivacy(
+    val showOnline: Boolean = true,
+    val showPlaying: Boolean = true,
+    val showCurrentServer: Boolean = true,
+    val showJoinable: Boolean = true,
+)
+
 data class SharePreferences(
     val shareWithFriends: Boolean = false,
+    val presence: PresencePrivacy = PresencePrivacy(),
 )
 
 class SharePreferencesStore(
@@ -33,11 +41,28 @@ class SharePreferencesStore(
                 Files.readString(preferencesFile),
                 JsonObject::class.java,
             ) ?: throw IOException("Share preferences are empty")
-            if (json.requiredInt("version") != WIRE_VERSION) {
+            val version = json.requiredInt("version")
+            if (version !in MIN_WIRE_VERSION..WIRE_VERSION) {
                 throw IOException("Share preferences version is unsupported")
             }
             return SharePreferences(
                 shareWithFriends = json.requiredBoolean("shareWithFriends"),
+                presence = if (version >= 2) {
+                    val presence = json.getAsJsonObject("presence")
+                        ?: throw IOException(
+                            "Share preferences are missing presence privacy",
+                        )
+                    PresencePrivacy(
+                        showOnline = presence.requiredBoolean("showOnline"),
+                        showPlaying = presence.requiredBoolean("showPlaying"),
+                        showCurrentServer = presence.requiredBoolean(
+                            "showCurrentServer",
+                        ),
+                        showJoinable = presence.requiredBoolean("showJoinable"),
+                    )
+                } else {
+                    PresencePrivacy()
+                },
             )
         } catch (exception: JsonParseException) {
             throw IOException("Share preferences are invalid JSON", exception)
@@ -52,6 +77,15 @@ class SharePreferencesStore(
         val json = JsonObject().apply {
             addProperty("version", WIRE_VERSION)
             addProperty("shareWithFriends", preferences.shareWithFriends)
+            add("presence", JsonObject().apply {
+                addProperty("showOnline", preferences.presence.showOnline)
+                addProperty("showPlaying", preferences.presence.showPlaying)
+                addProperty(
+                    "showCurrentServer",
+                    preferences.presence.showCurrentServer,
+                )
+                addProperty("showJoinable", preferences.presence.showJoinable)
+            })
         }
         val temporary = Files.createTempFile(
             directory,
@@ -95,7 +129,8 @@ class SharePreferencesStore(
 
     companion object {
         const val FILE_NAME = "share-preferences.json"
-        private const val WIRE_VERSION = 1
+        private const val MIN_WIRE_VERSION = 1
+        private const val WIRE_VERSION = 2
         private val GSON = Gson()
     }
 }

@@ -107,3 +107,17 @@ redesigned for Kotlin.
   supply `LIVE_DATA`, `LIVE_PORT_FILE`, and `LIVE_HOST_LOG`, then launch the
   guest against the port written to `LIVE_PORT_FILE`. The test succeeds only
   after the host logs a new `<name> joined the game` line.
+- Invoke the live harness with `--rerun-tasks`. Its environment variables are
+  intentionally not task inputs, so an up-to-date result is not live evidence.
+- Keep only one host and one guest identity active during a live run. Cloning a
+  Prism instance copies `share-libp2p-identity.key`; simultaneously advertising
+  that same peer identity from several processes makes mDNS routing ambiguous
+  and can produce misleading libp2p stream failures.
+- Manually constructed Prism Forge/NeoForge components need correct
+  `cachedRequires` metadata and usually one online first launch to download
+  loader libraries. Kotlin for Forge must be installed from its `-all.jar`;
+  the smaller Maven compile artifact is not a discoverable loader mod.
+- Legacy Forge's final reobfuscated JAR must contain its generated Mixin refmap
+  and name it from the loader-specific mixin config. Forge and NeoForge client
+  resources need a compatible `pack.mcmeta`, otherwise startup can stop at a
+  resource-pack warning before quick-play E2E begins.

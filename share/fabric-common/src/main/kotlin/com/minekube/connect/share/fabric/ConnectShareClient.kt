@@ -25,6 +25,10 @@ data class ConnectShareInstallation(
     val friendCardReceiver: FriendCardReceiver,
     val friendRequestClient: FriendRequestClient,
     val friendPairingClient: FriendPairingClient,
+    val friendJoinOrchestrator: FriendJoinOrchestrator,
+    val diagnostics: ShareJoinDiagnostics,
+    val minecraftVersion: String,
+    val modVersion: String,
     val approvedJoins: ApprovedJoinTracker,
     val controlPlane: ConnectControlPlane,
     val directControlPlane: DirectControlPlane,
@@ -112,6 +116,15 @@ object ConnectShareClient {
     @JvmStatic
     fun friendPairingClient(): FriendPairingClient =
         checkNotNull(installation).friendPairingClient
+
+    @JvmStatic
+    fun friendJoinOrchestrator(): FriendJoinOrchestrator =
+        checkNotNull(installation).friendJoinOrchestrator
+
+    @JvmStatic
+    fun diagnosticBundle(): String = checkNotNull(installation).let {
+        it.diagnostics.bundle(it.minecraftVersion, it.modVersion)
+    }
 
     @JvmStatic
     fun connectPublicAddress(): String? =

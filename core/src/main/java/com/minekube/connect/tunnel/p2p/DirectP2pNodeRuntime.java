@@ -138,7 +138,11 @@ final class DirectP2pNodeRuntime {
             DirectP2pHostHandler handler) {
         ensureOpen();
         if (hostConfig != null) {
-            throw new IllegalStateException("Connect Share direct host is already started");
+            if (!hostConfig.shareId().equals(config.shareId())
+                    || !hostConfig.capability().equals(config.capability())) {
+                throw new IllegalStateException(
+                        "Connect Share direct host identity cannot change while running");
+            }
         }
         hostConfig = Objects.requireNonNull(config, "config");
         hostHandler = Objects.requireNonNull(handler, "handler");
@@ -182,9 +186,6 @@ final class DirectP2pNodeRuntime {
         ensureOpen();
         if (hostConfig == null || host == null) {
             throw new IllegalStateException("Connect Share direct host is not started");
-        }
-        if (this.invitation != null) {
-            throw new IllegalStateException("Connect Share invitation is already published");
         }
         this.invitation = requireInvitation(invitation);
         startMdns();
@@ -325,7 +326,13 @@ final class DirectP2pNodeRuntime {
             return;
         }
         InetAddress address = MdnsAddressSelector.systemAddress();
-        JmDNS started = JmDNS.create(address);
+        // JmDNS derives a host name with InetAddress#getHostName when none is
+        // supplied. That can issue an unbounded reverse-DNS lookup and made
+        // share startup hang for a full minute on otherwise healthy LANs.
+        // The authenticated peer ID already gives this process a stable,
+        // collision-resistant local name without touching DNS.
+        String peerId = host.getPeerId().toBase58();
+        JmDNS started = JmDNS.create(address, mdnsHostName(peerId));
         try {
             started.start();
             List<Inet4Address> ipv4Addresses = address instanceof Inet4Address
@@ -334,7 +341,6 @@ final class DirectP2pNodeRuntime {
             List<Inet6Address> ipv6Addresses = address instanceof Inet6Address
                     ? Collections.singletonList((Inet6Address) address)
                     : Collections.emptyList();
-            String peerId = host.getPeerId().toBase58();
             started.registerService(ServiceInfo.create(
                     MDNS_SERVICE,
                     peerId,
@@ -353,6 +359,12 @@ final class DirectP2pNodeRuntime {
                     "Could not start Connect Share LAN discovery",
                     failure);
         }
+    }
+
+    static String mdnsHostName(String peerId) {
+        Objects.requireNonNull(peerId, "peerId");
+        int prefixLength = Math.min(32, peerId.length());
+        return "connect-share-" + peerId.substring(0, prefixLength);
     }
 
     private void onMdnsAnswers(List<DNSRecord> answers) {

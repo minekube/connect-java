@@ -1,7 +1,9 @@
 # Connect Share acceptance
 
-Connect Share is built separately for Minecraft Java 1.21.11 on Java 21 and
-Minecraft Java 26.2 on Java 25. Run this pass against both artifacts before
+Connect Share is built separately for Fabric 1.20.1, 1.21.1, and 1.21.11,
+Forge 1.20.1, and NeoForge 1.21.1 on a Java 21 build toolchain. The Minecraft
+1.20.1 artifacts target Java 17 and the 1.21.x artifacts target Java 21. Fabric
+26.2 builds on and targets Java 25. Run this pass against every artifact before
 calling the singleplayer and direct-sharing implementation release-ready.
 
 The mod build does not publish a Connect Java plugin release, rebuild a hub
@@ -12,13 +14,23 @@ image, or roll anything out to production.
 From the repository root:
 
 ```sh
-./gradlew :share:fabric-1-21-11:build
-./gradlew :share:fabric-26-2:build
+./gradlew :share:fabric-1-20-1:build \
+  :share:fabric-1-21-1:build \
+  :share:fabric-1-21-11:build \
+  :share:fabric-26-2:build \
+  :share:forge-1-20-1:build \
+  :share:neoforge-1-21-1:build --no-parallel
 ```
 
 Use the unclassified versioned JAR in each module's `build/libs` directory.
 Do not install `sources`, `dev`, `unshaded`, or `parent-shadow` artifacts.
 Install the matching Fabric Loader, Fabric API, and Fabric Language Kotlin.
+Marketplace installs must resolve the latter two automatically.
+
+For Forge or NeoForge, install the matching loader and Kotlin for Forge. A
+manual install must use Kotlin for Forge's `-all.jar`; its plain Maven artifact
+is only a compile/library artifact and is not recognized as the loader mod.
+Marketplace installs must resolve Kotlin for Forge automatically.
 
 ## Identity reuse and import
 
@@ -128,14 +140,16 @@ self-hosted libp2p relay.
 Inspect the final JARs:
 
 ```sh
-jar tf share/fabric-1.21.11/build/libs/connect-share-fabric-1.21.11-*.jar
-jar tf share/fabric-26.2/build/libs/connect-share-fabric-26.2-*.jar
+for version in 1.20.1 1.21.1 1.21.11 26.2; do
+  jar tf "share/fabric-${version//./-}/build/libs/connect-share-fabric-$version-"*.jar
+done
+jar tf share/forge-1.20.1/build/libs/connect-share-forge-1.20.1-*.jar
+jar tf share/neoforge-1.21.1/build/libs/connect-share-neoforge-1.21.1-*.jar
 ```
 
-Each final artifact must contain:
+Each final artifact must contain its loader metadata, version-specific mixin
+configuration, `pack.mcmeta` where the loader expects one, and:
 
-- `fabric.mod.json`;
-- the version-specific Connect Share mixin JSON;
 - English and German translations;
 - `LICENSE`;
 - `com/minekube/connect/share/` classes; and
@@ -145,6 +159,22 @@ It must not contain top-level `io/libp2p/`, `io/netty/`, or `kotlin/`
 packages. Those runtime classes belong only inside the child-loaded payload.
 The nested payload must include
 `com/minekube/connect/tunnel/p2p/DirectP2pNodeRuntime.class`.
+
+## Real Prism matrix
+
+Use the opt-in `PrismFriendJoinE2ETest` harness for each of the six packaged
+artifacts. Run it with `--rerun-tasks`: its live environment variables are
+deliberately not Gradle task inputs, so an up-to-date test result is not live
+evidence. Keep exactly one host and one guest identity active. Cloned Prism
+instances copy `share-libp2p-identity.key`; running two clones with the same key
+advertises one peer identity from multiple processes and invalidates discovery
+evidence.
+
+For a manually assembled Prism loader component, include its `cachedRequires`
+metadata and allow one online launch to fetch loader libraries before the
+offline guest run. A valid pass proves, in order, discovery, authenticated
+friend activity, status, approval, and a new `<guest> joined the game` host-log
+line. Startup or control-plane reachability alone does not pass.
 
 ## Evidence to retain
 

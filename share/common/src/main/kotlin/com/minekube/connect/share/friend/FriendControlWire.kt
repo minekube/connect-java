@@ -32,6 +32,9 @@ enum class FriendActivityKind {
 data class FriendActivity(
     val kind: FriendActivityKind,
     val description: String? = null,
+    val joinable: Boolean = kind != FriendActivityKind.ONLINE,
+    val sessionEpoch: String? = null,
+    val compatibility: CompatibilityProfile? = null,
 )
 
 enum class FriendControlMessageKind {
@@ -89,8 +92,13 @@ object FriendControlWire {
     private const val MAX_DISPLAY_NAME_BYTES = 256
     private const val MAX_INVITATION_BYTES = 32_768
     private const val MAX_ACTIVITY_BYTES = 512
+    private const val MAX_SESSION_EPOCH_BYTES = 128
     private const val MAX_SERVER_ADDRESS_BYTES = 1_024
     private const val MAX_PLAYER_NAME_BYTES = 64
+    private const val MAX_VERSION_BYTES = 128
+    private const val MAX_MOD_ID_BYTES = 256
+    private const val MAX_REQUIRED_MODS = 512
+    private const val MAX_PACK_FIELD_BYTES = 2_048
 
     fun encodeRequest(
         request: FriendControlRequest,
@@ -302,7 +310,14 @@ object FriendControlWire {
                 is FriendControlResponse.Activity -> {
                     write(6)
                     write(response.activity.kind.ordinal)
+                    write(if (response.activity.joinable) 1 else 0)
+                    writeString(response.activity.sessionEpoch.orEmpty())
                     writeString(response.activity.description.orEmpty())
+                    val compatibility = response.activity.compatibility
+                    write(if (compatibility == null) 0 else 1)
+                    if (compatibility != null) {
+                        writeCompatibilityProfile(compatibility)
+                    }
                 }
                 is FriendControlResponse.JoinAccepted -> {
                     write(7)
@@ -311,7 +326,11 @@ object FriendControlWire {
                 FriendControlResponse.SharedWorldJoinAccepted -> write(8)
             }
         }
-        return output.toByteArray()
+        return output.toByteArray().also {
+            require(it.size <= MAX_REQUEST_BYTES) {
+                "Friend response is too large"
+            }
+        }
     }
 
     fun decodeResponse(
@@ -336,8 +355,17 @@ object FriendControlWire {
                 FriendControlResponse.Activity(
                     FriendActivity(
                         kind = kind,
+                        joinable = response.readByte() != 0,
+                        sessionEpoch = response
+                            .readString(MAX_SESSION_EPOCH_BYTES)
+                            .takeIf(String::isNotEmpty),
                         description = response.readString(MAX_ACTIVITY_BYTES)
                             .takeIf(String::isNotEmpty),
+                        compatibility = when (response.readByte()) {
+                            0 -> null
+                            1 -> response.readCompatibilityProfile()
+                            else -> invalid()
+                        },
                     ),
                 )
             }
@@ -376,6 +404,40 @@ object FriendControlWire {
         val encoded = value.toByteArray(StandardCharsets.UTF_8)
         writeVarInt(encoded.size)
         write(encoded)
+    }
+
+    private fun ByteArrayOutputStream.writeCompatibilityProfile(
+        profile: CompatibilityProfile,
+    ) {
+        require(profile.requiredMods.size <= MAX_REQUIRED_MODS) {
+            "Compatibility profile has too many required mods"
+        }
+        writeString(profile.minecraftVersion)
+        write(profile.loader.ordinal)
+        writeVarInt(profile.requiredMods.size)
+        profile.requiredMods.forEach { mod ->
+            require(
+                mod.id.toByteArray(StandardCharsets.UTF_8).size <=
+                    MAX_MOD_ID_BYTES &&
+                    mod.version.toByteArray(StandardCharsets.UTF_8).size <=
+                    MAX_VERSION_BYTES,
+            ) { "Compatibility mod entry is too large" }
+            writeString(mod.id)
+            writeString(mod.version)
+        }
+        profile.pack?.let { pack ->
+            require(
+                listOf(pack.projectId, pack.versionId, pack.url).all {
+                    it.toByteArray(StandardCharsets.UTF_8).size <=
+                        MAX_PACK_FIELD_BYTES
+                },
+            ) { "Pack reference is too large" }
+            write(1)
+            write(pack.platform.ordinal)
+            writeString(pack.projectId)
+            writeString(pack.versionId)
+            writeString(pack.url)
+        } ?: write(0)
     }
 
     private fun ByteArrayOutputStream.writeLong(value: Long) {
@@ -468,6 +530,39 @@ object FriendControlWire {
         fun readByte(): Int {
             requireAvailable(1)
             return bytes[position++].toInt() and 0xff
+        }
+
+        fun readCompatibilityProfile(): CompatibilityProfile {
+            val minecraftVersion = readString(MAX_VERSION_BYTES)
+            ensure(minecraftVersion.isNotBlank())
+            val loader = ModLoader.entries.getOrNull(readByte()) ?: invalid()
+            val modCount = readVarInt()
+            ensure(modCount in 0..MAX_REQUIRED_MODS)
+            val mods = buildList {
+                repeat(modCount) {
+                    val id = readString(MAX_MOD_ID_BYTES)
+                    val version = readString(MAX_VERSION_BYTES)
+                    ensure(id.isNotBlank() && version.isNotBlank())
+                    add(RequiredMod(id, version))
+                }
+            }
+            val pack = when (readByte()) {
+                0 -> null
+                1 -> PackReference(
+                    platform = PackPlatform.entries.getOrNull(readByte())
+                        ?: invalid(),
+                    projectId = readString(MAX_PACK_FIELD_BYTES),
+                    versionId = readString(MAX_PACK_FIELD_BYTES),
+                    url = readString(MAX_PACK_FIELD_BYTES),
+                )
+                else -> invalid()
+            }
+            return CompatibilityProfile(
+                minecraftVersion = minecraftVersion,
+                loader = loader,
+                requiredMods = mods,
+                pack = pack,
+            )
         }
 
         fun ensure(condition: Boolean) {

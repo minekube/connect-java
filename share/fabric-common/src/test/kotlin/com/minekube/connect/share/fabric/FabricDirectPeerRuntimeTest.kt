@@ -54,12 +54,57 @@ class FabricDirectPeerRuntimeTest {
         runtime.browser.close()
     }
 
+    @Test
+    fun `world refresh keeps the shared peer alive until the runtime closes`() =
+        runTest {
+            val node = RecordingPeerNode()
+            val runtime = FabricDirectPeerRuntime.testing(
+                node = node,
+                dataDirectory = tempDir,
+                displayName = { "Current world" },
+            )
+
+            assertTrue(runtime.browser.start().isRight())
+            val first = runtime.ingress.start(
+                options = ShareOptions(
+                    gameMode = ShareGameMode.SURVIVAL,
+                    allowCheats = false,
+                ),
+                target = InetSocketAddress(
+                    InetAddress.getLoopbackAddress(),
+                    25_565,
+                ),
+                connectAddress = "stable.play.minekube.net",
+            )
+            first.close()
+            val refreshed = runtime.ingress.start(
+                options = ShareOptions(
+                    gameMode = ShareGameMode.SURVIVAL,
+                    allowCheats = false,
+                    allowInternetDirect = true,
+                ),
+                target = InetSocketAddress(
+                    InetAddress.getLoopbackAddress(),
+                    25_565,
+                ),
+                connectAddress = "stable.play.minekube.net",
+            )
+            refreshed.close()
+
+            assertEquals(2, node.hostStarts)
+            assertEquals(2, node.publishes)
+            assertEquals(0, node.closes)
+            runtime.browser.close()
+            assertEquals(1, node.closes)
+        }
+
     private class RecordingPeerNode : FabricDirectPeerNode {
         private val keyPair =
             KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
         var discoveryStarts = 0
         var hostStarts = 0
         var publishes = 0
+        var closes = 0
 
         override fun peerId(): String = PEER_ID
 
@@ -99,7 +144,9 @@ class FabricDirectPeerRuntimeTest {
             timeout: Duration,
         ): DirectP2pProxy = error("not used")
 
-        override fun close() = Unit
+        override fun close() {
+            closes++
+        }
     }
 
     private companion object {

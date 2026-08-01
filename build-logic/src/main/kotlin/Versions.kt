@@ -45,6 +45,8 @@ object Versions {
     const val loomVersion = "1.17.17"
     const val fabricLoaderVersion = "0.19.3"
     const val fabricApi12111Version = "0.141.6+1.21.11"
+    const val fabricApi1211Version = "0.116.15+1.21.1"
+    const val fabricApi1201Version = "0.92.11+1.20.1"
     const val fabricApi262Version = "0.156.0+26.2"
     const val fabricLanguageKotlinVersion = "1.13.13+kotlin.2.4.10"
     const val kotlinVersion = "2.4.10"

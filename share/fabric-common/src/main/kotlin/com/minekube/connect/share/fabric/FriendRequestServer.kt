@@ -15,8 +15,10 @@ import com.minekube.connect.share.friend.FriendActivityKind
 import com.minekube.connect.share.friend.FriendActivityRequest
 import com.minekube.connect.share.friend.FriendJoinRequest
 import com.minekube.connect.share.friend.FriendControlServer
+import com.minekube.connect.share.friend.FriendAccessPolicy
 import com.minekube.connect.share.friend.FriendRelationshipStatus
 import com.minekube.connect.share.friend.FriendStore
+import com.minekube.connect.share.friend.PresencePrivacy
 import java.time.Instant
 import java.util.Base64
 import java.util.concurrent.CompletableFuture
@@ -39,6 +41,9 @@ class FriendRequestServer(
     private val onRelationshipChanged: () -> Unit = {},
     private val activity: () -> FriendActivity = {
         FriendActivity(FriendActivityKind.ONLINE)
+    },
+    private val presencePrivacy: () -> PresencePrivacy = {
+        PresencePrivacy()
     },
     private val joinTarget: () -> String? = { null },
 ) : FriendControlServer {
@@ -101,10 +106,24 @@ class FriendRequestServer(
     ): CompletionStage<FriendControlResponse> = launchResponse {
         val friend = authenticatedFriend(context)
             ?: return@launchResponse FriendControlResponse.Invalid
-        val visible = if (friend.permissions.canSeeMyWorlds) {
-            activity()
-        } else {
-            FriendActivity(FriendActivityKind.ONLINE)
+        val privacy = presencePrivacy()
+        if (!privacy.showOnline) {
+            return@launchResponse FriendControlResponse.Invalid
+        }
+        val current = activity()
+        val visible = when {
+            !friend.permissions.canSeeMyWorlds || !privacy.showPlaying ->
+                FriendActivity(FriendActivityKind.ONLINE)
+
+            else -> current.copy(
+                description = current.description.takeIf {
+                    current.kind != FriendActivityKind.PLAYING_SERVER ||
+                        privacy.showCurrentServer
+                },
+                joinable = current.joinable && privacy.showJoinable &&
+                    friend.permissions.accessPolicy !=
+                    FriendAccessPolicy.NEVER_ALLOW,
+            )
         }
         FriendControlResponse.Activity(visible)
     }
@@ -115,6 +134,9 @@ class FriendRequestServer(
     ): CompletionStage<FriendControlResponse> = launchResponse {
         val friend = authenticatedFriend(context)
             ?: return@launchResponse FriendControlResponse.Invalid
+        if (friend.permissions.accessPolicy == FriendAccessPolicy.NEVER_ALLOW) {
+            return@launchResponse FriendControlResponse.Declined
+        }
         if (!friend.permissions.canSeeMyWorlds) {
             return@launchResponse FriendControlResponse.Invalid
         }
@@ -195,6 +217,9 @@ class FriendRequestServer(
         val senderPeerId = invitation.payload.peerId
         if (authenticatedPeerId != senderPeerId) {
             return FriendControlResponse.Invalid
+        }
+        if (friendStore.isBlocked(senderPeerId)) {
+            return FriendControlResponse.Declined
         }
         val senderKey = Base64.getEncoder()
             .encodeToString(invitation.publicKey)
