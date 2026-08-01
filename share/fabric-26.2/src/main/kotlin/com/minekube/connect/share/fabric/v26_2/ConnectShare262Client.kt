@@ -13,15 +13,23 @@ import com.minekube.connect.share.fabric.FriendActivityResolver
 import com.minekube.connect.share.fabric.SocialEvent
 import com.minekube.connect.share.fabric.SocialEventTracker
 import com.minekube.connect.share.fabric.FriendPresenceMonitor
+import com.minekube.connect.share.fabric.FollowAction
+import com.minekube.connect.share.fabric.GuestJoinTarget
 import com.minekube.connect.share.fabric.MinecraftStatusProbe
+import com.minekube.connect.share.fabric.LoadedCompatibilityProfileFactory
+import com.minekube.connect.share.fabric.LoadedMod
+import com.minekube.connect.share.fabric.ModSide
 import com.minekube.connect.share.ShareState
 import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.share.friend.FriendActivity
 import com.minekube.connect.share.friend.FriendActivityKind
+import com.minekube.connect.share.friend.FriendJoinRequest
+import com.minekube.connect.share.friend.ModLoader
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import java.util.UUID
 import java.util.logging.Level
 import java.util.logging.Logger
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +51,10 @@ import net.minecraft.SharedConstants
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.components.toasts.SystemToast
 import net.minecraft.client.gui.screens.Screen
+import net.minecraft.client.gui.screens.ConnectScreen
+import net.minecraft.client.gui.screens.TitleScreen
+import net.minecraft.client.multiplayer.ServerData
+import net.minecraft.client.multiplayer.resolver.ServerAddress
 import net.minecraft.network.chat.Component
 
 class ConnectShare262Client : ClientModInitializer {
@@ -66,9 +78,33 @@ class ConnectShare262Client : ClientModInitializer {
         val activitySnapshot = AtomicReference(
             FriendActivity(FriendActivityKind.ONLINE),
         )
+        val activityIdentitySnapshot = AtomicReference<Any?>(null)
+        val activityEpochSnapshot = AtomicReference<String?>(null)
         val joinTargetSnapshot = AtomicReference<String?>(null)
         val minecraftVersion =
             SharedConstants.getCurrentVersion().name()
+        val modVersion = FabricLoader.getInstance()
+            .getModContainer("connect-share")
+            .orElseThrow()
+            .metadata.version.friendlyString
+        val compatibilityProfile = LoadedCompatibilityProfileFactory.create(
+            minecraftVersion = minecraftVersion,
+            loader = ModLoader.FABRIC,
+            mods = FabricLoader.getInstance().allMods.map { container ->
+                val metadata = container.metadata
+                LoadedMod(
+                    id = metadata.id,
+                    version = metadata.version.friendlyString,
+                    side = when (metadata.environment.name) {
+                        "CLIENT" -> ModSide.CLIENT
+                        "SERVER" -> ModSide.SERVER
+                        else -> ModSide.UNIVERSAL
+                    },
+                    builtIn = metadata.type == "builtin",
+                )
+            },
+            packEnvironment = System.getenv(),
+        )
         val dataDirectory = FabricLoader.getInstance().configDir
             .resolve("minekube-connect-share")
         val friendStore = FriendStore(dataDirectory)
@@ -97,12 +133,14 @@ class ConnectShare262Client : ClientModInitializer {
                     scope = scope,
                     dataDirectory = dataDirectory,
                     minecraftVersion = minecraftVersion,
+                    modVersion = modVersion,
                     worldAvailable = worldAvailableSnapshot.get(),
                     friendStore = friendStore,
                     playerCount = playerCountSnapshot::get,
                     worldDisplayName = worldNameSnapshot::get,
                     playerDisplayName = { client.user.name },
                     friendActivity = activitySnapshot::get,
+                    compatibilityProfile = { compatibilityProfile },
                     friendJoinTarget = joinTargetSnapshot::get,
                     bridgeFactory = {
                             admission,
@@ -193,6 +231,18 @@ class ConnectShare262Client : ClientModInitializer {
             val externalServer = currentServer
                 ?.takeIf { !worldAvailable }
             joinTargetSnapshot.set(externalServer?.ip)
+            val activityIdentity: Any? = when {
+                externalServer != null -> "server:${externalServer.ip}"
+                worldAvailable -> server
+                else -> null
+            }
+            if (activityIdentitySnapshot.getAndSet(activityIdentity) !=
+                activityIdentity
+            ) {
+                activityEpochSnapshot.set(
+                    activityIdentity?.let { UUID.randomUUID().toString() },
+                )
+            }
             activitySnapshot.set(
                 FriendActivityResolver.resolve(
                     worldAvailable = worldAvailable,
@@ -200,6 +250,8 @@ class ConnectShare262Client : ClientModInitializer {
                         .shareState is ShareState.Sharing,
                     worldName = worldNameSnapshot.get(),
                     externalServerName = externalServer?.name,
+                    sessionEpoch = activityEpochSnapshot.get(),
+                    compatibility = compatibilityProfile,
                 ),
             )
             ConnectShareClient.integratedWorldChanged(
@@ -238,6 +290,7 @@ class ConnectShare262Client : ClientModInitializer {
             )
             friends.updateRemotePresence(remotePresence.state.value)
             friends.updateActivities(installation.friendActivity.state.value)
+            processFollowActions(minecraft, installation, scope)
             socialNotifications.update(friends.state.value).forEach { event ->
                 SystemToast.add(
                     minecraft.gui.toastManager(),
@@ -264,6 +317,131 @@ class ConnectShare262Client : ClientModInitializer {
     private companion object {
         const val PRESENCE_REFRESH_MILLIS = 10_000L
         val LOGGER: Logger = Logger.getLogger("Connect")
+    }
+
+    private fun processFollowActions(
+        minecraft: Minecraft,
+        installation: ConnectShareInstallation,
+        scope: CoroutineScope,
+    ) {
+        installation.friendsViewModel.followActions(
+            activeGameplay = minecraft.level != null,
+        ).forEach { action ->
+            when (action) {
+                is FollowAction.RequestJoin -> {
+                    followToast(
+                        minecraft,
+                        "connect_share.notification.follow_waiting",
+                        "connect_share.notification.follow_waiting_detail",
+                        action.displayName,
+                    )
+                    scope.launch(Dispatchers.IO) {
+                        installation.friendJoinOrchestrator.request(
+                            action.peerId,
+                            FriendJoinRequest(
+                                requestId = UUID.randomUUID(),
+                                playerName = minecraft.user.name,
+                                playerUuid = minecraft.user.profileId,
+                            ),
+                        ).fold(
+                            ifLeft = { failure ->
+                                minecraft.execute {
+                                    followToast(
+                                        minecraft,
+                                        "connect_share.notification.follow_failed",
+                                        null,
+                                        failure.safeMessage,
+                                    )
+                                }
+                            },
+                            ifRight = { target ->
+                                minecraft.execute {
+                                    if (minecraft.level != null) {
+                                        target.close()
+                                        followToast(
+                                            minecraft,
+                                            "connect_share.notification.follow_ready",
+                                            "connect_share.notification.follow_ready_detail",
+                                            action.displayName,
+                                        )
+                                    } else {
+                                        connectFollow(
+                                            minecraft,
+                                            installation,
+                                            action,
+                                            target,
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
+
+                is FollowAction.OfferJoinNow -> followToast(
+                    minecraft,
+                    "connect_share.notification.follow_ready",
+                    "connect_share.notification.follow_ready_detail",
+                    action.displayName,
+                )
+
+                is FollowAction.Expired -> followToast(
+                    minecraft,
+                    "connect_share.notification.follow_expired",
+                    "connect_share.notification.follow_expired_detail",
+                    action.displayName,
+                )
+
+                is FollowAction.Cancelled -> Unit
+            }
+        }
+    }
+
+    private fun connectFollow(
+        minecraft: Minecraft,
+        installation: ConnectShareInstallation,
+        action: FollowAction.RequestJoin,
+        target: GuestJoinTarget,
+    ) {
+        val address = when (target) {
+            is GuestJoinTarget.Connect ->
+                ServerAddress.parseString(target.publicAddress)
+            is GuestJoinTarget.Direct -> ServerAddress(
+                target.localAddress.hostString,
+                target.localAddress.port,
+            )
+        }
+        if (target is GuestJoinTarget.Direct) {
+            ConnectShareClient.holdGuestDirect(target)
+        }
+        installation.friendsViewModel.completeFollow(action.peerId)
+        ConnectScreen.startConnecting(
+            minecraft.gui.screen() ?: TitleScreen(),
+            minecraft,
+            address,
+            ServerData(
+                action.displayName,
+                address.toString(),
+                ServerData.Type.OTHER,
+            ),
+            false,
+            null,
+        )
+    }
+
+    private fun followToast(
+        minecraft: Minecraft,
+        titleKey: String,
+        detailKey: String?,
+        value: String,
+    ) {
+        SystemToast.add(
+            minecraft.gui.toastManager(),
+            SystemToast.SystemToastId(),
+            Component.translatable(titleKey, value),
+            detailKey?.let { Component.translatable(it, value) }
+                ?: Component.literal(value),
+        )
     }
 
     private fun SocialEvent.title(): Component = Component.translatable(

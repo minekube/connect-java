@@ -16,6 +16,7 @@ import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.share.friend.FriendActivity
 import com.minekube.connect.share.friend.FriendActivityKind
 import com.minekube.connect.share.friend.FriendActivityRequest
+import com.minekube.connect.share.friend.CompatibilityProfile
 import com.minekube.connect.share.friend.ShareAccessIdentityStore
 import com.minekube.connect.share.friend.SharePreferences
 import com.minekube.connect.share.friend.SharePreferencesStore
@@ -42,6 +43,7 @@ object FabricShareBootstrap {
         scope: CoroutineScope,
         dataDirectory: Path,
         minecraftVersion: String,
+        modVersion: String = "development",
         worldAvailable: Boolean,
         friendStore: FriendStore,
         playerCount: () -> Int,
@@ -50,6 +52,7 @@ object FabricShareBootstrap {
         friendActivity: () -> FriendActivity = {
             FriendActivity(FriendActivityKind.ONLINE)
         },
+        compatibilityProfile: () -> CompatibilityProfile? = { null },
         friendJoinTarget: () -> String? = { null },
         bridgeFactory:
             (
@@ -65,6 +68,7 @@ object FabricShareBootstrap {
         httpClient: OkHttpClient = OkHttpClient(),
     ): ConnectShareInstallation {
         val viewModelReference = AtomicReference<ShareViewModel?>()
+        val diagnostics = ShareJoinDiagnostics()
         val approvedJoins = ApprovedJoinTracker()
         val admission = AdmissionController(
             scope = scope,
@@ -103,6 +107,7 @@ object FabricShareBootstrap {
             logger.warn("Connect Share preferences could not be loaded")
             SharePreferences()
         }
+        val preferences = AtomicReference(initialPreferences)
         val validator = WatchEndpointCredentialValidator(
             client = httpClient,
             watchUrl = watchHttpUrl(environment),
@@ -127,6 +132,7 @@ object FabricShareBootstrap {
             receiver = friendCardReceiver,
             friendStore = friendStore,
             activity = friendActivity,
+            presencePrivacy = { preferences.get().presence },
             joinTarget = friendJoinTarget,
         )
         val gateway = ShareConnectionGateway.bind(friendRequestServer)
@@ -200,10 +206,18 @@ object FabricShareBootstrap {
                 initialWorldAvailable = worldAvailable,
                 initialShareWithFriendsEnabled =
                     initialPreferences.shareWithFriends,
+                initialPresencePrivacy = initialPreferences.presence,
                 persistShareWithFriendsEnabled = { enabled ->
-                    preferencesStore.save(
-                        SharePreferences(shareWithFriends = enabled),
-                    )
+                    val updated = preferences.updateAndGet {
+                        it.copy(shareWithFriends = enabled)
+                    }
+                    preferencesStore.save(updated)
+                },
+                persistPresencePrivacy = { privacy ->
+                    val updated = preferences.updateAndGet {
+                        it.copy(presence = privacy)
+                    }
+                    preferencesStore.save(updated)
                 },
                 identityActions = StoredEndpointIdentityUiActions(
                     store = identityStore,
@@ -293,6 +307,15 @@ object FabricShareBootstrap {
                 receiver = friendCardReceiver,
                 requestClient = friendRequestClient,
             )
+            val friendJoinOrchestrator = FriendJoinOrchestrator.create(
+                friends = friendsViewModel,
+                browser = activeBrowser,
+                requestClient = friendRequestClient,
+                ownConnectAddress = ownConnectAddress::get,
+                gameplayAuthMode = { DirectP2pAuthMode.ONLINE },
+                localCompatibility = compatibilityProfile,
+                diagnostics = diagnostics,
+            )
             return ConnectShareInstallation(
                 viewModel = viewModel,
                 friendsViewModel = friendsViewModel,
@@ -301,6 +324,10 @@ object FabricShareBootstrap {
                 friendCardReceiver = friendCardReceiver,
                 friendRequestClient = friendRequestClient,
                 friendPairingClient = friendPairingClient,
+                friendJoinOrchestrator = friendJoinOrchestrator,
+                diagnostics = diagnostics,
+                minecraftVersion = minecraftVersion,
+                modVersion = modVersion,
                 approvedJoins = approvedJoins,
                 controlPlane = controlPlane,
                 directControlPlane = directControlPlane,

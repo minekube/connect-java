@@ -13,6 +13,8 @@ import com.minekube.connect.share.fabric.FabricShareBrowser
 import com.minekube.connect.share.fabric.GuestJoinFailure
 import com.minekube.connect.share.fabric.GuestJoinTarget
 import com.minekube.connect.share.fabric.RemoteFriendPresence
+import com.minekube.connect.share.fabric.FollowAction
+import com.minekube.connect.share.fabric.FollowNextSessionController
 import com.minekube.connect.share.direct.ShareRoute
 import com.minekube.connect.share.direct.ShareInviteCodec
 import com.minekube.connect.share.friend.FriendPermissions
@@ -20,6 +22,7 @@ import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.share.friend.SavedFriend
 import com.minekube.connect.share.friend.FriendActivity
 import com.minekube.connect.share.friend.FriendActivityKind
+import com.minekube.connect.share.friend.CompatibilityProfile
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import java.time.Instant
 import java.util.UUID
@@ -39,6 +42,7 @@ data class FriendSummary(
     val activityDescription: String? = null,
     val canRequestJoin: Boolean = false,
     val canJoinNow: Boolean = false,
+    val following: Boolean = false,
 )
 
 data class OutgoingFriendRequestSummary(
@@ -53,15 +57,23 @@ data class IncomingFriendRequestSummary(
     val purpose: AdmissionPurpose,
 )
 
+data class BlockedFriendSummary(
+    val peerId: String,
+    val displayName: String,
+)
+
 data class FriendsUiState(
     val friends: List<FriendSummary> = emptyList(),
     val outgoingRequests: List<OutgoingFriendRequestSummary> = emptyList(),
     val incomingRequests: List<IncomingFriendRequestSummary> = emptyList(),
+    val blocked: List<BlockedFriendSummary> = emptyList(),
     val safeMessage: String? = null,
 )
 
 class FriendsViewModel(
     private val store: FriendStore,
+    private val followController: FollowNextSessionController =
+        FollowNextSessionController(),
     private val onRemovalQueued: () -> Unit = {},
 ) {
     private var discovered: List<DiscoveredLanShare> = emptyList()
@@ -138,6 +150,59 @@ class FriendsViewModel(
                 removed
             },
         )
+
+    fun block(peerId: String): Boolean =
+        Either.catch { store.block(peerId) }.fold(
+            ifLeft = {
+                update { copy(safeMessage = FRIEND_BLOCK_FAILURE) }
+                false
+            },
+            ifRight = { blocked ->
+                refresh()
+                if (blocked) onRemovalQueued()
+                blocked
+            },
+        )
+
+    fun unblock(peerId: String): Boolean =
+        Either.catch { store.unblock(peerId) }.fold(
+            ifLeft = {
+                update { copy(safeMessage = FRIEND_UNBLOCK_FAILURE) }
+                false
+            },
+            ifRight = { unblocked ->
+                refresh()
+                unblocked
+            },
+        )
+
+    fun follow(peerId: String): Boolean {
+        val friend = savedFriend(peerId) ?: return false
+        followController.follow(peerId, friend.displayName)
+        refresh(preserveSafeMessage = true)
+        return true
+    }
+
+    fun cancelFollow(peerId: String): Boolean =
+        followController.cancel(peerId).also {
+            if (it) refresh(preserveSafeMessage = true)
+        }
+
+    fun completeFollow(peerId: String): Boolean =
+        followController.complete(peerId).also {
+            if (it) refresh(preserveSafeMessage = true)
+        }
+
+    fun followActions(activeGameplay: Boolean): List<FollowAction> =
+        followController.update(
+            activities = activities,
+            activeGameplay = activeGameplay,
+            confirmedPeerIds = runCatching {
+                store.all().mapTo(mutableSetOf(), SavedFriend::peerId)
+            }.getOrDefault(emptySet()),
+        ).also {
+            if (it.isNotEmpty()) refresh(preserveSafeMessage = true)
+        }
 
     fun updatePresence(discovered: List<DiscoveredLanShare>) {
         if (this.discovered == discovered) {
@@ -236,6 +301,9 @@ class FriendsViewModel(
             }
         }.getOrNull()
 
+    internal fun compatibilityFor(peerId: String): CompatibilityProfile? =
+        activities[peerId]?.compatibility
+
     private fun refresh(
         preserveSafeMessage: Boolean = false,
     ) {
@@ -273,6 +341,12 @@ class FriendsViewModel(
                 )
             },
             incomingRequests = incomingRequests,
+            blocked = store.blocked().map {
+                BlockedFriendSummary(
+                    peerId = it.peerId,
+                    displayName = it.displayName,
+                )
+            },
         )
 
     private fun update(transform: FriendsUiState.() -> FriendsUiState) {
@@ -293,13 +367,16 @@ class FriendsViewModel(
             worldName = remote?.description,
             activityKind = activity?.kind,
             activityDescription = activity?.description,
-            canRequestJoin =
-                activity?.kind == FriendActivityKind.PLAYING_SERVER ||
-                    activity?.kind == FriendActivityKind.HOSTING_WORLD &&
-                    remote != null,
+            canRequestJoin = activity?.joinable == true &&
+                (
+                    activity.kind == FriendActivityKind.PLAYING_SERVER ||
+                        activity.kind == FriendActivityKind.HOSTING_WORLD &&
+                        remote != null
+                    ),
             canJoinNow = remote != null &&
                 activity?.kind != FriendActivityKind.PLAYING_SERVER &&
                 activity?.kind != FriendActivityKind.HOSTING_WORLD,
+            following = peerId in followController.state.value,
         )
     }
 
@@ -308,5 +385,9 @@ class FriendsViewModel(
             "Saved Connect Share friends could not be loaded"
         const val FRIEND_REMOVE_FAILURE =
             "This Connect Share friend could not be removed"
+        const val FRIEND_BLOCK_FAILURE =
+            "This Connect Share identity could not be blocked"
+        const val FRIEND_UNBLOCK_FAILURE =
+            "This Connect Share identity could not be unblocked"
     }
 }

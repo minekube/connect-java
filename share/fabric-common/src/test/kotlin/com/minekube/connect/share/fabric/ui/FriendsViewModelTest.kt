@@ -213,6 +213,24 @@ class FriendsViewModelTest {
     }
 
     @Test
+    fun `blocked identity is manageable without restoring friendship`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        var removalsQueued = 0
+        val viewModel = FriendsViewModel(store) { removalsQueued++ }
+
+        assertTrue(viewModel.block(PEER_ID))
+
+        assertTrue(viewModel.state.value.friends.isEmpty())
+        assertEquals("Robin", viewModel.state.value.blocked.single().displayName)
+        assertEquals(1, removalsQueued)
+
+        assertTrue(viewModel.unblock(PEER_ID))
+        assertTrue(viewModel.state.value.blocked.isEmpty())
+        assertTrue(viewModel.state.value.friends.isEmpty())
+    }
+
+    @Test
     fun `matching discovery marks a saved friend world ready to join`() {
         val link = signedLink()
         val invitation = ShareInviteCodec.decode(link, NOW).getOrNull()!!
@@ -311,6 +329,51 @@ class FriendsViewModelTest {
         assertEquals("Hypixel", friend.activityDescription)
         assertTrue(friend.canRequestJoin)
         assertFalse(friend.canJoinNow)
+    }
+
+    @Test
+    fun `visible playing activity does not offer join when host hid joinability`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        val viewModel = FriendsViewModel(store)
+
+        viewModel.updateActivities(
+            mapOf(
+                PEER_ID to FriendActivity(
+                    kind = FriendActivityKind.PLAYING_SERVER,
+                    description = "Private server",
+                    joinable = false,
+                ),
+            ),
+        )
+
+        val friend = viewModel.state.value.friends.single()
+        assertFalse(friend.canRequestJoin)
+        assertFalse(friend.canJoinNow)
+    }
+
+    @Test
+    fun `follow next session is visible cancelable and emits once per epoch`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        val viewModel = FriendsViewModel(store)
+
+        assertTrue(viewModel.follow(PEER_ID))
+        assertTrue(viewModel.state.value.friends.single().following)
+        viewModel.updateActivities(
+            mapOf(
+                PEER_ID to FriendActivity(
+                    FriendActivityKind.HOSTING_WORLD,
+                    "Survival",
+                    sessionEpoch = "world-1",
+                ),
+            ),
+        )
+
+        assertEquals(1, viewModel.followActions(activeGameplay = false).size)
+        assertTrue(viewModel.followActions(activeGameplay = false).isEmpty())
+        assertTrue(viewModel.cancelFollow(PEER_ID))
+        assertFalse(viewModel.state.value.friends.single().following)
     }
 
     @Test

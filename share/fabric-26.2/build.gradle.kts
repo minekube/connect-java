@@ -55,6 +55,7 @@ dependencies {
         exclude(group = "io.netty")
         exclude(group = "org.jetbrains.kotlin")
         exclude(group = "org.jetbrains.kotlinx")
+        exclude(group = "com.google.errorprone", module = "javac")
     }
 
     testImplementation(kotlin("test"))
@@ -144,3 +145,16 @@ tasks.test {
             .absolutePath,
     )
 }
+
+val verifyConnectShareArtifactSize = tasks.register("verifyConnectShareArtifactSize") {
+    dependsOn(connectShareJar)
+    val artifact = connectShareJar.flatMap { it.archiveFile }
+    inputs.file(artifact)
+    doLast {
+        val bytes = artifact.get().asFile.length()
+        val limit = 90L * 1024L * 1024L
+        logger.lifecycle("Connect Share Fabric 26.2 artifact: {} MiB", "%.1f".format(bytes / 1024.0 / 1024.0))
+        check(bytes <= limit) { "Connect Share Fabric 26.2 exceeds the 90 MiB release budget ($bytes bytes)" }
+    }
+}
+tasks.check { dependsOn(verifyConnectShareArtifactSize) }

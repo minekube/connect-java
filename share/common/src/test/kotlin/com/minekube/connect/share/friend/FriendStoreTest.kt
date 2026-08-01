@@ -191,6 +191,51 @@ class FriendStoreTest {
     }
 
     @Test
+    fun `never allow is durable and distinct from ask every time`() {
+        val store = FriendStore(tempDir)
+        val friend = store.accept(signedLink(), "Robin", NOW).getOrNull()!!
+
+        store.updatePermissions(
+            friend.peerId,
+            friend.permissions.copy(
+                accessPolicy = FriendAccessPolicy.NEVER_ALLOW,
+            ),
+        )
+
+        val reloaded = FriendStore(tempDir).all().single()
+        assertEquals(
+            FriendAccessPolicy.NEVER_ALLOW,
+            reloaded.permissions.accessPolicy,
+        )
+        assertFalse(reloaded.permissions.canJoinAutomatically)
+    }
+
+    @Test
+    fun `blocking revokes friendship and rejects the same identity until unblocked`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+
+        assertTrue(store.block(PEER_ID, NOW))
+
+        val reloaded = FriendStore(tempDir)
+        assertTrue(reloaded.all().isEmpty())
+        assertEquals(PEER_ID, reloaded.blocked().single().peerId)
+        assertEquals(PEER_ID, reloaded.pendingRemovals().single().friend.peerId)
+        assertIs<Either.Left<FriendStoreError.Blocked>>(
+            reloaded.accept(signedLink(), "Robin", NOW.plusSeconds(1)),
+        )
+
+        assertTrue(reloaded.unblock(PEER_ID))
+        assertTrue(
+            reloaded.sendRequest(
+                signedLink(),
+                "Robin",
+                NOW.plusSeconds(2),
+            ).isRight(),
+        )
+    }
+
+    @Test
     fun `approved friend can be bound to an authenticated Minecraft identity`() {
         val store = FriendStore(tempDir)
         store.accept(signedLink(), "Robin", NOW)

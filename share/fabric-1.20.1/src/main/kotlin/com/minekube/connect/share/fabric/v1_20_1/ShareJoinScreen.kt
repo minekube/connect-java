@@ -1,0 +1,1192 @@
+package com.minekube.connect.share.fabric.v1_20_1
+
+import com.minekube.connect.share.fabric.ConnectShareClient
+import com.minekube.connect.share.fabric.FabricShareBrowser
+import com.minekube.connect.share.fabric.FriendCardExchangeConsent
+import com.minekube.connect.share.fabric.FriendJoinAttemptFailure
+import com.minekube.connect.share.fabric.FriendPresenceMonitor
+import com.minekube.connect.share.fabric.FriendActivityMonitor
+import com.minekube.connect.share.fabric.GuestJoinTarget
+import com.minekube.connect.share.admission.Ingress
+import com.minekube.connect.share.friend.FriendControlRequest
+import com.minekube.connect.share.friend.FriendJoinRequest
+import com.minekube.connect.share.friend.FriendActivityKind
+import com.minekube.connect.share.fabric.ui.FriendSummary
+import com.minekube.connect.share.fabric.ui.IncomingFriendRequestSummary
+import com.minekube.connect.share.fabric.ui.OutgoingFriendRequestSummary
+import com.minekube.connect.share.fabric.ui.FriendsViewModel
+import com.minekube.connect.share.fabric.ui.page
+import com.minekube.connect.share.friend.FriendPermissions
+import com.minekube.connect.share.friend.FriendAccessPolicy
+import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import net.minecraft.client.gui.components.Button
+import net.minecraft.client.gui.components.Checkbox
+import net.minecraft.client.gui.components.CycleButton
+import net.minecraft.client.gui.components.EditBox
+import net.minecraft.client.gui.components.MultiLineTextWidget
+import net.minecraft.client.gui.components.StringWidget
+import net.minecraft.client.gui.components.Tooltip
+import net.minecraft.client.gui.screens.ConnectScreen
+import net.minecraft.client.gui.screens.Screen
+import net.minecraft.client.multiplayer.ServerData
+import net.minecraft.client.multiplayer.resolver.ServerAddress
+import net.minecraft.network.chat.CommonComponents
+import net.minecraft.network.chat.Component
+import java.util.UUID
+
+class ShareJoinScreen(
+    private val parent: Screen,
+    private val friends: FriendsViewModel,
+    private val browser: FabricShareBrowser,
+    private val remotePresence: FriendPresenceMonitor,
+    private val friendActivity: FriendActivityMonitor,
+) : Screen(Component.translatable("connect_share.friends.title")) {
+    private var scope: CoroutineScope? = null
+    private var mode = Mode.FRIENDS
+    private var selectedPeerId: String? = null
+    private var nameValue = ""
+    private var invitationValue = ""
+    private var offlineSelected = false
+    private var internetSelected = false
+    private var nameBox: EditBox? = null
+    private var invitationBox: EditBox? = null
+    private var offlineMode: Checkbox? = null
+    private var internetDirect: Checkbox? = null
+    private var primaryButton: Button? = null
+    private var secondaryButton: Button? = null
+    private var safeMessage: String? = null
+    private var fingerprint = 0
+    private var joining = false
+    private var joiningPeerId: String? = null
+    private var reciprocalPairing = false
+    private var removeConfirmation = false
+    private var friendLinkState = FriendLinkState.IDLE
+    private var requestOperationInProgress = false
+    private var relationshipOffset = 0
+    private val requestJobs = mutableMapOf<String, Job>()
+    private val requestStates =
+        mutableMapOf<String, RequestDeliveryState>()
+
+    override fun init() {
+        if (scope == null) {
+            scope = CoroutineScope(
+                SupervisorJob() + minecraft!!.asCoroutineDispatcher(),
+            )
+            browser.start().onLeft { safeMessage = it.safeMessage }
+        }
+        friends.updatePresence(browser.discovered.value)
+        friends.updateRemotePresence(remotePresence.state.value)
+        friends.updateActivities(friendActivity.state.value)
+        friends.updateIncoming(
+            ConnectShareClient.viewModel().state.value.pendingAdmissions,
+        )
+        fingerprint = currentFingerprint()
+        nameBox = null
+        invitationBox = null
+        primaryButton = null
+        secondaryButton = null
+
+        when (mode) {
+            Mode.FRIENDS -> buildFriends()
+            Mode.ADD -> buildAddFriend()
+            Mode.MANAGE -> buildManageFriend()
+        }
+    }
+
+    override fun tick() {
+        super.tick()
+        friends.updatePresence(browser.discovered.value)
+        friends.updateRemotePresence(remotePresence.state.value)
+        friends.updateActivities(friendActivity.state.value)
+        friends.updateIncoming(
+            ConnectShareClient.viewModel().state.value.pendingAdmissions,
+        )
+        val next = currentFingerprint()
+        if (next != fingerprint) {
+            rebuildWidgets()
+        } else {
+            refresh()
+        }
+    }
+
+    override fun onClose() {
+        if (mode == Mode.MANAGE && removeConfirmation) {
+            removeConfirmation = false
+            rebuildWidgets()
+            return
+        }
+        when (mode) {
+            Mode.FRIENDS -> minecraft!!.setScreen(parent)
+            Mode.ADD,
+            Mode.MANAGE,
+            -> {
+                mode = Mode.FRIENDS
+                selectedPeerId = null
+                safeMessage = null
+                rebuildWidgets()
+            }
+        }
+    }
+
+    override fun removed() {
+        scope?.cancel()
+        scope = null
+        super.removed()
+    }
+
+    private fun buildFriends() {
+        addRenderableWidget(
+            centered(
+                Component.translatable("connect_share.friends.title"),
+                16,
+            ),
+        )
+        addRenderableWidget(
+            centeredWrapped(
+                Component.translatable("connect_share.friends.description"),
+                34,
+            ),
+        )
+
+        val state = friends.state.value
+        val relationships = buildList {
+            state.incomingRequests.forEach {
+                add(RelationshipRow.Incoming(it))
+            }
+            state.outgoingRequests.forEach {
+                add(RelationshipRow.Outgoing(it))
+            }
+            state.friends.forEach { add(RelationshipRow.Friend(it)) }
+        }
+        val page = relationships.page(
+            offset = relationshipOffset,
+            size = MAX_VISIBLE_RELATIONSHIPS,
+        )
+        relationshipOffset = page.offset
+        if (relationships.isEmpty()) {
+            addRenderableWidget(
+                centeredWrapped(
+                    Component.translatable("connect_share.friends.empty"),
+                    82,
+                ),
+            )
+        }
+        page.items.forEachIndexed { index, relationship ->
+            val y = 58 + index * 26
+            when (relationship) {
+                is RelationshipRow.Incoming ->
+                    addIncomingRow(relationship.request, y)
+
+                is RelationshipRow.Outgoing ->
+                    addOutgoingRow(relationship.request, y)
+
+                is RelationshipRow.Friend ->
+                    addFriendRow(relationship.friend, y)
+            }
+        }
+        if (page.pageCount > 1) {
+            val pageTooltip = Tooltip.create(
+                Component.translatable(
+                    "connect_share.friends.page",
+                    page.pageNumber,
+                    page.pageCount,
+                ),
+            )
+            val previous = addRenderableWidget(
+                Button.builder(Component.literal("‹")) {
+                    relationshipOffset = page.previousOffset ?: 0
+                    rebuildWidgets()
+                }.bounds(width / 2 - 155, 14, 24, 20).build().apply {
+                    setTooltip(pageTooltip)
+                },
+            )
+            previous.active = page.hasPrevious
+            val next = addRenderableWidget(
+                Button.builder(Component.literal("›")) {
+                    relationshipOffset = page.nextOffset ?: page.offset
+                    rebuildWidgets()
+                }.bounds(width / 2 + 131, 14, 24, 20).build().apply {
+                    setTooltip(pageTooltip)
+                },
+            )
+            next.active = page.hasNext
+        }
+
+        safeMessage().let { message ->
+            if (message != null) {
+                addRenderableWidget(
+                    centered(Component.literal(message), height - 76),
+                )
+            }
+        }
+        primaryButton = addRenderableWidget(
+            Button.builder(
+                Component.translatable(friendLinkState.translationKey),
+            ) {
+                copyMyFriendLink()
+            }.bounds(width / 2 - 155, height - 52, 150, 20)
+                .tooltip(
+                    Tooltip.create(
+                        Component.translatable(
+                            "connect_share.friends.copy_my_link.tooltip",
+                        ),
+                    ),
+                )
+                .build(),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.friends.add"),
+            ) {
+                mode = Mode.ADD
+                safeMessage = null
+                rebuildWidgets()
+            }.bounds(width / 2 + 5, height - 52, 150, 20).build(),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.privacy.title"),
+            ) {
+                minecraft!!.setScreen(SharePrivacyScreen(this))
+            }.bounds(width / 2 - 155, height - 28, 150, 20)
+                .build(),
+        )
+        addRenderableWidget(
+            Button.builder(CommonComponents.GUI_BACK) { onClose() }
+                .bounds(width / 2 + 5, height - 28, 150, 20)
+                .build(),
+        )
+    }
+
+    private fun addIncomingRow(
+        request: IncomingFriendRequestSummary,
+        y: Int,
+    ) {
+        addRenderableWidget(
+            StringWidget(
+                width / 2 - 155,
+                y,
+                174,
+                20,
+                Component.translatable(
+                    if (request.purpose == com.minekube.connect.share.admission.AdmissionPurpose.FRIEND) {
+                        "connect_share.friends.incoming_request"
+                    } else {
+                        "connect_share.friends.incoming_join_request"
+                    },
+                    request.displayName,
+                    request.ingress.displayName(),
+                ),
+                font,
+            ),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.status.allow"),
+            ) {
+                ConnectShareClient.viewModel().allow(request.requestId)
+            }.bounds(width / 2 + 23, y, 62, 20).build(),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.status.deny"),
+            ) {
+                ConnectShareClient.viewModel().deny(request.requestId)
+            }.bounds(width / 2 + 89, y, 66, 20).build(),
+        )
+    }
+
+    private fun addOutgoingRow(
+        request: OutgoingFriendRequestSummary,
+        y: Int,
+    ) {
+        val deliveryState = requestStates[request.peerId]
+        addRenderableWidget(
+            StringWidget(
+                width / 2 - 155,
+                y,
+                174,
+                20,
+                outgoingRequestLabel(request.displayName, deliveryState),
+                font,
+            ),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable(
+                    deliveryState?.translationKey
+                        ?: "connect_share.friends.retry_request",
+                ),
+            ) {
+                deliverOutgoing(request.peerId)
+            }.bounds(width / 2 + 23, y, 62, 20).build().apply {
+                active = deliveryState == null ||
+                    deliveryState == RequestDeliveryState.FAILED
+            },
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable(
+                    "connect_share.friends.cancel_request",
+                ),
+            ) {
+                cancelOutgoing(request.peerId)
+            }.bounds(width / 2 + 89, y, 66, 20).build(),
+        )
+    }
+
+    private fun addFriendRow(friend: FriendSummary, y: Int) {
+        val actionWidth = 86
+        addRenderableWidget(
+            StringWidget(
+                width / 2 - 155,
+                y,
+                242 - actionWidth,
+                20,
+                friendLabel(friend),
+                font,
+            ),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable(
+                    when {
+                        friend.canRequestJoin ->
+                            "connect_share.friends.request_join"
+                        friend.canJoinNow -> "connect_share.join.join"
+                        friend.following ->
+                            "connect_share.friends.cancel_follow"
+                        else -> "connect_share.friends.follow"
+                    },
+                ),
+            ) {
+                when {
+                    friend.canRequestJoin -> requestToJoin(friend.peerId)
+                    friend.canJoinNow -> joinSaved(friend.peerId)
+                    friend.following -> friends.cancelFollow(friend.peerId)
+                    else -> friends.follow(friend.peerId)
+                }
+                rebuildWidgets()
+            }.bounds(width / 2 + 1, y, 86, 20).build(),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.friends.manage"),
+            ) {
+                selectedPeerId = friend.peerId
+                nameValue = friend.displayName
+                mode = Mode.MANAGE
+                safeMessage = null
+                rebuildWidgets()
+            }.bounds(width / 2 + 91, y, 64, 20).build(),
+        )
+    }
+
+    private fun buildAddFriend() {
+        addRenderableWidget(
+            centered(
+                Component.translatable("connect_share.friends.add"),
+                16,
+            ),
+        )
+        addRenderableWidget(
+            centeredWrapped(
+                Component.translatable("connect_share.friends.add_description"),
+                34,
+            ),
+        )
+        nameBox = addRenderableWidget(
+            EditBox(
+                font,
+                width / 2 - 155,
+                58,
+                310,
+                20,
+                Component.translatable("connect_share.friends.name"),
+            ).apply {
+                setMaxLength(64)
+                setHint(Component.translatable("connect_share.friends.name_hint"))
+                setValue(nameValue)
+                setResponder {
+                    nameValue = it
+                    refresh()
+                }
+            },
+        )
+        invitationBox = addRenderableWidget(
+            EditBox(
+                font,
+                width / 2 - 155,
+                84,
+                310,
+                20,
+                Component.translatable("connect_share.join.invitation"),
+            ).apply {
+                setMaxLength(MAX_INVITATION_LENGTH)
+                setHint(
+                    Component.translatable(
+                        "connect_share.join.invitation_hint",
+                    ),
+                )
+                setValue(invitationValue)
+                setResponder {
+                    invitationValue = it
+                    friends.suggestedDisplayName(it).getOrNull()
+                        ?.let { suggested ->
+                            nameValue = suggested
+                            nameBox?.setValue(suggested)
+                        }
+                    refresh()
+                }
+            },
+        )
+        offlineMode = addRenderableWidget(
+            ObservableCheckbox(
+                width / 2 - 155,
+                112,
+                310,
+                20,
+                Component.translatable("connect_share.join.offline"),
+                offlineSelected,
+                { selected -> offlineSelected = selected },
+            ).apply {
+                setTooltip(
+                    Tooltip.create(
+                        Component.translatable(
+                            "connect_share.join.offline.tooltip",
+                        ),
+                    ),
+                )
+            },
+        )
+        internetDirect = addRenderableWidget(
+            ObservableCheckbox(
+                width / 2 - 155,
+                134,
+                310,
+                20,
+                Component.translatable("connect_share.join.internet"),
+                internetSelected,
+                { selected -> internetSelected = selected },
+            ).apply {
+                setTooltip(
+                    Tooltip.create(
+                        Component.translatable(
+                            "connect_share.join.internet.tooltip",
+                        ),
+                    ),
+                )
+            },
+        )
+        safeMessage().let { message ->
+            if (message != null) {
+                addRenderableWidget(
+                    centered(Component.literal(message), 160),
+                )
+            }
+        }
+        primaryButton = addRenderableWidget(
+            Button.builder(
+                Component.translatable(
+                    "connect_share.friends.send_request",
+                ),
+            ) {
+                createFriendRequest()
+            }.bounds(width / 2 - 155, height - 52, 150, 20).build(),
+        )
+        secondaryButton = addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.friends.join_once"),
+            ) {
+                joinInvitation()
+            }.bounds(width / 2 + 5, height - 52, 150, 20).build(),
+        )
+        addRenderableWidget(
+            Button.builder(CommonComponents.GUI_BACK) { onClose() }
+                .bounds(width / 2 - 75, height - 28, 150, 20)
+                .build(),
+        )
+        refresh()
+    }
+
+    private fun buildManageFriend() {
+        val friend = selectedFriend()
+        if (friend == null) {
+            mode = Mode.FRIENDS
+            rebuildWidgets()
+            return
+        }
+        if (removeConfirmation) {
+            buildRemoveFriendConfirmation(friend)
+            return
+        }
+        addRenderableWidget(
+            centered(
+                Component.translatable(
+                    "connect_share.friends.manage_title",
+                    friend.displayName,
+                ),
+                16,
+            ),
+        )
+        nameBox = addRenderableWidget(
+            EditBox(
+                font,
+                width / 2 - 155,
+                50,
+                310,
+                20,
+                Component.translatable("connect_share.friends.name"),
+            ).apply {
+                setMaxLength(64)
+                setValue(nameValue.ifBlank { friend.displayName })
+                setResponder {
+                    nameValue = it
+                    refresh()
+                }
+            },
+        )
+        val notify = addRenderableWidget(
+            ObservableCheckbox(
+                width / 2 - 155,
+                82,
+                310,
+                20,
+                Component.translatable("connect_share.friends.notify"),
+                friend.permissions.notifyWhenOnline,
+            ),
+        )
+        var accessPolicy = friend.permissions.accessPolicy
+        addRenderableWidget(
+            CycleButton.builder(
+                { policy: FriendAccessPolicy ->
+                    Component.translatable(
+                        "connect_share.friends.access.${policy.name.lowercase()}",
+                    )
+                },
+            ).withInitialValue(accessPolicy)
+                .withValues(FriendAccessPolicy.entries)
+                .create(
+                    width / 2 - 155,
+                    126,
+                    310,
+                    20,
+                    Component.translatable("connect_share.friends.access"),
+                ) { _, selected -> accessPolicy = selected },
+        )
+        val shareWorlds = addRenderableWidget(
+            ObservableCheckbox(
+                width / 2 - 155,
+                104,
+                310,
+                20,
+                Component.translatable("connect_share.friends.share_worlds"),
+                friend.permissions.canSeeMyWorlds,
+            ),
+        )
+        safeMessage().let { message ->
+            if (message != null) {
+                addRenderableWidget(
+                    centered(Component.literal(message), 154),
+                )
+            }
+        }
+        primaryButton = addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.friends.save_changes"),
+            ) {
+                val activeScope = scope ?: return@builder
+                requestOperationInProgress = true
+                refresh()
+                activeScope.launch {
+                    withContext(Dispatchers.IO) {
+                        friends.rename(friend.peerId, nameValue)
+                        friends.updatePermissions(
+                            friend.peerId,
+                            FriendPermissions(
+                                notifyWhenOnline = notify.selected(),
+                                canSeeMyWorlds = shareWorlds.selected(),
+                                accessPolicy = accessPolicy,
+                            ),
+                        )
+                    }
+                    requestOperationInProgress = false
+                    mode = Mode.FRIENDS
+                    selectedPeerId = null
+                    rebuildWidgets()
+                }
+            }.bounds(width / 2 - 155, height - 52, 150, 20).build(),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.friends.remove"),
+            ) {
+                removeConfirmation = true
+                rebuildWidgets()
+            }.bounds(width / 2 + 5, height - 52, 150, 20).build(),
+        )
+        addRenderableWidget(
+            Button.builder(CommonComponents.GUI_BACK) { onClose() }
+                .bounds(width / 2 - 75, height - 28, 150, 20)
+                .build(),
+        )
+        refresh()
+    }
+
+    private fun buildRemoveFriendConfirmation(friend: FriendSummary) {
+        addRenderableWidget(
+            centered(
+                Component.translatable(
+                    "connect_share.friends.remove_confirm.title",
+                    friend.displayName,
+                ),
+                30,
+            ),
+        )
+        addRenderableWidget(
+            centeredWrapped(
+                Component.translatable(
+                    "connect_share.friends.remove_confirm.message",
+                ),
+                58,
+            ),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable(
+                    "connect_share.friends.remove_confirm.confirm",
+                ),
+            ) {
+                val activeScope = scope ?: return@builder
+                requestOperationInProgress = true
+                refresh()
+                activeScope.launch {
+                    withContext(Dispatchers.IO) {
+                        friends.remove(friend.peerId)
+                    }
+                    requestOperationInProgress = false
+                    removeConfirmation = false
+                    mode = Mode.FRIENDS
+                    selectedPeerId = null
+                    nameValue = ""
+                    rebuildWidgets()
+                }
+            }.bounds(width / 2 - 155, height - 28, 98, 20).build(),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.friends.block"),
+            ) {
+                val activeScope = scope ?: return@builder
+                requestOperationInProgress = true
+                refresh()
+                activeScope.launch {
+                    withContext(Dispatchers.IO) {
+                        friends.block(friend.peerId)
+                    }
+                    requestOperationInProgress = false
+                    removeConfirmation = false
+                    mode = Mode.FRIENDS
+                    selectedPeerId = null
+                    nameValue = ""
+                    rebuildWidgets()
+                }
+            }.bounds(width / 2 - 51, height - 28, 98, 20).build(),
+        )
+        addRenderableWidget(
+            Button.builder(CommonComponents.GUI_CANCEL) {
+                removeConfirmation = false
+                rebuildWidgets()
+            }.bounds(width / 2 + 53, height - 28, 102, 20).build(),
+        )
+    }
+
+    private fun copyMyFriendLink() {
+        val activeScope = scope ?: return
+        if (friendLinkState == FriendLinkState.COPYING) {
+            return
+        }
+        friendLinkState = FriendLinkState.COPYING
+        rebuildWidgets()
+        activeScope.launch {
+            val invitation = withContext(Dispatchers.IO) {
+                ConnectShareClient.friendCardIssuer().issue()
+            }
+            invitation.fold(
+                ifLeft = {
+                    friendLinkState = FriendLinkState.FAILED
+                },
+                ifRight = { link ->
+                    minecraft!!.keyboardHandler.setClipboard(link)
+                    friendLinkState = FriendLinkState.COPIED
+                },
+            )
+            rebuildWidgets()
+        }
+    }
+
+    private fun joinSaved(peerId: String) {
+        if (joining) return
+        joining = true
+        joiningPeerId = peerId
+        reciprocalPairing = true
+        safeMessage = null
+        refresh()
+        scope?.launch {
+            friends.join(
+                peerId = peerId,
+                browser = browser,
+                authMode = authMode(),
+                ownConnectAddress =
+                    ConnectShareClient.connectPublicAddress(),
+            ).fold(
+                ifLeft = ::joinFailed,
+                ifRight = ::connect,
+            )
+        }
+    }
+
+    private fun requestToJoin(
+        peerId: String,
+        allowModMismatch: Boolean = false,
+    ) {
+        if (joining) return
+        joining = true
+        joiningPeerId = peerId
+        reciprocalPairing = false
+        safeMessage = null
+        refresh()
+        scope?.launch {
+            ConnectShareClient.friendJoinOrchestrator().request(
+                peerId,
+                FriendJoinRequest(
+                    requestId = UUID.randomUUID(),
+                    playerName = minecraft!!.user.name,
+                    playerUuid = checkNotNull(minecraft!!.user.profileId),
+                ),
+                allowModMismatch = allowModMismatch,
+            ).fold(
+                ifLeft = { failure ->
+                    joining = false
+                    if (failure is FriendJoinAttemptFailure.Compatibility) {
+                        minecraft!!.setScreen(
+                            CompatibilityMismatchScreen(
+                                parent = this@ShareJoinScreen,
+                                failure = failure,
+                                tryAnyway = {
+                                    requestToJoin(peerId, true)
+                                },
+                            ),
+                        )
+                    } else {
+                        safeMessage = failure.safeMessage
+                        rebuildWidgets()
+                    }
+                },
+                ifRight = ::connect,
+            )
+        }
+    }
+
+    private fun createFriendRequest() {
+        val activeScope = scope ?: return
+        if (
+            requestOperationInProgress ||
+            invitationValue.isBlank() ||
+            nameValue.isBlank()
+        ) {
+            return
+        }
+        requestOperationInProgress = true
+        safeMessage = null
+        refresh()
+        activeScope.launch {
+            val peerId = withContext(Dispatchers.IO) {
+                friends.sendRequest(
+                    invitationValue,
+                    nameValue,
+                )
+            }
+            requestOperationInProgress = false
+            if (peerId == null) {
+                rebuildWidgets()
+                return@launch
+            }
+            mode = Mode.FRIENDS
+            invitationValue = ""
+            nameValue = ""
+            rebuildWidgets()
+            deliverOutgoing(peerId)
+        }
+    }
+
+    private fun deliverOutgoing(peerId: String) {
+        val activeScope = scope ?: return
+        if (requestJobs[peerId]?.isActive == true) {
+            return
+        }
+        safeMessage = null
+        requestStates[peerId] = RequestDeliveryState.SENDING
+        rebuildWidgets()
+        val job = activeScope.launch {
+            val senderCard = withContext(Dispatchers.IO) {
+                ConnectShareClient.friendCardIssuer().issue().getOrNull()
+            }
+            if (senderCard == null) {
+                requestFailed(
+                    peerId,
+                    Component.translatable(
+                        "connect_share.friends.request_failed",
+                    ).string,
+                )
+                return@launch
+            }
+            val targetResult = friends.routeOutgoing(
+                peerId = peerId,
+                browser = browser,
+                authMode = DirectP2pAuthMode.OFFLINE,
+            )
+            val target = targetResult.getOrNull()
+            if (target == null) {
+                requestFailed(
+                    peerId,
+                    targetResult.leftOrNull()?.safeMessage
+                        ?: Component.translatable(
+                            "connect_share.friends.request_failed",
+                        ).string,
+                )
+                return@launch
+            }
+            val displayName = friends.state.value.outgoingRequests
+                .firstOrNull { it.peerId == peerId }
+                ?.displayName
+                ?: peerId
+            val result = ConnectShareClient.friendRequestClient().exchange(
+                target = target,
+                request = FriendControlRequest(
+                    requestId = UUID.randomUUID(),
+                    displayName = minecraft!!.user.name,
+                    invitation = senderCard,
+                ),
+                onReceived = {
+                    minecraft!!.execute {
+                        requestStates[peerId] =
+                            RequestDeliveryState.WAITING
+                        rebuildWidgets()
+                    }
+                },
+            )
+            val hostCard = result.getOrNull()
+            if (hostCard == null) {
+                requestFailed(
+                    peerId,
+                    result.leftOrNull()?.safeMessage
+                        ?: Component.translatable(
+                            "connect_share.friends.request_failed",
+                        ).string,
+                )
+                return@launch
+            }
+            val accepted = withContext(Dispatchers.IO) {
+                ConnectShareClient.friendCardReceiver().receive(
+                    invitation = hostCard,
+                    displayName = displayName,
+                    authenticatedMinecraftUuid = null,
+                )
+            }
+            if (accepted.isLeft()) {
+                requestFailed(
+                    peerId,
+                    Component.translatable(
+                        "connect_share.friends.request_failed",
+                    ).string,
+                )
+                return@launch
+            }
+            requestStates.remove(peerId)
+            friends.reload()
+            safeMessage = Component.translatable(
+                "connect_share.friends.request_accepted",
+                displayName,
+            ).string
+            rebuildWidgets()
+        }
+        requestJobs[peerId] = job
+        job.invokeOnCompletion {
+            minecraft!!.execute {
+                requestJobs.remove(peerId, job)
+            }
+        }
+    }
+
+    private fun cancelOutgoing(peerId: String) {
+        val activeScope = scope ?: return
+        requestJobs.remove(peerId)?.cancel()
+        requestStates[peerId] = RequestDeliveryState.CANCELLING
+        rebuildWidgets()
+        activeScope.launch {
+            withContext(Dispatchers.IO) {
+                friends.remove(peerId)
+            }
+            requestStates.remove(peerId)
+            rebuildWidgets()
+        }
+    }
+
+    private fun requestFailed(
+        peerId: String,
+        message: String,
+    ) {
+        requestStates[peerId] = RequestDeliveryState.FAILED
+        safeMessage = message
+        rebuildWidgets()
+    }
+
+    private fun joinInvitation() {
+        if (joining || invitationValue.isBlank()) return
+        joining = true
+        joiningPeerId = null
+        reciprocalPairing = false
+        safeMessage = null
+        refresh()
+        scope?.launch {
+            browser.join(
+                invitationUri = invitationValue,
+                lanAddress = null,
+                internetOptIn = internetSelected,
+                authMode = authMode(),
+            ).fold(
+                ifLeft = ::joinFailed,
+                ifRight = ::connect,
+            )
+        }
+    }
+
+    private fun joinFailed(failure: com.minekube.connect.share.fabric.GuestJoinFailure) {
+        joining = false
+        joiningPeerId = null
+        reciprocalPairing = false
+        safeMessage = failure.safeMessage
+        rebuildWidgets()
+    }
+
+    private fun connect(target: GuestJoinTarget) {
+        val client = checkNotNull(minecraft)
+        val address = when (target) {
+            is GuestJoinTarget.Connect ->
+                ServerAddress.parseString(target.publicAddress)
+
+            is GuestJoinTarget.Direct ->
+                ServerAddress(
+                    target.localAddress.hostString,
+                    target.localAddress.port,
+                )
+        }
+        if (target is GuestJoinTarget.Direct) {
+            ConnectShareClient.holdGuestDirect(target)
+        }
+        val state = friends.state.value
+        val joiningFriend = state.friends.firstOrNull {
+            it.peerId == joiningPeerId
+        }
+        val data = ServerData(
+            joiningFriend?.displayName
+                ?: "Connect Share",
+            address.toString(),
+            false,
+        )
+        val exchangeFriendCard = FriendCardExchangeConsent.shouldArm(
+            savedFriendJoin = reciprocalPairing,
+            canSeeMyWorlds =
+                joiningFriend?.permissions?.canSeeMyWorlds == true,
+        )
+        if (exchangeFriendCard && joiningPeerId != null) {
+            ConnectShareClient.armFriendCardExchange(
+                checkNotNull(joiningPeerId),
+            )
+        }
+        ConnectScreen.startConnecting(
+            parent,
+            client,
+            address,
+            data,
+            false,
+        )
+    }
+
+    private fun refresh() {
+        val inputReady = invitationValue.isNotBlank()
+        primaryButton?.active =
+            !joining && !requestOperationInProgress &&
+            friendLinkState != FriendLinkState.COPYING &&
+            when (mode) {
+                Mode.ADD -> inputReady && nameValue.isNotBlank()
+                Mode.MANAGE -> nameValue.isNotBlank()
+                Mode.FRIENDS -> true
+            }
+        secondaryButton?.active = !joining && inputReady
+        invitationBox?.setEditable(!joining)
+        nameBox?.setEditable(!joining)
+    }
+
+    private fun friendLabel(friend: FriendSummary): Component = when {
+        friend.activityKind == FriendActivityKind.HOSTING_WORLD ->
+            Component.translatable(
+                "connect_share.friends.hosting_world",
+                friend.displayName,
+                friend.activityDescription ?: "Minecraft world",
+            )
+
+        friend.activityKind == FriendActivityKind.PLAYING_SERVER ->
+            Component.translatable(
+                "connect_share.friends.playing_server",
+                friend.displayName,
+                friend.activityDescription ?: "Minecraft server",
+            )
+
+        friend.onlineViaLan ->
+            Component.translatable(
+                "connect_share.friends.ready_lan",
+                friend.displayName,
+                friend.worldName ?: "",
+            )
+
+        friend.onlineViaConnect ->
+            Component.translatable(
+                "connect_share.friends.ready_connect",
+                friend.displayName,
+                friend.worldName ?: "",
+            )
+
+        friend.activityKind == FriendActivityKind.ONLINE ->
+            Component.translatable(
+                "connect_share.friends.online",
+                friend.displayName,
+            )
+
+        friend.connectAvailable ->
+            Component.translatable(
+                "connect_share.friends.saved_connect",
+                friend.displayName,
+            )
+
+        else ->
+            Component.translatable(
+                "connect_share.friends.saved_offline",
+                friend.displayName,
+            )
+    }
+
+    private fun Ingress.displayName(): String = when (this) {
+        Ingress.CONNECT -> "connect"
+        Ingress.DIRECT_LAN -> "direct LAN"
+        Ingress.DIRECT_INTERNET -> "direct internet"
+    }
+
+    private fun outgoingRequestLabel(
+        displayName: String,
+        deliveryState: RequestDeliveryState?,
+    ): Component = Component.translatable(
+        if (deliveryState == null) {
+            "connect_share.friends.outgoing_request"
+        } else {
+            "connect_share.friends.outgoing_request_active"
+        },
+        displayName,
+    )
+
+    private fun selectedFriend(): FriendSummary? =
+        friends.state.value.friends.firstOrNull {
+            it.peerId == selectedPeerId
+        }
+
+    private fun safeMessage(): String? =
+        safeMessage ?: friends.state.value.safeMessage
+
+    private fun authMode(): DirectP2pAuthMode =
+        if (offlineSelected) {
+            DirectP2pAuthMode.OFFLINE
+        } else {
+            DirectP2pAuthMode.ONLINE
+        }
+
+    private fun currentFingerprint(): Int =
+        31 * browser.discovered.value.hashCode() +
+            31 * friends.state.value.hashCode() +
+            mode.hashCode()
+
+    private fun centered(message: Component, y: Int): StringWidget {
+        val textWidth = font.width(message)
+        return StringWidget(
+            width / 2 - textWidth / 2,
+            y,
+            textWidth,
+            9,
+            message,
+            font,
+        )
+    }
+
+    private fun centeredWrapped(
+        message: Component,
+        y: Int,
+    ): MultiLineTextWidget =
+        MultiLineTextWidget(
+            width / 2 - CONTENT_WIDTH / 2,
+            y,
+            message,
+            font,
+        ).setMaxWidth(CONTENT_WIDTH).setCentered(true)
+
+    private enum class Mode {
+        FRIENDS,
+        ADD,
+        MANAGE,
+    }
+
+    private sealed interface RelationshipRow {
+        data class Incoming(
+            val request: IncomingFriendRequestSummary,
+        ) : RelationshipRow
+
+        data class Outgoing(
+            val request: OutgoingFriendRequestSummary,
+        ) : RelationshipRow
+
+        data class Friend(
+            val friend: FriendSummary,
+        ) : RelationshipRow
+    }
+
+    private enum class FriendLinkState(
+        val translationKey: String,
+    ) {
+        IDLE("connect_share.friends.copy_my_link"),
+        COPYING("connect_share.friends.copying_my_link"),
+        COPIED("connect_share.friends.my_link_copied"),
+        FAILED("connect_share.friends.copy_my_link_failed"),
+    }
+
+    private enum class RequestDeliveryState(
+        val translationKey: String,
+    ) {
+        SENDING("connect_share.friends.request_sending"),
+        WAITING("connect_share.friends.request_waiting"),
+        CANCELLING("connect_share.friends.request_cancelling"),
+        FAILED("connect_share.friends.retry_request"),
+    }
+
+    private companion object {
+        const val MAX_INVITATION_LENGTH = 32_768
+        const val MAX_VISIBLE_RELATIONSHIPS = 5
+        const val CONTENT_WIDTH = 310
+    }
+}

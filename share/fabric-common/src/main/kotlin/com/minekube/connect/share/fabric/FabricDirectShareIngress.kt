@@ -29,6 +29,7 @@ class FabricDirectShareIngress private constructor(
     private val accessIdentity: () -> ShareAccessIdentity,
     private val displayName: () -> String,
     private val localSocket: (SocketAddress, DirectP2pSession) -> Socket,
+    private val closeNodeOnHandleClose: Boolean,
 ) : DirectShareIngress {
     constructor(
         dataDirectory: Path,
@@ -45,20 +46,22 @@ class FabricDirectShareIngress private constructor(
         accessIdentity = accessIdentityStore::currentOrCreate,
         displayName = displayName,
         localSocket = ::openTaggedLoopbackSocket,
+        closeNodeOnHandleClose = true,
     )
 
     internal constructor(
         node: FabricDirectNode,
         dataDirectory: Path,
+        accessIdentityStore: ShareAccessIdentityStore =
+            ShareAccessIdentityStore(dataDirectory),
         displayName: () -> String,
     ) : this(
         nodeFactory = { node },
         now = Instant::now,
-        accessIdentity = ShareAccessIdentityStore(
-            dataDirectory,
-        )::currentOrCreate,
+        accessIdentity = accessIdentityStore::currentOrCreate,
         displayName = displayName,
         localSocket = ::openTaggedLoopbackSocket,
+        closeNodeOnHandleClose = false,
     )
 
     override suspend fun start(
@@ -119,17 +122,22 @@ class FabricDirectShareIngress private constructor(
                     options.allowInternetDirect &&
                         internetCandidates.isNotEmpty(),
                 close = {
-                    if (closed.compareAndSet(false, true)) {
+                    if (
+                        closeNodeOnHandleClose &&
+                        closed.compareAndSet(false, true)
+                    ) {
                         node.close()
                     }
                 },
             )
         } catch (failure: Throwable) {
-            try {
-                node.close()
-            } catch (cleanupFailure: Throwable) {
-                if (cleanupFailure !== failure) {
-                    failure.addSuppressed(cleanupFailure)
+            if (closeNodeOnHandleClose) {
+                try {
+                    node.close()
+                } catch (cleanupFailure: Throwable) {
+                    if (cleanupFailure !== failure) {
+                        failure.addSuppressed(cleanupFailure)
+                    }
                 }
             }
             throw failure
@@ -155,6 +163,7 @@ class FabricDirectShareIngress private constructor(
             },
             displayName = displayName,
             localSocket = localSocket,
+            closeNodeOnHandleClose = true,
         )
 
         private fun openTaggedLoopbackSocket(

@@ -4,6 +4,7 @@ import com.minekube.connect.share.friend.FriendActivityKind
 import com.minekube.connect.share.friend.FriendJoinRequest
 import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
+import com.minekube.connect.tunnel.p2p.DirectP2pNode
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -12,6 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.test.fail
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -42,6 +44,16 @@ class PrismFriendJoinE2ETest {
                 .lineSequence()
                 .count { joinedLine in it }
             val friend = FriendStore(dataDirectory).all().single()
+            System.getenv("LIVE_HOST_DATA")?.let { hostDataValue ->
+                val guestPeerId = DirectP2pNode(
+                    dataDirectory.resolve("share-libp2p-identity.key"),
+                ).use(DirectP2pNode::peerId)
+                assertTrue(
+                    FriendStore(Path.of(hostDataValue)).relationship(guestPeerId)
+                        .isSome(),
+                    "The live host has not confirmed this guest peer identity",
+                )
+            }
             val browser = FabricShareBrowser(dataDirectory)
             try {
                 assertTrue(browser.start().isRight())
@@ -57,15 +69,19 @@ class PrismFriendJoinE2ETest {
                     friend,
                     DirectP2pAuthMode.OFFLINE,
                 ).getOrNull()!!
-                assertEquals(
-                    FriendActivityKind.HOSTING_WORLD,
+                val activityResult =
                     activityTarget.use {
                         client.activity(
                             it,
                             com.minekube.connect.share.friend
                                 .FriendActivityRequest(UUID.randomUUID()),
-                        ).getOrNull()?.kind
-                    },
+                        )
+                    }
+                assertEquals(
+                    FriendActivityKind.HOSTING_WORLD,
+                    activityResult.getOrNull()?.kind
+                        ?: fail(activityResult.leftOrNull()?.safeMessage
+                            ?: "Host returned no friend activity"),
                 )
 
                 // Status and gameplay require different one-shot proxies.

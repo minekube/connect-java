@@ -78,9 +78,14 @@ class ShareStatusScreen(
         }
 
         addRenderableWidget(
+            Button.builder(Component.translatable("connect_share.privacy.title")) {
+                minecraft.gui.setScreen(SharePrivacyScreen(this))
+            }.bounds(width / 2 - 155, height - 52, 150, 20).build(),
+        )
+        addRenderableWidget(
             Button.builder(Component.translatable("connect_share.identity.manage")) {
                 minecraft.gui.setScreen(EndpointIdentityScreen(this))
-            }.bounds(width / 2 - 75, height - 52, 150, 20).build(),
+            }.bounds(width / 2 + 5, height - 52, 150, 20).build(),
         )
 
         val pending = state.pendingAdmissions

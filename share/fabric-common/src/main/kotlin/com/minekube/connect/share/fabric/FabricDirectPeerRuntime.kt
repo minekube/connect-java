@@ -22,23 +22,26 @@ internal class FabricDirectPeerRuntime private constructor(
             ShareAccessIdentityStore(dataDirectory),
         displayName: () -> String,
     ) : this(
-        browser = FabricShareBrowser(dataDirectory),
-        ingress = FabricDirectShareIngress(
-            dataDirectory = dataDirectory,
-            displayName = displayName,
-            accessIdentityStore = accessIdentityStore,
+        node = CoreFabricDirectPeerNode(
+            DirectP2pNode(dataDirectory.resolve(IDENTITY_FILE_NAME)),
         ),
+        dataDirectory = dataDirectory,
+        accessIdentityStore = accessIdentityStore,
+        displayName = displayName,
     )
 
     private constructor(
         node: FabricDirectPeerNode,
         dataDirectory: Path,
+        accessIdentityStore: ShareAccessIdentityStore =
+            ShareAccessIdentityStore(dataDirectory),
         displayName: () -> String,
     ) : this(
         browser = FabricShareBrowser(node),
         ingress = FabricDirectShareIngress(
             node = node,
             dataDirectory = dataDirectory,
+            accessIdentityStore = accessIdentityStore,
             displayName = displayName,
         ),
     )
@@ -53,6 +56,8 @@ internal class FabricDirectPeerRuntime private constructor(
             dataDirectory = dataDirectory,
             displayName = displayName,
         )
+
+        private const val IDENTITY_FILE_NAME = "share-libp2p-identity.key"
     }
 }
 

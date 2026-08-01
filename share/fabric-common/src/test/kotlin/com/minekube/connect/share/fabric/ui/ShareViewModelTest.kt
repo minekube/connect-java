@@ -9,6 +9,7 @@ import com.minekube.connect.share.admission.AuthSource
 import com.minekube.connect.share.admission.PendingAdmission
 import com.minekube.connect.share.identity.CredentialSource
 import com.minekube.connect.share.identity.CredentialValidationError
+import com.minekube.connect.share.friend.PresencePrivacy
 import java.nio.file.Path
 import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
@@ -178,6 +179,31 @@ class ShareViewModelTest {
     }
 
     @Test
+    fun `rapid duplicate starts are serialized and start the world once`() = runTest {
+        var starts = 0
+        val viewModel = viewModel(
+            startShare = {
+                starts++
+                Either.Right(
+                    ShareState.Sharing(
+                        endpoint = "share",
+                        address = "share.example.test",
+                    ),
+                )
+            },
+        )
+        advanceUntilIdle()
+
+        viewModel.start()
+        viewModel.start()
+        advanceUntilIdle()
+
+        assertEquals(1, starts)
+        assertTrue(viewModel.state.value.shareState is ShareState.Sharing)
+        assertFalse(viewModel.state.value.operationInProgress)
+    }
+
+    @Test
     fun `identity changes are rejected while a world share is active`() = runTest {
         val identityActions = FakeIdentityActions(
             current = localIdentity(),
@@ -231,6 +257,27 @@ class ShareViewModelTest {
         assertTrue(viewModel.state.value.shareWithFriendsEnabled)
     }
 
+    @Test
+    fun `presence privacy updates atomically and persists`() = runTest {
+        val persisted = mutableListOf<PresencePrivacy>()
+        val viewModel = viewModel(
+            persistPresencePrivacy = persisted::add,
+        )
+        advanceUntilIdle()
+        val privacy = PresencePrivacy(
+            showOnline = true,
+            showPlaying = true,
+            showCurrentServer = true,
+            showJoinable = false,
+        )
+
+        viewModel.setPresencePrivacy(privacy)
+        advanceUntilIdle()
+
+        assertEquals(privacy, viewModel.state.value.presencePrivacy)
+        assertEquals(listOf(privacy), persisted)
+    }
+
     private fun TestScope.viewModel(
         shareState: MutableStateFlow<ShareState> =
             MutableStateFlow(ShareState.Idle),
@@ -245,6 +292,7 @@ class ShareViewModelTest {
         answerAdmission: (UUID, Boolean) -> Unit = { _, _ -> },
         initialShareWithFriends: Boolean = false,
         persistShareWithFriends: (Boolean) -> Unit = {},
+        persistPresencePrivacy: (PresencePrivacy) -> Unit = {},
         startShare:
             suspend (ShareOptions) -> Either<ShareLifecycleError, ShareState.Sharing> =
             { options ->
@@ -264,6 +312,7 @@ class ShareViewModelTest {
         initialShareWithFriendsEnabled = initialShareWithFriends,
         operationDispatcher = operationDispatcher,
         persistShareWithFriendsEnabled = persistShareWithFriends,
+        persistPresencePrivacy = persistPresencePrivacy,
         startShare = startShare,
         stopShare = { Either.Right(Unit) },
         answerAdmission = answerAdmission,

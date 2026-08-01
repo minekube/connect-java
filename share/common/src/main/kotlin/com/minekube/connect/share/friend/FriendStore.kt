@@ -28,11 +28,34 @@ import java.util.Base64
 import java.util.EnumSet
 import java.util.UUID
 
+enum class FriendAccessPolicy {
+    ASK_EVERY_TIME,
+    AUTO_ACCEPT,
+    NEVER_ALLOW,
+}
+
 data class FriendPermissions(
     val notifyWhenOnline: Boolean = true,
     val canSeeMyWorlds: Boolean = true,
-    val canJoinAutomatically: Boolean = false,
-)
+    val accessPolicy: FriendAccessPolicy = FriendAccessPolicy.ASK_EVERY_TIME,
+) {
+    val canJoinAutomatically: Boolean
+        get() = accessPolicy == FriendAccessPolicy.AUTO_ACCEPT
+
+    constructor(
+        notifyWhenOnline: Boolean = true,
+        canSeeMyWorlds: Boolean = true,
+        canJoinAutomatically: Boolean,
+    ) : this(
+        notifyWhenOnline = notifyWhenOnline,
+        canSeeMyWorlds = canSeeMyWorlds,
+        accessPolicy = if (canJoinAutomatically) {
+            FriendAccessPolicy.AUTO_ACCEPT
+        } else {
+            FriendAccessPolicy.ASK_EVERY_TIME
+        },
+    )
+}
 
 enum class FriendRelationshipStatus {
     PENDING_OUTGOING,
@@ -65,6 +88,17 @@ data class PendingFriendRemoval(
     val removedAt: Instant,
 )
 
+data class BlockedFriend(
+    val peerId: String,
+    val publicKeyBase64: String,
+    val displayName: String,
+    val blockedAt: Instant,
+) {
+    override fun toString(): String =
+        "BlockedFriend(peerId=$peerId, publicKey=<redacted>, " +
+            "displayName=$displayName, blockedAt=$blockedAt)"
+}
+
 sealed interface FriendStoreError {
     val safeMessage: String
 
@@ -85,6 +119,11 @@ sealed interface FriendStoreError {
 
     data object NotFound : FriendStoreError {
         override val safeMessage = "This friend is no longer saved"
+    }
+
+    data object Blocked : FriendStoreError {
+        override val safeMessage =
+            "This identity is blocked. Unblock it before adding it again"
     }
 }
 
@@ -113,6 +152,13 @@ class FriendStore(
     @Synchronized
     fun pendingRemovals(): List<PendingFriendRemoval> =
         data().removals
+
+    @Synchronized
+    fun blocked(): List<BlockedFriend> = data().blocked
+
+    @Synchronized
+    fun isBlocked(peerId: String): Boolean =
+        data().blocked.any { it.peerId == peerId }
 
     @Synchronized
     fun accept(
@@ -181,6 +227,9 @@ class FriendStore(
 
         val current = read()
         val publicKey = Base64.getEncoder().encodeToString(invite.publicKey)
+        ensure(data().blocked.none { it.peerId == invite.payload.peerId }) {
+            FriendStoreError.Blocked
+        }
         val existing = current.firstOrNull {
             it.peerId == invite.payload.peerId
         }
@@ -205,7 +254,9 @@ class FriendStore(
             permissions = (existing?.permissions ?: FriendPermissions())
                 .let { permissions ->
                     if (allowAutomaticJoin) {
-                        permissions.copy(canJoinAutomatically = true)
+                        permissions.copy(
+                            accessPolicy = FriendAccessPolicy.AUTO_ACCEPT,
+                        )
                     } else {
                         permissions
                     }
@@ -270,6 +321,48 @@ class FriendStore(
             removedAt = now,
         )
         write(StoreData(remaining, removals))
+        return true
+    }
+
+    @Synchronized
+    fun block(
+        peerId: String,
+        now: Instant = Instant.now(),
+    ): Boolean {
+        val current = read()
+        val blockedFriend = current.firstOrNull { it.peerId == peerId }
+            ?: return false
+        val removal = PendingFriendRemoval(
+            operationId = UUID.randomUUID(),
+            friend = blockedFriend,
+            removedAt = now,
+        )
+        val blocked = BlockedFriend(
+            peerId = blockedFriend.peerId,
+            publicKeyBase64 = blockedFriend.publicKeyBase64,
+            displayName = blockedFriend.displayName,
+            blockedAt = now,
+        )
+        write(
+            data().copy(
+                friends = current.filterNot { it.peerId == peerId },
+                removals = data().removals.filterNot {
+                    it.friend.peerId == peerId
+                } + removal,
+                blocked = data().blocked.filterNot {
+                    it.peerId == peerId
+                } + blocked,
+            ),
+        )
+        return true
+    }
+
+    @Synchronized
+    fun unblock(peerId: String): Boolean {
+        val current = data()
+        val remaining = current.blocked.filterNot { it.peerId == peerId }
+        if (remaining.size == current.blocked.size) return false
+        write(current.copy(blocked = remaining))
         return true
     }
 
@@ -349,7 +442,17 @@ class FriendStore(
             if (removals.size > MAX_FRIENDS) {
                 throw IOException("Friends file contains too many removals")
             }
-            return StoreData(friends, removals)
+            val blocked = if (version >= 4) {
+                root.getAsJsonArray("blocked")
+                    ?.map { element -> parseBlocked(element.asJsonObject) }
+                    ?: emptyList()
+            } else {
+                emptyList()
+            }
+            if (blocked.size > MAX_FRIENDS) {
+                throw IOException("Friends file contains too many blocks")
+            }
+            return StoreData(friends, removals, blocked)
         } catch (exception: JsonParseException) {
             throw IOException("Friends file is invalid JSON", exception)
         } catch (exception: IllegalStateException) {
@@ -369,6 +472,19 @@ class FriendStore(
             removedAt = Instant.ofEpochMilli(
                 json.get("removedAtEpochMillis")?.asLong
                     ?: throw IOException("Removal is missing time"),
+            ),
+        )
+
+    private fun parseBlocked(json: JsonObject): BlockedFriend =
+        BlockedFriend(
+            peerId = json.requiredString("peerId"),
+            publicKeyBase64 = json.requiredString("publicKey").also {
+                Base64.getDecoder().decode(it)
+            },
+            displayName = json.requiredString("displayName"),
+            blockedAt = Instant.ofEpochMilli(
+                json.get("blockedAtEpochMillis")?.asLong
+                    ?: throw IOException("Block is missing time"),
             ),
         )
 
@@ -397,8 +513,13 @@ class FriendStore(
                 permissions.requiredBoolean("notifyWhenOnline"),
             canSeeMyWorlds =
                 permissions.requiredBoolean("canSeeMyWorlds"),
-            canJoinAutomatically =
-                permissions.requiredBoolean("canJoinAutomatically"),
+            accessPolicy = permissions.optionalString("accessPolicy")
+                ?.let(FriendAccessPolicy::valueOf)
+                ?: if (permissions.requiredBoolean("canJoinAutomatically")) {
+                    FriendAccessPolicy.AUTO_ACCEPT
+                } else {
+                    FriendAccessPolicy.ASK_EVERY_TIME
+                },
         )
         val relationshipStatus = json
             .optionalString("relationshipStatus")
@@ -431,6 +552,9 @@ class FriendStore(
         require(data.removals.size <= MAX_FRIENDS) {
             "Connect Share supports at most $MAX_FRIENDS pending removals"
         }
+        require(data.blocked.size <= MAX_FRIENDS) {
+            "Connect Share supports at most $MAX_FRIENDS blocked identities"
+        }
         Files.createDirectories(directory)
         val entries = JsonArray()
         data.friends.sortedBy { it.displayName.lowercase() }.forEach { friend ->
@@ -451,6 +575,19 @@ class FriendStore(
             addProperty("version", WIRE_VERSION)
             add("friends", entries)
             add("pendingRemovals", removals)
+            add("blocked", JsonArray().apply {
+                data.blocked.sortedBy { it.blockedAt }.forEach { blocked ->
+                    add(JsonObject().apply {
+                        addProperty("peerId", blocked.peerId)
+                        addProperty("publicKey", blocked.publicKeyBase64)
+                        addProperty("displayName", blocked.displayName)
+                        addProperty(
+                            "blockedAtEpochMillis",
+                            blocked.blockedAt.toEpochMilli(),
+                        )
+                    })
+                }
+            })
         }
         writeAtomic(GSON.toJson(root))
         cached = data.copy(
@@ -473,10 +610,7 @@ class FriendStore(
             JsonObject().apply {
                 addProperty("notifyWhenOnline", permissions.notifyWhenOnline)
                 addProperty("canSeeMyWorlds", permissions.canSeeMyWorlds)
-                addProperty(
-                    "canJoinAutomatically",
-                    permissions.canJoinAutomatically,
-                )
+                addProperty("accessPolicy", permissions.accessPolicy.name)
             },
         )
     }
@@ -539,7 +673,7 @@ class FriendStore(
     companion object {
         const val FILE_NAME = "friends.json"
         private const val MIN_WIRE_VERSION = 1
-        private const val WIRE_VERSION = 2
+        private const val WIRE_VERSION = 4
         private const val MAX_FRIENDS = 256
         private const val MAX_DISPLAY_NAME_LENGTH = 64
         private val GSON = Gson()
@@ -574,5 +708,6 @@ class FriendStore(
     private data class StoreData(
         val friends: List<SavedFriend> = emptyList(),
         val removals: List<PendingFriendRemoval> = emptyList(),
+        val blocked: List<BlockedFriend> = emptyList(),
     )
 }

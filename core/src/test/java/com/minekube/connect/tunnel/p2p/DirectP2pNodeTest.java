@@ -260,6 +260,37 @@ class DirectP2pNodeTest {
     }
 
     @Test
+    void publishedHostCanRefreshItsWorldWithoutChangingItsPeer() {
+        host = new DirectP2pNode();
+        DirectP2pHostInfo first = host.startHost(
+                new DirectP2pHostConfig(
+                        "stable-share",
+                        "stable-capability-123456789",
+                        "First world",
+                        false),
+                ignored -> new Socket());
+        host.publish("minekube://share/first-world");
+
+        DirectP2pHostInfo second = host.startHost(
+                new DirectP2pHostConfig(
+                        "stable-share",
+                        "stable-capability-123456789",
+                        "Second world",
+                        true),
+                ignored -> new Socket());
+        host.publish("minekube://share/second-world");
+
+        guest = new DirectP2pNode();
+        DirectP2pDiscoveredShare discovered = guest.inspect(
+                second.lanAddresses().get(0),
+                Duration.ofSeconds(3));
+
+        assertEquals(first.peerId(), second.peerId());
+        assertEquals("Second world", discovered.displayName());
+        assertEquals("minekube://share/second-world", discovered.invitation());
+    }
+
+    @Test
     void mdnsTxtLengthPrefixSupportsModernEd25519PeerIds() {
         String peerId =
                 "12D3KooWEHeJnnq1Rfwt679bTyTxkEdtyTC8peAJWsWCxtAJ4s9y";
@@ -271,6 +302,19 @@ class DirectP2pNodeTest {
         assertEquals(
                 peerId,
                 DirectP2pNodeRuntime.decodeMdnsPeerId(txtRecord));
+    }
+
+    @Test
+    void mdnsHostNameComesFromPeerIdentityWithoutDnsResolution() {
+        String peerId =
+                "12D3KooWEHeJnnq1Rfwt679bTyTxkEdtyTC8peAJWsWCxtAJ4s9y";
+
+        String hostName = DirectP2pNodeRuntime.mdnsHostName(peerId);
+
+        assertEquals(
+                "connect-share-12D3KooWEHeJnnq1Rfwt679bTyTxkEdt",
+                hostName);
+        assertTrue(hostName.length() <= 63);
     }
 
     @Test

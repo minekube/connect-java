@@ -72,6 +72,9 @@ pluginManagement {
         maven("https://maven.fabricmc.net/") {
             name = "Fabric"
         }
+        maven("https://maven.neoforged.net/releases") {
+            name = "NeoForged"
+        }
         gradlePluginPortal()
     }
     repositories {
@@ -84,6 +87,8 @@ pluginManagement {
         id("com.google.protobuf") version "0.10.0"
         id("net.fabricmc.fabric-loom") version "1.17.17"
         id("net.fabricmc.fabric-loom-remap") version "1.17.17"
+        id("net.neoforged.moddev.legacyforge") version "2.0.143"
+        id("net.neoforged.moddev") version "2.0.143"
         id("org.jetbrains.kotlin.jvm") version "2.4.10"
     }
     includeBuild("build-logic")
@@ -105,6 +110,14 @@ if (!gradle.startParameter.projectProperties.containsKey("skip-share")) {
     include(":share:fabric-common")
     include(":share:fabric-1-21-11")
     project(":share:fabric-1-21-11").projectDir = file("share/fabric-1.21.11")
+    include(":share:fabric-1-21-1")
+    project(":share:fabric-1-21-1").projectDir = file("share/fabric-1.21.1")
+    include(":share:fabric-1-20-1")
+    project(":share:fabric-1-20-1").projectDir = file("share/fabric-1.20.1")
     include(":share:fabric-26-2")
     project(":share:fabric-26-2").projectDir = file("share/fabric-26.2")
+    include(":share:forge-1-20-1")
+    project(":share:forge-1-20-1").projectDir = file("share/forge-1.20.1")
+    include(":share:neoforge-1-21-1")
+    project(":share:neoforge-1-21-1").projectDir = file("share/neoforge-1.21.1")
 }
