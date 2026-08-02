@@ -79,23 +79,28 @@ class PrismFriendJoinE2ETest {
                                 .FriendActivityRequest(UUID.randomUUID()),
                         )
                     }
-                assertEquals(
-                    FriendActivityKind.HOSTING_WORLD,
-                    activityResult.getOrNull()?.kind
-                        ?: fail(activityResult.leftOrNull()?.safeMessage
-                            ?: "Host returned no friend activity"),
-                )
+                val activity = activityResult.getOrNull()
+                    ?: fail(
+                        activityResult.leftOrNull()?.safeMessage
+                            ?: "Host returned no friend activity",
+                    )
+                assertEquals(FriendActivityKind.HOSTING_WORLD, activity.kind)
 
-                // Status and gameplay require different one-shot proxies.
-                withTimeout(30_000) {
-                    while (
-                        browser.probeLan(
-                            friend,
-                            DirectP2pAuthMode.OFFLINE,
-                            MinecraftStatusProbe(),
-                        ) == null
-                    ) {
-                        delay(250)
+                // A hidden world name intentionally rejects raw Minecraft
+                // status. Authenticated activity remains the privacy-safe
+                // authority, and gameplay admission is independent.
+                if (activity.description != null) {
+                    // Status and gameplay require different one-shot proxies.
+                    withTimeout(30_000) {
+                        while (
+                            browser.probeLan(
+                                friend,
+                                DirectP2pAuthMode.OFFLINE,
+                                MinecraftStatusProbe(),
+                            ) == null
+                        ) {
+                            delay(250)
+                        }
                     }
                 }
                 val playerUuid = UUID.nameUUIDFromBytes(
