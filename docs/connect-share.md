@@ -12,8 +12,8 @@ IP addresses or create a new link for every world.
    reveal presence or make either player a confirmed friend yet.
 3. The other player accepts the request. Reciprocal requests converge into the
    same confirmed friendship.
-4. When a confirmed friend shares a singleplayer world, choose **Request to
-   join**. The host gets an in-game notification and can allow or deny it.
+4. When a confirmed friend shares a singleplayer world, choose **Request**.
+   The host gets an in-game notification and can allow or deny it.
 5. Connect Share tries a direct libp2p path first. If that is unavailable, the
    approved gameplay connection falls back to Minekube Connect. Friend
    requests and presence themselves are authenticated libp2p traffic and never
@@ -97,5 +97,6 @@ publication additionally requires the repository's project IDs and publisher
 credentials; the workflow fails closed when they are absent.
 
 Forge and NeoForge reuse the loader-neutral Kotlin core and version-specific
-Minecraft UI/bridge adapters. Their packaged artifacts pass the same real
-two-client Prism host/join gate as the Fabric artifacts.
+Minecraft UI/bridge adapters. Use the exact packaged artifact under test for
+the real two-client Prism acceptance pass in
+[the testing guide](connect-share-testing.md).
