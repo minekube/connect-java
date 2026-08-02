@@ -80,9 +80,10 @@ LIVE_PLAYER_NAME=<guest-name> \
   --tests '*PrismFriendJoinE2ETest*' --rerun-tasks --no-parallel
 ```
 
-The harness tracks the active log file and resets its baseline when Prism
-rotates `latest.log`; keep `LIVE_GUEST_LOG` pointed at that active path and
-wait for a new advancement line after a rotation.
+The harness keeps its pre-launch log snapshot immutable across Prism's
+`latest.log` rotation. Keep `LIVE_GUEST_LOG` pointed at that active path: a new
+or replaced log containing an advancement line is post-launch evidence and
+must not be absorbed into a later baseline before the poll observes it.
 
 The test must remain running while the external guest uses the port written to
 `LIVE_PORT_FILE`. It proves, in order:
