@@ -1,6 +1,7 @@
 package com.minekube.connect.share.fabric.v1_20_1
 
 import com.minekube.connect.share.fabric.ConnectShareClient
+import com.minekube.connect.share.fabric.ui.ShareUiMessage
 import com.minekube.connect.share.fabric.ui.AdaptiveShareLayout
 import com.minekube.connect.share.identity.CredentialSource
 import java.nio.file.Path
@@ -118,7 +119,7 @@ class EndpointIdentityScreen(
                 MultiLineTextWidget(
                     layout.contentX,
                     layout.bodyTop + 104,
-                    Component.literal(safeMessage)
+                    safeMessage.component()
                         .withStyle(ChatFormatting.YELLOW),
                     font,
                 ).setMaxWidth(layout.contentWidth).setCentered(true),
@@ -244,6 +245,9 @@ class EndpointIdentityScreen(
         )
     }
 }
+
+private fun ShareUiMessage.component() =
+    Component.translatable(translationKey, *arguments.toTypedArray())
 
 private fun CredentialSource.displayName(): Component =
     Component.translatable(

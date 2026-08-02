@@ -51,6 +51,23 @@ class ShareViewModelTest {
     }
 
     @Test
+    fun `failed sharing can be reset with stop`() = runTest {
+        val shareState = MutableStateFlow<ShareState>(
+            ShareState.Failed("start failed"),
+        )
+        val viewModel = viewModel(shareState = shareState)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.startEnabled)
+
+        viewModel.stop()
+        advanceUntilIdle()
+
+        assertEquals(ShareState.Idle, viewModel.state.value.shareState)
+        assertTrue(viewModel.state.value.startEnabled)
+    }
+
+    @Test
     fun `capacity is clamped to supported guest range`() = runTest {
         val viewModel = viewModel()
         advanceUntilIdle()
@@ -105,8 +122,8 @@ class ShareViewModelTest {
         assertFalse(viewModel.state.value.importDraft.tokenEditable)
         assertEquals(0, identityActions.importCalls)
         assertEquals(
-            "Connect credentials are managed by the environment",
-            viewModel.state.value.safeMessage,
+            "connect_share.error.identity_managed",
+            viewModel.state.value.safeMessage?.translationKey,
         )
     }
 
@@ -227,8 +244,8 @@ class ShareViewModelTest {
 
         assertEquals(0, identityActions.importCalls)
         assertEquals(
-            "Stop sharing before changing Connect credentials",
-            viewModel.state.value.safeMessage,
+            "connect_share.error.identity_active",
+            viewModel.state.value.safeMessage?.translationKey,
         )
     }
 

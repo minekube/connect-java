@@ -19,6 +19,8 @@ import com.minekube.connect.share.fabric.MinecraftStatusProbe
 import com.minekube.connect.share.fabric.LoadedCompatibilityProfileFactory
 import com.minekube.connect.share.fabric.LoadedMod
 import com.minekube.connect.share.fabric.ModSide
+import com.minekube.connect.share.fabric.ui.ShareUiMessage
+import com.minekube.connect.share.fabric.ui.uiMessage
 import com.minekube.connect.share.ShareState
 import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.share.friend.FriendActivity
@@ -334,7 +336,7 @@ class ConnectShare1201Runtime(
                                         minecraft,
                                         "connect_share.notification.follow_failed",
                                         null,
-                                        failure.safeMessage,
+                                        failure.uiMessage().component(),
                                     )
                                 }
                             },
@@ -414,14 +416,26 @@ class ConnectShare1201Runtime(
         detailKey: String?,
         value: String,
     ) {
+        followToast(minecraft, titleKey, detailKey, Component.literal(value))
+    }
+
+    private fun followToast(
+        minecraft: Minecraft,
+        titleKey: String,
+        detailKey: String?,
+        value: Component,
+    ) {
         SystemToast.add(
             minecraft.toasts,
             SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,
             Component.translatable(titleKey, value),
             detailKey?.let { Component.translatable(it, value) }
-                ?: Component.literal(value),
+                ?: value,
         )
     }
+
+    private fun ShareUiMessage.component() =
+        Component.translatable(translationKey, *arguments.toTypedArray())
 
     private fun SocialEvent.title(): Component = Component.translatable(
         when (this) {

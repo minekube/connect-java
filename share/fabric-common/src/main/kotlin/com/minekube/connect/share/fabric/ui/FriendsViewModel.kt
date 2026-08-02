@@ -69,7 +69,7 @@ data class FriendsUiState(
     val outgoingRequests: List<OutgoingFriendRequestSummary> = emptyList(),
     val incomingRequests: List<IncomingFriendRequestSummary> = emptyList(),
     val blocked: List<BlockedFriendSummary> = emptyList(),
-    val safeMessage: String? = null,
+    val safeMessage: ShareUiMessage? = null,
 )
 
 class FriendsViewModel(
@@ -101,7 +101,7 @@ class FriendsViewModel(
             internetDirectGuestOptIn = internetDirectGuestOptIn,
         ).fold(
             ifLeft = { failure ->
-                update { copy(safeMessage = failure.safeMessage) }
+                update { copy(safeMessage = failure.uiMessage()) }
                 null
             },
             ifRight = { request ->
@@ -121,7 +121,7 @@ class FriendsViewModel(
     fun rename(peerId: String, displayName: String) {
         store.rename(peerId, displayName).fold(
             ifLeft = { failure ->
-                update { copy(safeMessage = failure.safeMessage) }
+                update { copy(safeMessage = failure.uiMessage()) }
             },
             ifRight = {
                 refresh()
@@ -135,7 +135,7 @@ class FriendsViewModel(
     ) {
         store.updatePermissions(peerId, permissions).fold(
             ifLeft = { failure ->
-                update { copy(safeMessage = failure.safeMessage) }
+                update { copy(safeMessage = failure.uiMessage()) }
             },
             ifRight = {
                 refresh()
@@ -149,7 +149,7 @@ class FriendsViewModel(
     ) {
         store.setInternetDirectGuestOptIn(peerId, enabled).fold(
             ifLeft = { failure ->
-                update { copy(safeMessage = failure.safeMessage) }
+                update { copy(safeMessage = failure.uiMessage()) }
             },
             ifRight = { refresh() },
         )
@@ -410,21 +410,22 @@ class FriendsViewModel(
                         activity.kind == FriendActivityKind.HOSTING_WORLD &&
                         remote != null
                     ),
-            canJoinNow = remote != null &&
-                activity?.kind != FriendActivityKind.PLAYING_SERVER &&
-                activity?.kind != FriendActivityKind.HOSTING_WORLD,
+            canJoinNow = activity?.joinable == true &&
+                remote != null &&
+                activity.kind != FriendActivityKind.PLAYING_SERVER &&
+                activity.kind != FriendActivityKind.HOSTING_WORLD,
             following = peerId in followController.state.value,
         )
     }
 
     private companion object {
-        const val FRIENDS_LOAD_FAILURE =
-            "Saved Connect Share friends could not be loaded"
-        const val FRIEND_REMOVE_FAILURE =
-            "This Connect Share friend could not be removed"
-        const val FRIEND_BLOCK_FAILURE =
-            "This Connect Share identity could not be blocked"
-        const val FRIEND_UNBLOCK_FAILURE =
-            "This Connect Share identity could not be unblocked"
+        val FRIENDS_LOAD_FAILURE =
+            ShareUiMessage("connect_share.error.friends_load")
+        val FRIEND_REMOVE_FAILURE =
+            ShareUiMessage("connect_share.error.friend_remove")
+        val FRIEND_BLOCK_FAILURE =
+            ShareUiMessage("connect_share.error.friend_block")
+        val FRIEND_UNBLOCK_FAILURE =
+            ShareUiMessage("connect_share.error.friend_unblock")
     }
 }

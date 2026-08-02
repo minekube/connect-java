@@ -360,7 +360,12 @@ class FriendStore(
             friend = removed,
             removedAt = now,
         )
-        write(StoreData(remaining, removals))
+        write(
+            data().copy(
+                friends = remaining,
+                removals = removals,
+            ),
+        )
         return true
     }
 

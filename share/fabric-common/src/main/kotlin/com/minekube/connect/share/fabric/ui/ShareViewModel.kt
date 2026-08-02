@@ -59,7 +59,7 @@ data class ShareUiState(
     val identity: EndpointIdentitySummary? = null,
     val importDraft: IdentityImportDraft = IdentityImportDraft(),
     val operationInProgress: Boolean = false,
-    val safeMessage: String? = null,
+    val safeMessage: ShareUiMessage? = null,
 ) {
     val startEnabled: Boolean
         get() = worldAvailable &&
@@ -341,7 +341,7 @@ class ShareViewModel(
     ) {
         result.fold(
             ifLeft = { failure ->
-                update { copy(safeMessage = failure.safeMessage) }
+                update { copy(safeMessage = failure.uiMessage()) }
             },
             ifRight = { identity ->
                 onIdentityChanged()
@@ -365,7 +365,7 @@ class ShareViewModel(
     private suspend fun startCurrentWorld() {
         startShare(state.value.options).fold(
             ifLeft = { failure ->
-                update { copy(safeMessage = failure.safeMessage) }
+                update { copy(safeMessage = failure.uiMessage()) }
             },
             ifRight = {
                 update {
@@ -381,7 +381,7 @@ class ShareViewModel(
     private suspend fun stopCurrentWorld() {
         stopShare().fold(
             ifLeft = { failure ->
-                update { copy(safeMessage = failure.safeMessage) }
+                update { copy(safeMessage = failure.uiMessage()) }
             },
             ifRight = {
                 update {
@@ -413,13 +413,12 @@ class ShareViewModel(
         state.value.worldAvailable && state.value.shareState is ShareState.Idle
 
     private fun canStopCurrentWorld(): Boolean = when (state.value.shareState) {
-        ShareState.Idle,
-        is ShareState.Failed,
-        -> false
+        ShareState.Idle -> false
 
         ShareState.Starting,
         is ShareState.Sharing,
         ShareState.Stopping,
+        is ShareState.Failed,
         -> true
     }
 
@@ -454,14 +453,14 @@ class ShareViewModel(
     )
 
     private companion object {
-        const val MANAGED_MESSAGE =
-            "Connect credentials are managed by the environment"
-        const val GENERIC_FAILURE_MESSAGE =
-            "Could not update Connect Share"
-        const val IDENTITY_ACTIVE_MESSAGE =
-            "Stop sharing before changing Connect credentials"
-        const val PREFERENCES_FAILURE_MESSAGE =
-            "Connect Share privacy settings could not be saved"
+        val MANAGED_MESSAGE =
+            ShareUiMessage("connect_share.error.identity_managed")
+        val GENERIC_FAILURE_MESSAGE =
+            ShareUiMessage("connect_share.error.generic")
+        val IDENTITY_ACTIVE_MESSAGE =
+            ShareUiMessage("connect_share.error.identity_active")
+        val PREFERENCES_FAILURE_MESSAGE =
+            ShareUiMessage("connect_share.error.preferences_save")
     }
 }
 

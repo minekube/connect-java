@@ -180,7 +180,10 @@ class FriendsViewModelTest {
 
         assertEquals(null, accepted)
         assertTrue(viewModel.state.value.friends.isEmpty())
-        assertTrue(viewModel.state.value.safeMessage?.isNotBlank() == true)
+        assertTrue(
+            viewModel.state.value.safeMessage?.translationKey?.isNotBlank() ==
+                true,
+        )
     }
 
     @Test
@@ -324,6 +327,36 @@ class FriendsViewModelTest {
         val online = viewModel.state.value.friends.single()
         assertTrue(online.onlineViaConnect)
         assertEquals("Robin's Remote World", online.worldName)
+    }
+
+    @Test
+    fun `direct status presence cannot make a privacy-hidden world joinable`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        val viewModel = FriendsViewModel(store)
+
+        viewModel.updateRemotePresence(
+            mapOf(
+                PEER_ID to RemoteFriendPresence(
+                    peerId = PEER_ID,
+                    displayName = "Robin",
+                    online = true,
+                    description = "Private World",
+                    notifyWhenOnline = true,
+                    route = ShareRoute.DIRECT_LAN,
+                ),
+            ),
+        )
+        viewModel.updateActivities(
+            mapOf(PEER_ID to FriendActivity(FriendActivityKind.ONLINE)),
+        )
+
+        val friend = viewModel.state.value.friends.single()
+        assertFalse(friend.canJoinNow)
+        assertEquals(
+            "connect_share.friends.status.online",
+            friend.presentation().statusKey,
+        )
     }
 
     @Test
