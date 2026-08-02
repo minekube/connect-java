@@ -4,6 +4,8 @@ import com.minekube.connect.share.ShareState
 import com.minekube.connect.share.ShareConnectionGateway
 import com.minekube.connect.share.fabric.ui.ShareViewModel
 import com.minekube.connect.share.fabric.ui.FriendsViewModel
+import com.minekube.connect.share.fabric.ui.menuLabel
+import com.minekube.connect.share.fabric.ui.overview
 
 fun interface ConnectShareScreenFactory {
     fun open(parent: Any, active: Boolean)
@@ -63,6 +65,26 @@ object ConnectShareClient {
         } else {
             "connect_share.menu.share"
         }
+
+    @JvmStatic
+    fun friendsButtonTranslationKey(): String = installation
+        ?.friendsViewModel
+        ?.state
+        ?.value
+        ?.overview()
+        ?.menuLabel()
+        ?.translationKey
+        ?: "connect_share.menu.join"
+
+    @JvmStatic
+    fun friendsButtonCount(): Int = installation
+        ?.friendsViewModel
+        ?.state
+        ?.value
+        ?.overview()
+        ?.menuLabel()
+        ?.count
+        ?: 0
 
     @JvmStatic
     fun openPauseScreen(parent: Any) {

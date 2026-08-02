@@ -2,8 +2,14 @@ package com.minekube.connect.share.fabric.v1_20_1
 
 import com.minekube.connect.share.ShareGameMode
 import com.minekube.connect.share.fabric.ConnectShareClient
+import com.minekube.connect.share.fabric.ui.AdaptiveShareLayout
+import com.minekube.connect.share.fabric.ui.FormScreenLayout
+import com.minekube.connect.share.fabric.ui.ShareUiState
+import net.minecraft.ChatFormatting
 import net.minecraft.client.gui.components.Button
+import net.minecraft.client.gui.components.Checkbox
 import net.minecraft.client.gui.components.CycleButton
+import net.minecraft.client.gui.components.MultiLineTextWidget
 import net.minecraft.client.gui.components.StringWidget
 import net.minecraft.client.gui.components.Tooltip
 import net.minecraft.client.gui.screens.Screen
@@ -15,32 +21,128 @@ class ShareSetupScreen(
 ) : Screen(Component.translatable("connect_share.setup.title")) {
     private val viewModel = ConnectShareClient.viewModel()
     private var startButton: Button? = null
+    private var defaultsLoaded = false
+    private var optionsExpanded = false
 
     override fun init() {
-        val current = viewModel.state.value
-        minecraft!!.singleplayerServer?.let { server ->
-            viewModel.setGameMode(server.defaultGameType.toShareGameMode())
-            viewModel.setAllowCheats(server.worldData.allowCommands)
+        if (!defaultsLoaded) {
+            minecraft!!.singleplayerServer?.let { server ->
+                viewModel.setGameMode(server.defaultGameType.toShareGameMode())
+                viewModel.setAllowCheats(server.worldData.allowCommands)
+            }
+            defaultsLoaded = true
         }
+        val current = viewModel.state.value
+        val layout = AdaptiveShareLayout.form(width, height, 4)
 
-        addRenderableWidget(centered(title, 18))
+        addRenderableWidget(
+            centered(title.copy().withStyle(ChatFormatting.BOLD), layout.headerY),
+        )
+        addRenderableWidget(
+            MultiLineTextWidget(
+                layout.contentX,
+                layout.subtitleY,
+                Component.translatable("connect_share.setup.description"),
+                font,
+            ).setMaxWidth(layout.contentWidth).setCentered(true),
+        )
         addRenderableWidget(
             centered(
-                Component.translatable("connect_share.setup.description"),
-                36,
+                Component.translatable("connect_share.setup.friends_only")
+                    .withStyle(ChatFormatting.GREEN),
+                layout.bodyTop,
             ),
         )
+
+        if (optionsExpanded) {
+            addOptions(layout, current)
+        } else {
+            addRenderableWidget(
+                MultiLineTextWidget(
+                    layout.contentX,
+                    layout.bodyTop + 28,
+                    Component.translatable("connect_share.setup.persistence")
+                        .withStyle(ChatFormatting.GRAY),
+                    font,
+                ).setMaxWidth(layout.contentWidth).setCentered(true),
+            )
+        }
+
+        startButton = addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.setup.start"),
+            ) {
+                viewModel.start()
+                minecraft!!.setScreen(ShareStatusScreen(parent))
+            }.bounds(
+                layout.contentX,
+                layout.footerTop,
+                layout.contentWidth,
+                20,
+            ).build(),
+        )
+
+        val third = (layout.contentWidth - 12) / 3
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable(
+                    if (optionsExpanded) {
+                        "connect_share.setup.options.hide"
+                    } else {
+                        "connect_share.setup.options.show"
+                    },
+                ),
+            ) {
+                optionsExpanded = !optionsExpanded
+                rebuildWidgets()
+            }.bounds(
+                layout.contentX,
+                layout.footerTop + 24,
+                third,
+                20,
+            ).build(),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.privacy.title"),
+            ) {
+                minecraft!!.setScreen(SharePrivacyScreen(this))
+            }.bounds(
+                layout.contentX + third + 6,
+                layout.footerTop + 24,
+                third,
+                20,
+            ).build(),
+        )
+        addRenderableWidget(
+            Button.builder(CommonComponents.GUI_CANCEL) { onClose() }
+                .bounds(
+                    layout.contentX + (third + 6) * 2,
+                    layout.footerTop + 24,
+                    third,
+                    20,
+                ).build(),
+        )
+        refresh()
+    }
+
+    private fun addOptions(
+        layout: FormScreenLayout,
+        current: ShareUiState,
+    ) {
         addRenderableWidget(
             CycleButton.builder(
                 { mode: ShareGameMode ->
-                    Component.translatable("connect_share.game_mode.${mode.name.lowercase()}")
+                    Component.translatable(
+                        "connect_share.game_mode.${mode.name.lowercase()}",
+                    )
                 },
-            ).withValues(ShareGameMode.entries)
-                .withInitialValue(current.options.gameMode)
+            ).withInitialValue(current.options.gameMode)
+                .withValues(ShareGameMode.entries)
                 .create(
-                    width / 2 - 155,
-                    68,
-                    150,
+                    layout.contentX,
+                    layout.bodyTop + 24,
+                    layout.halfButtonWidth,
                     20,
                     Component.translatable("selectWorld.gameMode"),
                 ) { _, mode -> viewModel.setGameMode(mode) },
@@ -48,9 +150,9 @@ class ShareSetupScreen(
         addRenderableWidget(
             CycleButton.onOffBuilder(current.options.allowCheats)
                 .create(
-                    width / 2 + 5,
-                    68,
-                    150,
+                    layout.contentX + layout.halfButtonWidth + 6,
+                    layout.bodyTop + 24,
+                    layout.halfButtonWidth,
                     20,
                     Component.translatable("selectWorld.allowCommands"),
                 ) { _, allowed -> viewModel.setAllowCheats(allowed) },
@@ -58,28 +160,27 @@ class ShareSetupScreen(
         addRenderableWidget(
             CycleButton.builder(
                 { guests: Int -> Component.literal(guests.toString()) },
-            ).withValues((1..16).toList())
-                .withInitialValue(current.options.maxGuests)
+            ).withInitialValue(current.options.maxGuests)
+                .withValues((1..16).toList())
                 .create(
-                    width / 2 - 75,
-                    96,
-                    150,
+                    layout.contentX,
+                    layout.bodyTop + 48,
+                    layout.contentWidth,
                     20,
                     Component.translatable("connect_share.setup.max_guests"),
                 ) { _, guests -> viewModel.setMaxGuests(guests) },
         )
         addRenderableWidget(
             ObservableCheckbox(
-                width / 2 - 155,
-                126,
-                310,
+                layout.contentX,
+                layout.bodyTop + 74,
+                layout.contentWidth,
                 20,
                 Component.translatable("connect_share.setup.internet"),
                 current.options.allowInternetDirect,
-                { allowed ->
-                    viewModel.setAllowInternetDirect(allowed)
-                },
-            ).apply {
+            ) { allowed ->
+                viewModel.setAllowInternetDirect(allowed)
+            }.apply {
                 setTooltip(
                     Tooltip.create(
                         Component.translatable(
@@ -89,35 +190,6 @@ class ShareSetupScreen(
                 )
             },
         )
-        addRenderableWidget(
-            centered(
-                Component.translatable(
-                    "connect_share.setup.persistence",
-                ),
-                154,
-            ),
-        )
-        startButton = addRenderableWidget(
-            Button.builder(
-                Component.translatable("connect_share.setup.start"),
-            ) {
-                viewModel.start()
-                minecraft!!.setScreen(ShareStatusScreen(parent))
-            }.bounds(width / 2 - 155, height - 28, 150, 20).build(),
-        )
-        addRenderableWidget(
-            Button.builder(
-                Component.translatable("connect_share.privacy.title"),
-            ) {
-                minecraft!!.setScreen(SharePrivacyScreen(this))
-            }.bounds(width / 2 - 75, height - 52, 150, 20).build(),
-        )
-        addRenderableWidget(
-            Button.builder(CommonComponents.GUI_CANCEL) { onClose() }
-                .bounds(width / 2 + 5, height - 28, 150, 20)
-                .build(),
-        )
-        refresh()
     }
 
     override fun tick() {
@@ -135,11 +207,14 @@ class ShareSetupScreen(
 
     private fun centered(message: Component, y: Int): StringWidget {
         val textWidth = font.width(message)
-        return StringWidget(width / 2 - textWidth / 2, y, textWidth, 9, message, font)
-    }
-
-    private companion object {
-        const val CONTENT_WIDTH = 310
+        return StringWidget(
+            width / 2 - textWidth / 2,
+            y,
+            textWidth,
+            11,
+            message,
+            font,
+        )
     }
 }
 

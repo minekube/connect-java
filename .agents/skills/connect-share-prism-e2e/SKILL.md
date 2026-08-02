@@ -73,6 +73,7 @@ Start it after the host world is ready:
 LIVE_DATA=<guest-config/minekube-connect-share> \
 LIVE_PORT_FILE=<fresh-temporary-port-file> \
 LIVE_HOST_LOG=<host-minecraft/logs/latest.log> \
+LIVE_GUEST_LOG=<guest-minecraft/logs/latest.log> \
 LIVE_PLAYER_NAME=<guest-name> \
 ./gradlew :share:fabric-common:test \
   --tests '*PrismFriendJoinE2ETest*' --no-parallel
@@ -86,11 +87,41 @@ The test must remain running while the external guest uses the port written to
 3. A dedicated direct proxy answers a real Minecraft status probe.
 4. The libp2p friend join request reaches the host and is approved.
 5. A fresh gameplay proxy is opened.
-6. A real guest login causes a new `<guest> joined the game` host-log line.
+6. A real guest login causes a new `<guest> joined the game` host-log line and
+   a new `Loaded ... advancements` guest-log line before the gameplay proxy is
+   released.
 
 The current `DirectP2pProxy` is one-shot. A status probe consumes its target;
 always use a different proxy for gameplay and keep the gameplay target alive
 until login completes.
+
+## Verify the player-facing UX
+
+Treat visual QA as a keyboard-only Prism test, not as a source review:
+
+1. Open every Connect Share state with Tab, Shift-Tab, Enter, and Escape. Widget
+   insertion order is Minecraft's focus order, so verify both directions and
+   keep the primary action reachable before secondary or destructive actions.
+2. Capture the Minecraft window at its normal size, then resize it to 640x400
+   points and capture the same dense states again. On macOS, read the Java
+   window's position and size through System Events, then pass those point
+   coordinates to `screencapture -R`; Retina output is expected to have twice
+   the pixel dimensions.
+3. Inspect title, pause, Friends, add-link, manage, Privacy, setup (collapsed and
+   expanded), active status, compatibility, blocked-list, and endpoint states.
+   Require visible hierarchy, non-overlapping footers, readable translated
+   copy, consistent Back/Escape behavior, and exactly one obvious primary
+   action.
+4. Give every `EditBox` a persistent nearby label. Minecraft hides an empty
+   field's hint while the field is focused, so a hint alone becomes a blank
+   white rectangle during the most important input moment.
+5. Keep a split vanilla pause-menu row at 100 + 4 + 100 logical pixels and use
+   short labels that fit each half. Keep title-menu affordances compact and
+   live-update request/readiness counts without covering the panorama.
+
+Screenshot appearance is evidence, not a golden test. Keep deterministic
+layout and presentation decisions in pure Kotlin tests so visual fixes remain
+portable across every loader and supported Minecraft API.
 
 For no-click automation, temporarily enable automatic joining only for the
 already confirmed test friend. Restore `canJoinAutomatically` to `false` and

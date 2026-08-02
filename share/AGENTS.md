@@ -128,3 +128,8 @@ redesigned for Kotlin.
   and name it from the loader-specific mixin config. Forge and NeoForge client
   resources need a compatible `pack.mcmeta`, otherwise startup can stop at a
   resource-pack warning before quick-play E2E begins.
+- Visual QA is keyboard-only at both the normal Prism window size and 640x400.
+  A focused Minecraft `EditBox` hides its hint, so every input needs a
+  persistent label; split pause-menu buttons must keep copy within their
+  100-pixel logical width. The repository Prism skill owns the capture and
+  focus-order procedure.
