@@ -37,6 +37,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
@@ -134,7 +135,7 @@ class FriendPairingDirectE2ETest {
                             now = { now },
                             ioDispatcher = Dispatchers.IO,
                         )
-                        var received = false
+                        val received = CompletableDeferred<Unit>()
                         val result = async {
                             pairing.send(
                                 invitation = direct.invitation,
@@ -152,7 +153,7 @@ class FriendPairingDirectE2ETest {
                                             DirectP2pAuthMode.OFFLINE,
                                     )
                                 },
-                                onReceived = { received = true },
+                                onReceived = { received.complete(Unit) },
                             )
                         }
 
@@ -161,7 +162,7 @@ class FriendPairingDirectE2ETest {
                                 .first { it.isNotEmpty() }
                                 .single()
                         }
-                        assertTrue(received)
+                        withTimeout(5.seconds) { received.await() }
                         admission.answer(pending.requestId, allow = true)
 
                         assertTrue(result.await().isRight())

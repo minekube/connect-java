@@ -169,6 +169,12 @@ Recognize these established failure signatures:
 - A host `lost connection: Disconnected` line alone is incomplete evidence.
   Inspect the guest log or screen and whether the owner of the one-shot proxy
   closed it.
+- A vanilla Connect guest showing only `Timed out` after the host approval
+  window means the control-plane admission deadline collided with Minecraft's
+  own connection timeout. Keep the Connect session decision shorter than the
+  vanilla deadline, cancel its pending admission when that budget expires, and
+  require the guest log to contain the actionable denial rather than treating
+  generic timeout as acceptable evidence.
 
 ## Finish and retain knowledge
 

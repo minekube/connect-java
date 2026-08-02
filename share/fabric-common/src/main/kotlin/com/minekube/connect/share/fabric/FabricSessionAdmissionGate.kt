@@ -8,6 +8,7 @@ import com.minekube.connect.share.admission.AdmissionController
 import com.minekube.connect.share.admission.AdmissionIdentity
 import com.minekube.connect.share.admission.AuthSource
 import com.minekube.connect.share.admission.Ingress
+import com.minekube.connect.share.fabric.ui.ShareLoginMessages
 import com.minekube.connect.watch.SessionAdmissionDecision
 import com.minekube.connect.watch.SessionAdmissionGate
 import com.minekube.connect.watch.SessionProposal
@@ -16,11 +17,14 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class FabricSessionAdmissionGate(
     private val admission: AdmissionController,
@@ -28,9 +32,16 @@ class FabricSessionAdmissionGate(
     private val approvedJoins: ApprovedJoinTracker =
         ApprovedJoinTracker(),
     private val worldAvailable: () -> Boolean = { true },
+    private val decisionTimeout: Duration = 20.seconds,
 ) : SessionAdmissionGate {
     private val stopped = AtomicBoolean()
     private val active = ConcurrentHashMap<CompletableFuture<SessionAdmissionDecision>, Job>()
+
+    init {
+        require(decisionTimeout.isPositive()) {
+            "Connect admission decision timeout must be positive"
+        }
+    }
 
     override fun request(
         proposal: SessionProposal,
@@ -62,7 +73,9 @@ class FabricSessionAdmissionGate(
         lateinit var job: Job
         job = scope.launch(start = CoroutineStart.LAZY) {
             try {
-                val answer = admission.request(identity)
+                val answer = withTimeoutOrNull(decisionTimeout) {
+                    admission.request(identity)
+                } ?: AdmissionAnswer.TIMEOUT
                 approvedJoins.record(identity, answer)
                 future.complete(answer.toCoreDecision())
             } catch (cancellation: CancellationException) {
@@ -133,10 +146,12 @@ class FabricSessionAdmissionGate(
 
     private fun AdmissionAnswer.toCoreDecision(): SessionAdmissionDecision = when (this) {
         AdmissionAnswer.ALLOW -> SessionAdmissionDecision.allow()
-        AdmissionAnswer.DENY -> SessionAdmissionDecision.deny("Host denied this connection")
-        AdmissionAnswer.TIMEOUT -> SessionAdmissionDecision.deny("Host approval timed out")
-        AdmissionAnswer.STOPPED -> SessionAdmissionDecision.deny("Sharing stopped")
-        AdmissionAnswer.CAPACITY -> SessionAdmissionDecision.deny("Share is full")
+        AdmissionAnswer.DENY,
+        AdmissionAnswer.TIMEOUT,
+        AdmissionAnswer.STOPPED,
+        AdmissionAnswer.CAPACITY -> SessionAdmissionDecision.deny(
+            ShareLoginMessages.denial(this).fallback,
+        )
     }
 
     private companion object {

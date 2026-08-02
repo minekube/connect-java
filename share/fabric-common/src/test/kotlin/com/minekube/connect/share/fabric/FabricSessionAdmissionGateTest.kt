@@ -14,6 +14,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.async
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Authentication
@@ -134,8 +135,38 @@ class FabricSessionAdmissionGateTest {
         val decision = result.getNow(null)
         assertFalse(decision.isAllowed)
         assertFalse(decision.isDeferredToLocalLogin)
-        assertEquals("Host denied this connection", decision.safeMessage)
+        assertEquals(
+            "The host declined this join. Request access again when ready.",
+            decision.safeMessage,
+        )
     }
+
+    @Test
+    fun `Connect approval timeout leaves time for an actionable disconnect`() =
+        runTest {
+            val admission = admission()
+            val gate = FabricSessionAdmissionGate(
+                admission = admission,
+                scope = backgroundScope,
+                decisionTimeout = 20.seconds,
+            )
+            val result = gate.request(proposal(passthrough = false))
+                .toCompletableFuture()
+            runCurrent()
+
+            advanceTimeBy(19_999)
+            assertFalse(result.isDone)
+            advanceTimeBy(1)
+            runCurrent()
+
+            assertTrue(result.isDone)
+            assertFalse(result.getNow(null).isAllowed)
+            assertEquals(
+                "The host did not approve this join in time. Try again.",
+                result.getNow(null).safeMessage,
+            )
+            assertTrue(admission.pending.value.isEmpty())
+        }
 
     @Test
     fun `stopping gate cancels pending Core stages`() = runTest {

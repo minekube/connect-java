@@ -119,6 +119,10 @@ redesigned for Kotlin.
   the confirmed test friend, send the real libp2p join request, and restore the
   permission afterwards. Keep machine-specific instance paths and credentials
   in environment variables, never in committed tests or scripts.
+- Connect's no-mod session admission must finish before vanilla's own
+  connection timeout. Preserve a deadline buffer, cancel the pending host
+  request when it expires, and test the guest-visible actionable denial;
+  generic `Timed out` is a failed UX result.
 - `PrismFriendJoinE2ETest` is the opt-in live harness. Start the host first,
   then follow [the testing guide](../docs/connect-share-testing.md) for the
   complete two-client launch and evidence gates. Keep machine-specific paths
