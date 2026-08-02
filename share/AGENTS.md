@@ -74,9 +74,10 @@ redesigned for Kotlin.
   `--offline <name>` is authoritative; editing `InstanceAccountId` while Prism
   runs is not, because Prism rewrites it.
 - Prove the flow in layers: mDNS discovery, authenticated friend activity,
-  Minecraft status when host privacy permits it, then a real login whose host log contains
-  `<name> joined the game`. Control-plane reachability or a status response does
-  not prove that the world is joinable. `dns-sd -B
+  Minecraft status when host privacy permits it, then follow [the testing
+  guide](../docs/connect-share-testing.md) for the real two-client login
+  evidence gates. Control-plane reachability or a status response does not
+  prove that the world is joinable. `dns-sd -B
   _minekube-connect-share._tcp local` and `jcmd <pid> GC.class_histogram` are
   useful diagnostics for discovery and live `ShareState`/transport objects.
 - Run only one Gradle invocation at a time in a worktree. Concurrent test tasks
@@ -119,9 +120,10 @@ redesigned for Kotlin.
   permission afterwards. Keep machine-specific instance paths and credentials
   in environment variables, never in committed tests or scripts.
 - `PrismFriendJoinE2ETest` is the opt-in live harness. Start the host first,
-  supply `LIVE_DATA`, `LIVE_PORT_FILE`, and `LIVE_HOST_LOG`, then launch the
-  guest against the port written to `LIVE_PORT_FILE`. The test succeeds only
-  after the host logs a new `<name> joined the game` line.
+  then follow [the testing guide](../docs/connect-share-testing.md) for the
+  complete two-client launch and evidence gates. Keep machine-specific paths
+  in `LIVE_DATA`, `LIVE_PORT_FILE`, `LIVE_HOST_LOG`, and `LIVE_GUEST_LOG`
+  environment variables.
 - Invoke the live harness with `--rerun-tasks`. Its environment variables are
   intentionally not task inputs, so an up-to-date result is not live evidence.
 - Keep only one host and one guest identity active during a live run. Cloning a
