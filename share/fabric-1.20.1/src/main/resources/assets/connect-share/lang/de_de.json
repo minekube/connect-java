@@ -74,6 +74,8 @@
   "connect_share.notification.follow_ready_detail": "Öffne Freunde, um jetzt beizutreten; dein aktives Spiel wurde nicht unterbrochen.",
   "connect_share.notification.follow_expired": "Folgen abgelaufen",
   "connect_share.notification.follow_expired_detail": "%s war nicht rechtzeitig beitrittsbereit.",
+  "connect_share.notification.follow_cancelled": "Folgen beendet",
+  "connect_share.notification.follow_cancelled_detail": "%s kann nicht mehr gefolgt werden, da sich Freundschaft oder Zugriff geändert haben.",
   "connect_share.notification.follow_failed": "Freund konnte nicht gefolgt werden",
   "connect_share.friends.playing_server": "%s · spielt auf %s",
   "connect_share.friends.hosting_world": "%s · spielt %s",

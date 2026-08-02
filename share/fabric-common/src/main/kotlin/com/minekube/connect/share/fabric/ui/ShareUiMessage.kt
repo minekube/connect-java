@@ -15,18 +15,35 @@ data class ShareUiMessage(
     val arguments: List<String> = emptyList(),
 )
 
-object ShareLoginMessages {
-    const val AUTHENTICATION_REQUIRED =
-        "connect_share.login.authentication_required"
+data class RemoteLoginMessage(
+    val translationKey: String,
+    val fallback: String,
+)
 
-    fun denial(answer: AdmissionAnswer?): String = when (answer) {
-        AdmissionAnswer.TIMEOUT ->
-            "connect_share.login.approval_timed_out"
-        AdmissionAnswer.CAPACITY ->
-            "connect_share.login.share_full"
-        AdmissionAnswer.STOPPED ->
-            "connect_share.login.sharing_stopped"
-        else -> "connect_share.login.host_denied"
+object ShareLoginMessages {
+    val AUTHENTICATION_REQUIRED = RemoteLoginMessage(
+        "connect_share.login.authentication_required",
+        "This connection needs a valid Minecraft account.",
+    )
+
+    fun denial(answer: AdmissionAnswer?): RemoteLoginMessage = when (answer) {
+        AdmissionAnswer.TIMEOUT -> RemoteLoginMessage(
+            "connect_share.login.approval_timed_out",
+            "The host did not approve this join in time. Try again.",
+        )
+        AdmissionAnswer.CAPACITY -> RemoteLoginMessage(
+            "connect_share.login.share_full",
+            "This shared world is full. Ask the host to make room.",
+        )
+        AdmissionAnswer.STOPPED -> RemoteLoginMessage(
+            "connect_share.login.sharing_stopped",
+            "This world is not available right now. " +
+                "Ask the host to share it again.",
+        )
+        else -> RemoteLoginMessage(
+            "connect_share.login.host_denied",
+            "The host declined this join. Request access again when ready.",
+        )
     }
 }
 

@@ -48,23 +48,38 @@ class ShareUiMessageTest {
     @Test
     fun `login denial messages are stable translation keys`() {
         assertEquals(
-            "connect_share.login.authentication_required",
+            RemoteLoginMessage(
+                "connect_share.login.authentication_required",
+                "This connection needs a valid Minecraft account.",
+            ),
             ShareLoginMessages.AUTHENTICATION_REQUIRED,
         )
         assertEquals(
-            "connect_share.login.approval_timed_out",
+            RemoteLoginMessage(
+                "connect_share.login.approval_timed_out",
+                "The host did not approve this join in time. Try again.",
+            ),
             ShareLoginMessages.denial(AdmissionAnswer.TIMEOUT),
         )
         assertEquals(
-            "connect_share.login.share_full",
+            RemoteLoginMessage(
+                "connect_share.login.share_full",
+                "This shared world is full. Ask the host to make room.",
+            ),
             ShareLoginMessages.denial(AdmissionAnswer.CAPACITY),
         )
         assertEquals(
-            "connect_share.login.sharing_stopped",
+            RemoteLoginMessage(
+                "connect_share.login.sharing_stopped",
+                "This world is not available right now. Ask the host to share it again.",
+            ),
             ShareLoginMessages.denial(AdmissionAnswer.STOPPED),
         )
         assertEquals(
-            "connect_share.login.host_denied",
+            RemoteLoginMessage(
+                "connect_share.login.host_denied",
+                "The host declined this join. Request access again when ready.",
+            ),
             ShareLoginMessages.denial(AdmissionAnswer.DENY),
         )
     }

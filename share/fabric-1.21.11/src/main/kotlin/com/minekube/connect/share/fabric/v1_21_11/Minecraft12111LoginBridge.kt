@@ -127,8 +127,8 @@ object Minecraft12111LoginBridge {
         ).onLeft {
             server.execute {
                 deny.accept(
-                    Component.translatable(
-                        ShareLoginMessages.AUTHENTICATION_REQUIRED,
+                    Component.literal(
+                        ShareLoginMessages.AUTHENTICATION_REQUIRED.fallback,
                     ),
                 )
             }
@@ -171,5 +171,5 @@ object Minecraft12111LoginBridge {
     }
 
     private fun denialReason(answer: AdmissionAnswer?): Component =
-        Component.translatable(ShareLoginMessages.denial(answer))
+        Component.literal(ShareLoginMessages.denial(answer).fallback)
 }

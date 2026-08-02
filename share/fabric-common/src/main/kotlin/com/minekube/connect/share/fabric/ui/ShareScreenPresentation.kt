@@ -1,5 +1,6 @@
 package com.minekube.connect.share.fabric.ui
 
+import com.minekube.connect.share.fabric.FollowAction
 import com.minekube.connect.share.friend.CompatibilityDifference
 import com.minekube.connect.share.friend.FriendActivityKind
 
@@ -56,6 +57,28 @@ data class CompatibilityLine(
     val translationKey: String,
     val arguments: List<String>,
 )
+
+data class FollowTerminalNotification(
+    val titleKey: String,
+    val detailKey: String,
+    val displayName: String,
+)
+
+fun FollowAction.terminalNotification(): FollowTerminalNotification? =
+    when (this) {
+        is FollowAction.Expired -> FollowTerminalNotification(
+            titleKey = "connect_share.notification.follow_expired",
+            detailKey = "connect_share.notification.follow_expired_detail",
+            displayName = displayName,
+        )
+        is FollowAction.Cancelled -> FollowTerminalNotification(
+            titleKey = "connect_share.notification.follow_cancelled",
+            detailKey = "connect_share.notification.follow_cancelled_detail",
+            displayName = displayName,
+        )
+        is FollowAction.RequestJoin,
+        is FollowAction.OfferJoinNow -> null
+    }
 
 fun FriendSummary.presentation(): FriendRowPresentation {
     val action = when {

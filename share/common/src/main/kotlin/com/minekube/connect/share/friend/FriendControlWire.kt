@@ -98,6 +98,7 @@ object FriendControlWire {
     private const val MAX_SERVER_ADDRESS_BYTES = 1_024
     private const val MAX_PLAYER_NAME_BYTES = 64
     private const val MAX_VERSION_BYTES = 128
+    private const val COMPATIBILITY_FINGERPRINT_BYTES = 64
     private const val MAX_MOD_ID_BYTES = 256
     private const val MAX_REQUIRED_MODS = 512
     private const val MAX_PACK_FIELD_BYTES = 2_048
@@ -475,6 +476,7 @@ object FriendControlWire {
         require(profile.requiredMods.size <= MAX_REQUIRED_MODS) {
             "Compatibility profile has too many required mods"
         }
+        writeString(profile.fingerprint())
         writeString(profile.minecraftVersion)
         write(profile.loader.ordinal)
         writeVarInt(profile.requiredMods.size)
@@ -596,6 +598,15 @@ object FriendControlWire {
         }
 
         fun readCompatibilityProfile(): CompatibilityProfile {
+            val expectedFingerprint =
+                readString(COMPATIBILITY_FINGERPRINT_BYTES)
+            ensure(
+                expectedFingerprint.length ==
+                    COMPATIBILITY_FINGERPRINT_BYTES &&
+                    expectedFingerprint.all {
+                        it in '0'..'9' || it in 'a'..'f'
+                    },
+            )
             val minecraftVersion = readString(MAX_VERSION_BYTES)
             ensure(minecraftVersion.isNotBlank())
             val loader = ModLoader.entries.getOrNull(readByte()) ?: invalid()
@@ -620,12 +631,14 @@ object FriendControlWire {
                 )
                 else -> invalid()
             }
-            return CompatibilityProfile(
+            val profile = CompatibilityProfile(
                 minecraftVersion = minecraftVersion,
                 loader = loader,
                 requiredMods = mods,
                 pack = pack,
             )
+            ensure(profile.fingerprint() == expectedFingerprint)
+            return profile
         }
 
         fun ensure(condition: Boolean) {
