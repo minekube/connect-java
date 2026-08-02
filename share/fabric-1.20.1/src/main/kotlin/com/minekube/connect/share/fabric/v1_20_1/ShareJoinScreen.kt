@@ -21,6 +21,8 @@ import com.minekube.connect.share.fabric.ui.FriendsScreenLayout
 import com.minekube.connect.share.fabric.ui.IncomingFriendRequestSummary
 import com.minekube.connect.share.fabric.ui.OutgoingFriendRequestSummary
 import com.minekube.connect.share.fabric.ui.FriendsViewModel
+import com.minekube.connect.share.fabric.ui.ShareUiMessage
+import com.minekube.connect.share.fabric.ui.uiMessage
 import com.minekube.connect.share.fabric.ui.overview
 import com.minekube.connect.share.fabric.ui.page
 import com.minekube.connect.share.fabric.ui.presentation
@@ -72,7 +74,7 @@ class ShareJoinScreen(
     private var internetDirect: Checkbox? = null
     private var primaryButton: Button? = null
     private var secondaryButton: Button? = null
-    private var safeMessage: String? = null
+    private var safeMessage: ShareUiMessage? = null
     private var fingerprint = 0
     private var joining = false
     private var joiningPeerId: String? = null
@@ -90,7 +92,7 @@ class ShareJoinScreen(
             scope = CoroutineScope(
                 SupervisorJob() + minecraft!!.asCoroutineDispatcher(),
             )
-            browser.start().onLeft { safeMessage = it.safeMessage }
+            browser.start().onLeft { safeMessage = it.uiMessage() }
         }
         friends.updatePresence(browser.discovered.value)
         friends.updateRemotePresence(remotePresence.state.value)
@@ -213,9 +215,16 @@ class ShareJoinScreen(
             }
         }
         if (page.pageCount > 1) {
-            val pageTooltip = Tooltip.create(
+            val previousTooltip = Tooltip.create(
                 Component.translatable(
-                    "connect_share.friends.page",
+                    "connect_share.page.previous_tooltip",
+                    page.pageNumber,
+                    page.pageCount,
+                ),
+            )
+            val nextTooltip = Tooltip.create(
+                Component.translatable(
+                    "connect_share.page.next_tooltip",
                     page.pageNumber,
                     page.pageCount,
                 ),
@@ -225,7 +234,10 @@ class ShareJoinScreen(
                     relationshipOffset = page.previousOffset ?: 0
                     rebuildWidgets()
                 }.bounds(layout.contentX, layout.headerY, 24, 20)
-                    .tooltip(pageTooltip)
+                    .createNarration {
+                        Component.translatable("connect_share.page.previous")
+                    }
+                    .tooltip(previousTooltip)
                     .build(),
             )
             previous.active = page.hasPrevious
@@ -239,7 +251,10 @@ class ShareJoinScreen(
                     24,
                     20,
                 )
-                    .tooltip(pageTooltip)
+                    .createNarration {
+                        Component.translatable("connect_share.page.next")
+                    }
+                    .tooltip(nextTooltip)
                     .build(),
             )
             next.active = page.hasNext
@@ -249,7 +264,7 @@ class ShareJoinScreen(
             if (message != null) {
                 addRenderableWidget(
                     centeredWrapped(
-                        Component.literal(message)
+                        message.component()
                             .withStyle(ChatFormatting.YELLOW),
                         layout.messageY,
                         layout.contentWidth,
@@ -492,7 +507,12 @@ class ShareJoinScreen(
                         friend.displayName,
                     ),
                 ),
-            ).build(),
+            ).createNarration {
+                Component.translatable(
+                    "connect_share.friends.manage_named",
+                    friend.displayName,
+                )
+            }.build(),
         )
     }
 
@@ -592,7 +612,7 @@ class ShareJoinScreen(
             if (message != null) {
                 addRenderableWidget(
                     centeredWrapped(
-                        Component.literal(message).withStyle(ChatFormatting.YELLOW),
+                        message.component().withStyle(ChatFormatting.YELLOW),
                         layout.footerTop - 16,
                         layout.contentWidth,
                     ),
@@ -734,7 +754,7 @@ class ShareJoinScreen(
         addRenderableWidget(
             centeredWrapped(
                 safeMessage()?.let {
-                    Component.literal(it).withStyle(ChatFormatting.YELLOW)
+                    it.component().withStyle(ChatFormatting.YELLOW)
                 } ?: friendStatus(friend).copy().withStyle(
                     friend.presentation().tone.color(),
                 ),
@@ -1042,7 +1062,7 @@ class ShareJoinScreen(
                             ),
                         )
                     } else {
-                        safeMessage = failure.safeMessage
+                        safeMessage = failure.uiMessage()
                         rebuildWidgets()
                     }
                 },
@@ -1099,9 +1119,7 @@ class ShareJoinScreen(
             if (senderCard == null) {
                 requestFailed(
                     peerId,
-                    Component.translatable(
-                        "connect_share.friends.request_failed",
-                    ).string,
+                    ShareUiMessage("connect_share.friends.request_failed"),
                 )
                 return@launch
             }
@@ -1114,10 +1132,10 @@ class ShareJoinScreen(
             if (target == null) {
                 requestFailed(
                     peerId,
-                    targetResult.leftOrNull()?.safeMessage
-                        ?: Component.translatable(
+                    targetResult.leftOrNull()?.uiMessage()
+                        ?: ShareUiMessage(
                             "connect_share.friends.request_failed",
-                        ).string,
+                        ),
                 )
                 return@launch
             }
@@ -1136,9 +1154,9 @@ class ShareJoinScreen(
                             target.close()
                             requestFailed(
                                 peerId,
-                                Component.translatable(
+                                ShareUiMessage(
                                     "connect_share.friends.request_failed",
-                                ).string,
+                                ),
                             )
                             return@launch
                         },
@@ -1157,10 +1175,10 @@ class ShareJoinScreen(
             if (hostCard == null) {
                 requestFailed(
                     peerId,
-                    result.leftOrNull()?.safeMessage
-                        ?: Component.translatable(
+                    result.leftOrNull()?.uiMessage()
+                        ?: ShareUiMessage(
                             "connect_share.friends.request_failed",
-                        ).string,
+                        ),
                 )
                 return@launch
             }
@@ -1177,18 +1195,16 @@ class ShareJoinScreen(
             if (accepted.isLeft()) {
                 requestFailed(
                     peerId,
-                    Component.translatable(
-                        "connect_share.friends.request_failed",
-                    ).string,
+                    ShareUiMessage("connect_share.friends.request_failed"),
                 )
                 return@launch
             }
             requestStates.remove(peerId)
             friends.reload()
-            safeMessage = Component.translatable(
+            safeMessage = ShareUiMessage(
                 "connect_share.friends.request_accepted",
-                displayName,
-            ).string
+                listOf(displayName),
+            )
             rebuildWidgets()
         }
         requestJobs[peerId] = job
@@ -1215,7 +1231,7 @@ class ShareJoinScreen(
 
     private fun requestFailed(
         peerId: String,
-        message: String,
+        message: ShareUiMessage,
     ) {
         requestStates[peerId] = RequestDeliveryState.FAILED
         safeMessage = message
@@ -1246,7 +1262,7 @@ class ShareJoinScreen(
         joining = false
         joiningPeerId = null
         reciprocalPairing = false
-        safeMessage = failure.safeMessage
+        safeMessage = failure.uiMessage()
         rebuildWidgets()
     }
 
@@ -1366,8 +1382,11 @@ class ShareJoinScreen(
             it.peerId == selectedPeerId
         }
 
-    private fun safeMessage(): String? =
+    private fun safeMessage(): ShareUiMessage? =
         safeMessage ?: friends.state.value.safeMessage
+
+    private fun ShareUiMessage.component() =
+        Component.translatable(translationKey, *arguments.toTypedArray())
 
     private fun authMode(): DirectP2pAuthMode =
         if (offlineSelected) {

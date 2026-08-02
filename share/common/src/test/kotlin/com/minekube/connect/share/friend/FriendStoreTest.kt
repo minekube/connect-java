@@ -348,6 +348,31 @@ class FriendStoreTest {
     }
 
     @Test
+    fun `removing an unrelated friend preserves blocked identities`() {
+        val store = FriendStore(tempDir)
+        val otherPeerId = "12D3KooWOtherFriendPeer"
+        store.accept(signedLink(), "Robin", NOW)
+        store.accept(
+            signedLink(
+                peerId = otherPeerId,
+                shareId = UUID.fromString(
+                    "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                ),
+                capability = "other-friend-capability",
+                keyPair = KeyPairGenerator.getInstance("Ed25519")
+                    .generateKeyPair(),
+            ),
+            "Other",
+            NOW,
+        )
+        store.block(PEER_ID, NOW)
+
+        assertTrue(store.remove(otherPeerId, NOW))
+
+        assertEquals(PEER_ID, store.blocked().single().peerId)
+    }
+
+    @Test
     fun `approved friend can be bound to an authenticated Minecraft identity`() {
         val store = FriendStore(tempDir)
         store.accept(signedLink(), "Robin", NOW)
@@ -460,30 +485,34 @@ class FriendStoreTest {
         expiresAt: Instant = NOW.plusSeconds(3_600),
         internetDirectEnabled: Boolean = false,
         directCandidates: List<String> = emptyList(),
+        peerId: String = PEER_ID,
+        shareId: UUID = SHARE_ID,
+        capability: String = CAPABILITY,
+        keyPair: KeyPair = KEY_PAIR,
     ): String {
         val payload = ShareInvitePayload(
             wireVersion = ShareInviteCodec.WIRE_VERSION,
-            shareId = SHARE_ID,
+            shareId = shareId,
             expiresAtEpochMillis = expiresAt.toEpochMilli(),
             connectAddress = CONNECT_ADDRESS,
-            peerId = PEER_ID,
+            peerId = peerId,
             internetDirectEnabled = internetDirectEnabled,
             directCandidates = directCandidates,
-            capability = CAPABILITY,
+            capability = capability,
         )
         val unsigned = ShareInviteCodec.unsignedBytes(
             payload,
-            KEY_PAIR.public.encoded,
+            keyPair.public.encoded,
         )
         val signature = Signature.getInstance("Ed25519").run {
-            initSign(KEY_PAIR.private)
+            initSign(keyPair.private)
             update(unsigned)
             sign()
         }
         return ShareInviteCodec.encode(
             SignedShareInvite(
                 payload = payload,
-                publicKey = KEY_PAIR.public.encoded,
+                publicKey = keyPair.public.encoded,
                 signature = signature,
             ),
         )

@@ -85,7 +85,7 @@ fun FriendSummary.presentation(): FriendRowPresentation {
             "connect_share.friends.status.server" to
                 listOf(activityDescription ?: "Minecraft server")
 
-        canJoinNow || onlineViaLan ->
+        canJoinNow ->
             "connect_share.friends.status.ready" to emptyList()
 
         activityKind == FriendActivityKind.ONLINE || onlineViaConnect ->
