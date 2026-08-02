@@ -473,6 +473,85 @@ class FriendRequestServerTest {
         )
     }
 
+    @Test
+    fun `presence privacy hides both world names and raw Minecraft status`() = runTest {
+        val senderCard = issuer("sender-private-world").issue(NOW).getOrNull()!!
+        val senderPeerId = ShareInviteCodec.decode(senderCard, NOW)
+            .getOrNull()!!.payload.peerId
+        val hostStore = FriendStore(tempDir.resolve("host-private-world-store"))
+        hostStore.accept(senderCard, "bob", NOW)
+        val server = FriendRequestServer(
+            scope = backgroundScope,
+            admission = admission(),
+            issuer = issuer("host-private-world"),
+            receiver = FriendCardReceiver(hostStore),
+            friendStore = hostStore,
+            activity = {
+                FriendActivity(
+                    FriendActivityKind.HOSTING_WORLD,
+                    "Secret Survival",
+                )
+            },
+            presencePrivacy = {
+                PresencePrivacy(
+                    showOnline = false,
+                    showPlaying = true,
+                    showCurrentServer = false,
+                    showJoinable = true,
+                )
+            },
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val context = FriendControlContext(Ingress.DIRECT_LAN, senderPeerId)
+
+        assertFalse(server.allowsMinecraftStatus(context))
+        assertEquals(
+            FriendControlResponse.Invalid,
+            server.handleActivity(
+                context,
+                FriendActivityRequest(UUID.randomUUID()),
+            ).await(),
+        )
+    }
+
+    @Test
+    fun `current activity privacy hides singleplayer world name`() = runTest {
+        val senderCard = issuer("sender-hidden-name").issue(NOW).getOrNull()!!
+        val senderPeerId = ShareInviteCodec.decode(senderCard, NOW)
+            .getOrNull()!!.payload.peerId
+        val hostStore = FriendStore(tempDir.resolve("host-hidden-name-store"))
+        hostStore.accept(senderCard, "bob", NOW)
+        val server = FriendRequestServer(
+            scope = backgroundScope,
+            admission = admission(),
+            issuer = issuer("host-hidden-name"),
+            receiver = FriendCardReceiver(hostStore),
+            friendStore = hostStore,
+            activity = {
+                FriendActivity(
+                    FriendActivityKind.HOSTING_WORLD,
+                    "Secret Survival",
+                )
+            },
+            presencePrivacy = {
+                PresencePrivacy(showCurrentServer = false)
+            },
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val context = FriendControlContext(Ingress.DIRECT_LAN, senderPeerId)
+
+        assertFalse(server.allowsMinecraftStatus(context))
+        assertEquals(
+            FriendControlResponse.Activity(
+                FriendActivity(FriendActivityKind.HOSTING_WORLD),
+            ),
+            server.handleActivity(
+                context,
+                FriendActivityRequest(UUID.randomUUID()),
+            ).await(),
+        )
+    }
+
     private fun kotlinx.coroutines.test.TestScope.admission() =
         AdmissionController(
             scope = backgroundScope,

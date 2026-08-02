@@ -1,6 +1,8 @@
 package com.minekube.connect.share.fabric.ui
 
 import com.minekube.connect.share.ShareLifecycleError
+import com.minekube.connect.share.admission.AdmissionAnswer
+import com.minekube.connect.share.direct.ShareInviteError
 import com.minekube.connect.share.fabric.FriendJoinAttemptFailure
 import com.minekube.connect.share.fabric.FriendRequestFailure
 import com.minekube.connect.share.fabric.GuestJoinFailure
@@ -13,9 +15,41 @@ data class ShareUiMessage(
     val arguments: List<String> = emptyList(),
 )
 
+object ShareLoginMessages {
+    const val AUTHENTICATION_REQUIRED =
+        "connect_share.login.authentication_required"
+
+    fun denial(answer: AdmissionAnswer?): String = when (answer) {
+        AdmissionAnswer.TIMEOUT ->
+            "connect_share.login.approval_timed_out"
+        AdmissionAnswer.CAPACITY ->
+            "connect_share.login.share_full"
+        AdmissionAnswer.STOPPED ->
+            "connect_share.login.sharing_stopped"
+        else -> "connect_share.login.host_denied"
+    }
+}
+
+fun ShareInviteError.uiMessage(): ShareUiMessage = when (this) {
+    ShareInviteError.Malformed ->
+        ShareUiMessage("connect_share.error.invitation_malformed")
+    is ShareInviteError.UnsupportedVersion -> ShareUiMessage(
+        "connect_share.error.invitation_unsupported_version",
+        listOf(version.toString()),
+    )
+    ShareInviteError.Expired ->
+        ShareUiMessage("connect_share.error.invitation_expired")
+    ShareInviteError.InvalidSignature ->
+        ShareUiMessage("connect_share.error.invitation_invalid_signature")
+    ShareInviteError.RelayCandidateForbidden ->
+        ShareUiMessage("connect_share.error.invitation_relay_forbidden")
+    ShareInviteError.PeerMismatch ->
+        ShareUiMessage("connect_share.error.invitation_peer_mismatch")
+}
+
 fun FriendStoreError.uiMessage(): ShareUiMessage = when (this) {
     is FriendStoreError.InvalidInvitation ->
-        ShareUiMessage("connect_share.error.invalid_invitation")
+        reason.uiMessage()
     FriendStoreError.InvalidDisplayName ->
         ShareUiMessage("connect_share.error.invalid_friend_name")
     FriendStoreError.IdentityConflict ->
@@ -48,7 +82,7 @@ fun ShareLifecycleError.uiMessage(): ShareUiMessage = when (this) {
 
 fun GuestJoinFailure.uiMessage(): ShareUiMessage = when (this) {
     is GuestJoinFailure.InvalidInvitation ->
-        ShareUiMessage("connect_share.error.invalid_invitation")
+        error.uiMessage()
     GuestJoinFailure.PeerMismatch ->
         ShareUiMessage("connect_share.error.join_peer_mismatch")
     GuestJoinFailure.DiscoveryUnavailable ->

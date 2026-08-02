@@ -6,10 +6,10 @@ import com.minekube.connect.network.netty.LocalSession
 import com.minekube.connect.share.admission.AdmissionAnswer
 import com.minekube.connect.share.admission.Ingress
 import com.minekube.connect.share.direct.DirectSessionAttributes
-import com.minekube.connect.share.fabric.DirectOnlineAuthenticationRequired
 import com.minekube.connect.share.fabric.DirectMinecraftAuthentication
 import com.minekube.connect.share.fabric.FabricDirectAuthenticationPolicy
 import com.minekube.connect.share.fabric.FabricLoginAdmissionRegistry
+import com.minekube.connect.share.fabric.ui.ShareLoginMessages
 import com.minekube.connect.tunnel.p2p.DirectP2pRoute
 import com.minekube.connect.tunnel.p2p.DirectP2pSession
 import com.minekube.connect.share.fabric.v1_21_11.mixin.ConnectionAccessor
@@ -127,8 +127,8 @@ object Minecraft12111LoginBridge {
         ).onLeft {
             server.execute {
                 deny.accept(
-                    Component.literal(
-                        DirectOnlineAuthenticationRequired.SAFE_MESSAGE,
+                    Component.translatable(
+                        ShareLoginMessages.AUTHENTICATION_REQUIRED,
                     ),
                 )
             }
@@ -170,10 +170,6 @@ object Minecraft12111LoginBridge {
         DirectP2pRoute.INTERNET -> Ingress.DIRECT_INTERNET
     }
 
-    private fun denialReason(answer: AdmissionAnswer?): Component = when (answer) {
-        AdmissionAnswer.TIMEOUT -> Component.literal("Host approval timed out")
-        AdmissionAnswer.CAPACITY -> Component.literal("This share is full")
-        AdmissionAnswer.STOPPED -> Component.literal("Sharing stopped")
-        else -> Component.literal("Host denied this connection")
-    }
+    private fun denialReason(answer: AdmissionAnswer?): Component =
+        Component.translatable(ShareLoginMessages.denial(answer))
 }

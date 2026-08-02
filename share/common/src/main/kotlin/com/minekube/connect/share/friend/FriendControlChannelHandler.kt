@@ -6,6 +6,7 @@ import com.minekube.connect.tunnel.p2p.DirectP2pRoute
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
 import io.netty.channel.ChannelFutureListener
+import io.netty.channel.Channel
 import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.ChannelInboundHandlerAdapter
 import io.netty.util.ReferenceCountUtil
@@ -47,6 +48,25 @@ fun interface FriendControlServer {
         java.util.concurrent.CompletableFuture.completedFuture(
             FriendControlResponse.Invalid,
         )
+
+    /**
+     * Decides whether an authenticated route may query Minecraft's public
+     * status protocol. Login remains a separate admission decision.
+     */
+    fun allowsMinecraftStatus(context: FriendControlContext): Boolean = true
+}
+
+internal fun Channel.friendControlContext(): FriendControlContext {
+    val direct = attr(DirectSessionAttributes.SESSION).get()
+    val ingress = when (direct?.route()) {
+        DirectP2pRoute.LAN -> Ingress.DIRECT_LAN
+        DirectP2pRoute.INTERNET -> Ingress.DIRECT_INTERNET
+        null -> Ingress.CONNECT
+    }
+    return FriendControlContext(
+        ingress = ingress,
+        directPeerId = direct?.peerId(),
+    )
 }
 
 class FriendControlChannelHandler(
@@ -297,17 +317,6 @@ class FriendControlChannelHandler(
     }
 
     private fun ChannelHandlerContext.controlContext(): FriendControlContext {
-        val direct = channel()
-            .attr(DirectSessionAttributes.SESSION)
-            .get()
-        val ingress = when (direct?.route()) {
-            DirectP2pRoute.LAN -> Ingress.DIRECT_LAN
-            DirectP2pRoute.INTERNET -> Ingress.DIRECT_INTERNET
-            null -> Ingress.CONNECT
-        }
-        return FriendControlContext(
-            ingress = ingress,
-            directPeerId = direct?.peerId(),
-        )
+        return channel().friendControlContext()
     }
 }

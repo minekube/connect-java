@@ -138,8 +138,11 @@ normal pending request, host approval, and one-shot admission path.
   `ShareCoordinator$ActiveShare` when ordinary logs are insufficient.
 - **Activity/privacy:** query through the saved friend relationship. Pending or
   unknown peers must not receive presence or world details.
-- **Status:** open its own target. A Connect endpoint fallback status or public
-  DNS response does not prove the integrated world is reachable.
+- **Status:** open its own target only when the host exposes online, playing,
+  and current-world details. The gateway intentionally closes status otherwise;
+  use authenticated activity plus a real approved login as the privacy-safe
+  proof. A Connect endpoint fallback status or public DNS response does not
+  prove the integrated world is reachable.
 - **Login:** require both a guest `Loaded ... advancements` line and a host
   `<guest> joined the game` line.
 
