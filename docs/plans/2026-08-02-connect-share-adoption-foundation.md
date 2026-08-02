@@ -117,7 +117,7 @@ git commit -m "docs(share): map universal party acceptance evidence"
 - Consumes: exact unclassified Fabric 26.2 artifact from the current committed head and two isolated Prism profiles.
 - Produces: redacted evidence for persistent friend join, compatibility rejection/recovery, no-mod Direct Connect approval/join, relationship safety, and Follow Next Session.
 
-- [ ] **Step 1: Build and hash the exact artifact**
+- [x] **Step 1: Build and hash the exact artifact**
 
 Run:
 

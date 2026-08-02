@@ -15,14 +15,16 @@ Status meanings:
 - **Product proof required**: useful implementation and automated coverage
   exist, but the acceptance claim depends on a packaged-client or real-network
   observation that has not yet been recorded for the current commit.
+- **Product proof**: a current packaged artifact has passed the relevant real
+  client/network evidence gate in addition to deterministic coverage.
 - **Gap**: code or focused coverage is incomplete. The issue must remain open.
 
 ## Evidence baseline
 
 - Original acceptance-audit commit:
   `6073f2f6101d86d38c71e517148725fd2c089c82`.
-- Current deterministic head:
-  `9397658c11dfff381763492954e900b1a09ec57f`.
+- Current source head for product probes:
+  `73f306ff84fbf0e8d24426945e6cfd813cc14301`.
 - Deterministic friend/safety command: the focused `:share:common:test` and
   `:share:fabric-common:test` selectors listed in the adoption-foundation plan.
   Result on 2026-08-02: `BUILD SUCCESSFUL`.
@@ -34,6 +36,22 @@ Status meanings:
   `ShareUiMessageTest`. The red run failed on the absent wire fingerprint,
   remote fallback messages, and cancellation presentation; the green run
   passed. All four Fabric artifact suites then passed in 1 minute.
+- Exact-head direct friend run on 2026-08-02: Fabric 26.2 build, host, and guest
+  all used SHA-256
+  `c2fbd8708247ee9947cd1404bc39c59d460bc436a08baa8c38d08ff5667076c0`.
+  `PrismFriendJoinE2ETest` passed in 51 seconds with fresh host `Bob joined the
+  game` and guest `Loaded 2 advancements` evidence. Ask Every Time was restored
+  and the host was restarted afterward.
+- No-mod product probe after `73f306ff`: the rebuilt host/guest artifact hash is
+  `2c9e413d332475eba1d1540120c671db9b9450ebf36218378a7d74b908a0b4b1`.
+  A guest with Connect Share removed launched ordinary Direct Connect, and the
+  public endpoint resolved and accepted TCP. Both offline and authenticated
+  guests remained at Connecting, while the host showed an active Connect watch
+  socket, `PersistentConnectState.Available`, and `ShareState.Sharing`, but no
+  `PendingAdmission` was created. The Connect edge therefore did not deliver a
+  `SessionProposal`; successful vanilla admission and guest-visible denial
+  remain external product evidence, not a local completion claim. The guest mod
+  was restored with the matching hash.
 
 ## #95 — one-click presence, request, approval, and join
 
@@ -43,7 +61,7 @@ Status meanings:
 | Pending relationships receive no presence | Deterministic proof | `FriendsViewModelTest` (`outgoing request never exposes presence as a friend`) and `FriendStore.all()` filtering for `CONFIRMED` | None beyond the full regression gate |
 | Request to join is one click and never blocks rendering | Product proof required | `FriendJoinOrchestrator`, off-thread coverage in `FriendPresenceMonitorTest` and `ShareViewModelTest`, plus packaged adapter contracts | Record one-click interaction and render responsiveness on an exact packaged client |
 | Host receives an actionable notification anywhere in-game | Product proof required | `NewAdmissionTrackerTest` (`only newly pending requests produce notifications`), `SocialEventTrackerTest`, and adapter toast integration | Observe from menu and active gameplay on the packaged client |
-| Accepting creates a one-shot admission and connects the guest automatically | Product proof required | `AdmissionControllerTest` (`approved friend request authorizes exactly one following gameplay join`) and `FriendJoinOrchestratorTest` (`shared world opens gameplay only after approval`) | Record fresh two-client host/guest login evidence on the exact artifact |
+| Accepting creates a one-shot admission and connects the guest automatically | Product proof | deterministic one-shot coverage plus the exact-head Prism run's fresh host join and guest advancements evidence | Repeat on the final release candidate |
 | Direct libp2p or Connect fallback is selected silently | Product proof required | `TransportSelectorTest` (`failed direct attempts fall back to Connect exactly once`) and `FabricShareBrowserTest` route tests | Record one direct join and one forced fallback without transport-facing UX |
 | Re-entering or switching worlds requires no new link | Product proof required | `SharePreferencesStoreTest` (`share with friends remains enabled across restarts until disabled`), `ShareViewModelTest` (`enabled friend sharing resumes automatically in a new world`), and `EndpointIdentityStoreTest` (`one generated identity survives reload and world changes`) | Switch worlds and rejoin using the same confirmed relationship on exact-head clients |
 | Every failure gives an understandable next action | Product proof required | typed safe messages in `FriendJoinAttemptFailure`, `ShareUiMessageTest`, and `ShareJoinDiagnosticsTest` | Exercise unavailable, denied, timed-out, incompatible, and transport-failed screens |
@@ -64,13 +82,13 @@ Status meanings:
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
-| Host copies a short ordinary Minecraft server address | Product proof required | `docs/connect-share.md` documents **Copy server address** and adapter artifact vocabulary asserts the friends-first UI | Copy it on the exact host artifact and join from a profile without Connect Share |
+| Host copies a short ordinary Minecraft server address | Product proof required | `docs/connect-share.md` and adapter vocabulary cover the action; an exact-head no-mod client reached Connecting through the ordinary public address | Inspect the copy action, then resolve the external Connect forwarding boundary and complete a vanilla join |
 | Stable Connect endpoint token is reused across worlds | Product proof required | `EndpointIdentityStoreTest` (`one generated identity survives reload and world changes`) and `PersistentConnectIngressTest` (`title startup and world leases share one connector until shutdown`) | Record the same redacted endpoint identity fingerprint across two worlds |
 | World changes do not create endpoint database spam | Product proof required | the persistent ingress and identity tests above make no create call on world replacement | Verify through a two-world packaged session and, where available, redacted endpoint-count telemetry |
 | Address reveals no local or public IP in the UI | Product proof required | `SecretRedactionTest`, `ShareJoinDiagnosticsTest`, and the ordinary Connect hostname presentation | Inspect copy/status UI and diagnostics on the exact artifact |
 | Host approval and capacity still apply | Product proof required | `AdmissionControllerTest` covers timeout, capacity, one-shot approval, and identity binding; `ShareCoordinatorTest` validates the guest range | Record approval, denial/timeout, and capacity behavior for a vanilla guest without automating Minecraft clicks |
 | Confirmed modded friends retain richer presence and direct-first joining | Product proof required | presence tests plus `TransportSelectorTest` (`same LAN is attempted before internet and Connect`) | Record a modded friend join after restoring the exact artifact |
-| Errors distinguish unavailable host from invalid or expired admission | Product proof required | `RemoteLoginMessage` gives vanilla-readable fallback text for stopped, timed-out, full, denied, and invalid-auth cases; `ShareUiMessageTest` fixes their distinct contracts | Inspect each fallback on a vanilla Direct Connect client |
+| Errors distinguish unavailable host from invalid or expired admission | Product proof required | `RemoteLoginMessage` and `FabricSessionAdmissionGateTest` provide distinct text and reserve ten seconds before vanilla's timeout; the first product probe reproduced generic `Timed out` and drove the fix | The Connect edge must deliver a session before the rebuilt denial can be observed on vanilla |
 
 ## #100 — privacy, permissions, and relationship safety
 
@@ -101,7 +119,8 @@ Status meanings:
 
 The baseline intentionally leaves #95, #96, #99, #100, and #103 open until the
 remaining exact-head product claims are observed. The deterministic gaps found
-in the first audit are fixed in `9397658c`; the next step is the Prism product
-pass. Minecraft UI clicks are never automated; any irreducible approval
+in the first audit are fixed in `9397658c`; the direct Prism join is proven and
+the no-mod attempt is now blocked specifically at external Connect session
+forwarding. Minecraft UI clicks are never automated; any irreducible approval
 interaction is recorded as a human checkpoint with all other evidence gathered
 noninteractively.
