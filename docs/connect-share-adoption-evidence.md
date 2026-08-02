@@ -24,7 +24,7 @@ Status meanings:
 - Original acceptance-audit commit:
   `6073f2f6101d86d38c71e517148725fd2c089c82`.
 - Current source head for product probes:
-  `fc496fda3fe1d973d1a2b4df73cc8b34745b5767`.
+  `81ac77b0244db0e6b29abc97559f641f2e935710`.
 - Deterministic friend/safety command: the focused `:share:common:test` and
   `:share:fabric-common:test` selectors listed in the adoption-foundation plan.
   Result on 2026-08-02: `BUILD SUCCESSFUL`.
@@ -68,6 +68,14 @@ Status meanings:
   exposed missing reflective libp2p dependencies; the retained optimization
   removes only unused Bouncy Castle post-quantum families and keeps all Kotlin,
   networking, conventional cryptography, and cross-platform native support.
+- Clean-head direct friend product run on 2026-08-03: source head
+  `81ac77b0244db0e6b29abc97559f641f2e935710`, clean Fabric 26.2 artifact,
+  host installation, and guest installation all used SHA-256
+  `856a7d6694a562cb4e9e45a9db95d610a9783d4002948c2e6b3fbf23c7a821c9`.
+  `PrismFriendJoinE2ETest` passed in 40 seconds with fresh host join and guest
+  advancement evidence after discovery, authenticated activity, and approval.
+  The test-only automatic admission was removed, the host was restarted, and
+  `ASK_EVERY_TIME` was verified afterward.
 
 ## #95 — one-click presence, request, approval, and join
 
