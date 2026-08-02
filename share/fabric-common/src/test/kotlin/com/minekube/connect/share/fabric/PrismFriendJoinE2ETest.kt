@@ -13,7 +13,6 @@ import java.nio.file.attribute.BasicFileAttributes
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -35,12 +34,11 @@ class PrismFriendJoinE2ETest {
     @Test
     fun `rotated guest log counts fresh advancement evidence`() {
         val guestLog = tempDir.resolve("latest.log")
-        val absent = snapshotLog(guestLog)
         Files.writeString(
             guestLog,
             "[old] [Render thread/INFO]: Loaded 41 advancements\n",
         )
-        assertFalse(hasNewLoadedAdvancements(guestLog, absent))
+        val beforeAppend = snapshotLog(guestLog)
 
         Files.writeString(
             guestLog,
@@ -48,7 +46,7 @@ class PrismFriendJoinE2ETest {
                 "[new] [Render thread/INFO]: Loaded 41 advancements\n",
         )
 
-        assertTrue(hasNewLoadedAdvancements(guestLog, absent))
+        assertTrue(hasNewLoadedAdvancements(guestLog, beforeAppend))
 
         Files.writeString(
             guestLog,
@@ -60,14 +58,25 @@ class PrismFriendJoinE2ETest {
             guestLog,
             "[startup] [Render thread/INFO]: Loaded 41 advancements\n",
         )
-        assertFalse(hasNewLoadedAdvancements(guestLog, beforeRotation))
+        assertTrue(hasNewLoadedAdvancements(guestLog, beforeRotation))
+    }
 
+    @Test
+    fun `first poll after rotation keeps an already logged successful join`() {
+        val guestLog = tempDir.resolve("latest.log")
         Files.writeString(
             guestLog,
-            "[startup] [Render thread/INFO]: Loaded 41 advancements\n" +
-                "[join] [Render thread/INFO]: Loaded 41 advancements\n",
+            "[previous] [Render thread/INFO]: Loaded 41 advancements\n",
         )
-        assertTrue(hasNewLoadedAdvancements(guestLog, beforeRotation))
+        val beforeLaunch = snapshotLog(guestLog)
+
+        Files.move(guestLog, guestLog.resolveSibling("latest.log.1"))
+        Files.writeString(
+            guestLog,
+            "[join] [Render thread/INFO]: Loaded 41 advancements\n",
+        )
+
+        assertTrue(hasNewLoadedAdvancements(guestLog, beforeLaunch))
     }
 
     @Test
@@ -226,11 +235,11 @@ class PrismFriendJoinE2ETest {
             } else {
                 current.contents.startsWith(before.contents)
             }
-        if (!sameFile || !current.contents.startsWith(before.contents)) {
-            before.replaceWith(current)
-            return false
+        return if (sameFile && current.contents.startsWith(before.contents)) {
+            current.loadedAdvancements > before.loadedAdvancements
+        } else {
+            current.loadedAdvancements > 0
         }
-        return current.loadedAdvancements > before.loadedAdvancements
     }
 
     private fun readLog(path: Path): LogSnapshot? = try {
@@ -252,16 +261,9 @@ class PrismFriendJoinE2ETest {
         }
 
     private data class LogSnapshot(
-        var exists: Boolean,
-        var fileKey: Any?,
-        var contents: String,
-        var loadedAdvancements: Int,
-    ) {
-        fun replaceWith(other: LogSnapshot) {
-            exists = other.exists
-            fileKey = other.fileKey
-            contents = other.contents
-            loadedAdvancements = other.loadedAdvancements
-        }
-    }
+        val exists: Boolean,
+        val fileKey: Any?,
+        val contents: String,
+        val loadedAdvancements: Int,
+    )
 }
