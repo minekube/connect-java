@@ -24,7 +24,7 @@ Status meanings:
 - Original acceptance-audit commit:
   `6073f2f6101d86d38c71e517148725fd2c089c82`.
 - Current source head for product probes:
-  `73f306ff84fbf0e8d24426945e6cfd813cc14301`.
+  `fc496fda3fe1d973d1a2b4df73cc8b34745b5767`.
 - Deterministic friend/safety command: the focused `:share:common:test` and
   `:share:fabric-common:test` selectors listed in the adoption-foundation plan.
   Result on 2026-08-02: `BUILD SUCCESSFUL`.
@@ -60,6 +60,14 @@ Status meanings:
   64.9–65.5 MB). JSON parsing passed for every English and German language
   file. No backup content, path, password, identity, capability, or token was
   emitted during verification.
+- Distribution artifact gate on 2026-08-03: all six supported adapter test
+  tasks and their tightened 63 MiB size gates passed in 1 minute 10 seconds.
+  The exact artifacts were 61,823,460–62,575,797 bytes. Fabric 26.2 additionally
+  started two isolated peers from the final packaged JAR and inspected a
+  published world. Generic Shadow minimization was rejected after red tests
+  exposed missing reflective libp2p dependencies; the retained optimization
+  removes only unused Bouncy Castle post-quantum families and keeps all Kotlin,
+  networking, conventional cryptography, and cross-platform native support.
 
 ## #95 — one-click presence, request, approval, and join
 
@@ -85,6 +93,18 @@ Status meanings:
 | Copy or link matching Modrinth or CurseForge pack metadata | Product proof required | `LoadedCompatibilityProfileFactoryTest` covers Modrinth, CurseForge, and rejection of HTTP, credential-bearing, and file URLs; all Fabric mismatch screens copy the safe pack URL | Prove the rendered copy action on an exact packaged client |
 | Advanced override supports compatible client-only differences | Product proof required | client-only mods are omitted in `LoadedCompatibilityProfileFactoryTest`; required-mod mismatch uses explicit `allowModMismatch` in `FriendJoinOrchestratorTest` | Exercise the exact packaged Try Anyway flow |
 | Never upload a complete mod inventory without explicit consent | Deterministic proof | `LoadedCompatibilityProfileFactoryTest` proves only universal/server gameplay mods enter the peer-to-peer profile; `docs/connect-share.md` states the exchange is not uploaded | None beyond the full regression gate |
+
+## #97 — broad versions, loaders, and one-click distribution
+
+| Acceptance criterion | Status | Evidence | Remaining proof |
+|---|---|---|---|
+| Maintain latest plus the 1.21.1 and 1.20.1 modpack anchors | Deterministic proof | Fabric adapters cover 26.2, 1.21.11, 1.21.1, and 1.20.1; the six-adapter gate passed from the current head | Define and operate the measured latest-version release target after the first public release |
+| Provide Fabric, Forge, and NeoForge adapters | Deterministic proof | Fabric 1.20.1/1.21.1/1.21.11/26.2, Forge 1.20.1, and NeoForge 1.21.1 all built and passed packaged artifact tests | Real-client startup and join evidence remains required for every release target |
+| Publish verified artifacts on Modrinth, CurseForge, and GitHub Releases | Gap | Artifacts have unambiguous loader/version archive names and deterministic local verification | Marketplace projects, credentials, signing/release workflow, public metadata, and final publication are external release operations and have not occurred from this unmerged PR |
+| Modrinth App and Prism install dependencies automatically | Product proof required | Fabric metadata declares Fabric API and Fabric Language Kotlin dependencies; Forge/NeoForge package KotlinForForge in their distributable artifact | Prove fresh one-click installs through published Modrinth metadata and Prism on all supported loader families |
+| Permit modpack inclusion and document dependencies/compatibility | Deterministic proof | `docs/connect-share.md` explicitly permits public/private modpack inclusion under MIT, names every loader/version artifact, and documents automatic and manual Kotlin/loader dependencies | Marketplace copy must reproduce the same contract before publication |
+| CI builds every adapter and proves packaged startup | Deterministic proof | CI adapter tasks exist; all six adapter suites passed locally. Fabric 26.2's exact packaged JAR now starts two isolated libp2p peers and inspects a published world | Extend exact packaged peer startup to the release matrix and retain real Minecraft startup/join gates |
+| Track and safely reduce artifact size | Deterministic proof | Every adapter now has a 63 MiB build gate; current exact artifacts are 61,823,460–62,575,797 bytes. The shared payload removes only unused Bouncy Castle PQC families, and a real packaged-peer test guards reflective runtime behavior | Continue measuring published download size; do not use generic static minimization on jvm-libp2p |
 
 ## #99 — let friends join without installing the mod
 
