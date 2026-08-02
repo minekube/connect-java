@@ -132,6 +132,15 @@ packaging tests, isolation checks, and artifact-size gates pass. Marketplace
 publication additionally requires the repository's project IDs and publisher
 credentials; the workflow fails closed when they are absent.
 
+The release workflow also creates GitHub/Sigstore build-provenance
+attestations for every JAR and checksum manifest and verifies them before the
+workflow succeeds. Public launch additionally follows the
+[operations](connect-share-operations.md),
+[threat model](connect-share-threat-model.md), and
+[staged launch](connect-share-launch.md) gates. An HTTPS invite is deliberately
+not emitted until the separately hosted
+[handoff contract](connect-share-handoff.md) is deployed and verified.
+
 Forge and NeoForge reuse the loader-neutral Kotlin core and version-specific
 Minecraft UI/bridge adapters. Use the exact packaged artifact under test for
 the real two-client Prism acceptance pass in

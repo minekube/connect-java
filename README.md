@@ -24,6 +24,16 @@ See [the player, privacy, installation, and distribution guide](docs/connect-sha
 for the supported versions, required dependencies, player flow, and release
 details.
 
+Release and adoption work is governed by the
+[fallback operations](docs/connect-share-operations.md),
+[threat model](docs/connect-share-threat-model.md),
+[staged launch](docs/connect-share-launch.md), and
+[HTTPS handoff](docs/connect-share-handoff.md) contracts. Those documents
+separate repository evidence from external deployment and review gates.
+Marketplace and support teams use the
+[creator source kit](docs/connect-share-marketplace-kit.md) and
+[known-issues page](docs/connect-share-known-issues.md).
+
 The mod artifacts have their own build and acceptance process. They are not part
 of the stable proxy/plugin release workflow. See
 [docs/connect-share-testing.md](docs/connect-share-testing.md) for the manual

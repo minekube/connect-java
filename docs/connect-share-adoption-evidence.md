@@ -108,11 +108,23 @@ Status meanings:
 |---|---|---|---|
 | Maintain latest plus the 1.21.1 and 1.20.1 modpack anchors | Deterministic proof | Fabric adapters cover 26.2, 1.21.11, 1.21.1, and 1.20.1; the six-adapter gate passed from the current head | Define and operate the measured latest-version release target after the first public release |
 | Provide Fabric, Forge, and NeoForge adapters | Deterministic proof | Fabric 1.20.1/1.21.1/1.21.11/26.2, Forge 1.20.1, and NeoForge 1.21.1 all built and passed packaged artifact tests | Real-client startup and join evidence remains required for every release target |
-| Publish verified artifacts on Modrinth, CurseForge, and GitHub Releases | Gap | Artifacts have unambiguous loader/version archive names and deterministic local verification | Marketplace projects, credentials, signing/release workflow, public metadata, and final publication are external release operations and have not occurred from this unmerged PR |
+| Publish verified artifacts on Modrinth, CurseForge, and GitHub Releases | Gap | Artifacts have unambiguous loader/version archive names; `.github/workflows/connect-share-release.yml` fails closed, publishes the six artifacts, creates checksums and GitHub/Sigstore provenance, and verifies release assets/attestations | Marketplace projects, credentials, public metadata, a disposable prerelease proof, and final publication are external release operations and have not occurred from this unmerged PR |
 | Modrinth App and Prism install dependencies automatically | Product proof required | Fabric metadata declares Fabric API and Fabric Language Kotlin dependencies; Forge/NeoForge package KotlinForForge in their distributable artifact | Prove fresh one-click installs through published Modrinth metadata and Prism on all supported loader families |
 | Permit modpack inclusion and document dependencies/compatibility | Deterministic proof | `docs/connect-share.md` explicitly permits public/private modpack inclusion under MIT, names every loader/version artifact, and documents automatic and manual Kotlin/loader dependencies | Marketplace copy must reproduce the same contract before publication |
 | CI builds every adapter and proves packaged startup | Deterministic proof | CI adapter tasks exist; all six adapter suites passed locally. Fabric 26.2's exact packaged JAR now starts two isolated libp2p peers and inspects a published world | Extend exact packaged peer startup to the release matrix and retain real Minecraft startup/join gates |
 | Track and safely reduce artifact size | Deterministic proof | Every adapter now has a 63 MiB build gate; current exact artifacts are 61,823,460–62,575,797 bytes. The shared payload removes only unused Bouncy Castle PQC families, and a real packaged-peer test guards reflective runtime behavior | Continue measuring published download size; do not use generic static minimization on jvm-libp2p |
+
+## #98 — reliable joining and actionable recovery
+
+| Acceptance criterion | Status | Evidence | Remaining proof |
+|---|---|---|---|
+| Direct first and exactly one automatic Connect fallback | Deterministic proof | `TransportSelectorTest` covers LAN → internet → Connect ordering, mutual internet consent, one fallback attempt, and no-route failure | Force a direct failure and complete a real Connect fallback join after the external session-proposal boundary works |
+| UI/control work never blocks rendering | Deterministic proof | `FriendPresenceMonitorTest`, `FriendsViewModelTest`, `ShareViewModelTest`, and `RecoveryViewModelTest` use injected IO dispatchers and test off-thread work/cancellation | Profile the final packaged UI during representative slow/unreachable paths on each supported runtime |
+| Requests, cancellation, removal, shutdown, and retry are bounded | Deterministic proof | `FriendRequestClientTest` proves prompt cancellation and acknowledged removal; `AdmissionControllerTest` proves expiry/cancellation/capacity; `ShareCoordinatorTest` proves idempotent exhaustive shutdown; direct/control/login deadlines are explicit | Real suspend/resume and process/network-loss product evidence across OSes |
+| Reconnect after IP, LAN, or world changes needs no relinking | Deterministic proof | `FriendStoreTest` persists signed candidates/consent; discovery retains per-peer refreshed routes; `ShareCoordinatorTest` and identity-store tests preserve identity through world replacement | Two-machine IP/LAN/VPN change and world-switch evidence on exact release artifacts |
+| Concise stage, actionable failure, and secret-safe diagnostics | Product proof required | `ShareUiMessageTest`, `ShareJoinDiagnosticsTest`, `SecretRedactionTest`, and the plain-language stage/failure models reject transport jargon and secret values | Exercise unavailable, denied, timeout, incompatible, fallback-failed, and resumed states in packaged clients |
+| Automated two-client direct, fallback, offline, online, and network-change cases | Gap | Real libp2p proxy E2E and clean-head offline Prism direct join pass; deterministic selector/auth/network refresh cases pass | Real Connect fallback, paid online-auth join, and network-change automation remain blocked by service/matrix environments |
+| Real-client startup/join gate for every supported release target | Gap | Six packaged adapter suites pass and Fabric 26.2 clean-head direct join is proven | Fabric 1.20.1/1.21.1/1.21.11 plus Forge 1.20.1 and NeoForge 1.21.1 startup/join, then OS/architecture breadth |
 
 ## #99 — let friends join without installing the mod
 
@@ -150,6 +162,39 @@ Status meanings:
 | Active gameplay is never interrupted automatically | Product proof required | `FollowNextSessionControllerTest` (`active gameplay is never interrupted and receives one join offer`) | Observe Join Now rather than forced connection during active gameplay |
 | Both players receive understandable notifications | Product proof required | follower toasts in each Fabric adapter, normal host admission notifications, and `SocialEventTrackerTest` | Observe both sides on exact packaged clients |
 | TDD covers expiry, cancellation, reconnect, removal, blocks, duplicates, and simultaneous follow | Deterministic proof | `FollowNextSessionControllerTest` explicitly covers every listed case; `ShareScreenPresentationTest` fixes visible automatic-cancellation copy; every Fabric adapter renders it | Verify the packaged cancellation notification during product proof |
+
+## #117 — one-click HTTPS invite/install/resume handoff
+
+| Acceptance criterion | Status | Evidence | Remaining proof |
+|---|---|---|---|
+| Every invite has a safe HTTPS form led by the human join action | Gap | `docs/connect-share-handoff.md` defines the social copy and fragment-only secret boundary | A real reviewed/deployed handoff page does not exist in this repository; the client deliberately does not emit a dead link |
+| Resolve version, loader, OS, launcher, dependencies, and vanilla path without disclosure | Deterministic design | The handoff contract requires a secret-free artifact manifest, allowlisted launcher adapters, required dependencies, and locally verified Connect-hostname fallback | Implement the web application and launcher adapters against published marketplace projects |
+| Resume the original invitation exactly once after install/restart | Deterministic design | The contract defines digest-bound expiring state, owner-only local transfer, atomic consume/delete, acknowledgement, and explicit retry | Implement and TDD the signed resume protocol in both web/launcher boundary and mod after the handoff owner/repository is selected |
+| Safe expired, revoked, incompatible, malicious, declined, cancelled, and retry states | Deterministic design | Explicit resolution flow and E2E matrix in the handoff contract | Browser/launcher implementation and cross-OS E2E are external/missing |
+| Preview and measurement reveal no secrets or graph | Deterministic design | Fragment never reaches HTTP; CSP/referrer/storage/analytics rules and aggregate opt-in boundary are explicit | Independent web privacy review plus log/referrer evidence on the deployed origin |
+
+## #118 — staged launch, measurement, modpacks, and creators
+
+| Acceptance criterion | Status | Evidence | Remaining proof |
+|---|---|---|---|
+| Consistent marketplace promise and sub-30-second demonstration | Gap | `docs/connect-share-launch.md` fixes the promise and exact demonstration story | Marketplace pages, visual assets, video, and publication are external launch work |
+| Plain-language modpack, dependency, privacy, security, support, and compatibility material | Deterministic proof | `docs/connect-share.md`, launch contract, threat model, testing guide, and MIT redistribution section cover the source material | Final marketplace/creator copy review and published URLs |
+| Creator/modpack kit and staged diverse beta | Gap | Launch contract enumerates approved assets, copy lengths, metadata, checksums, forecast/support form, cohorts, and gates | Produce assets, recruit cohorts, staff support, forecast capacity, and run the beta |
+| Localization covers the largest reachable populations | Gap | English/German locale parity is packaged; the launch contract defines the next locale order and safety-copy release gate | Translate, review, and package Brazilian Portuguese, Spanish, French, Russian, Simplified Chinese, Japanese, and evidence-driven additions |
+| Privacy-preserving opt-in success/reliability/retention metrics | Deterministic design | Launch contract defines default-off local aggregation, allowed measures, suppression, and a strict forbidden-field list | Reviewed endpoint, consent UI, retention/deletion policy, privacy review, and staged data-quality proof; no telemetry is silently enabled |
+| Launch/pause/rollback/graduation criteria precede promotion | Deterministic proof | Four guarded stages, exact graduation/pause conditions, required evidence bundle, and independent rollback are documented | Execute the gates with real product and service data before each stage |
+
+## #119 — global Connect fallback operations and security review
+
+| Acceptance criterion | Status | Evidence | Remaining proof |
+|---|---|---|---|
+| Define regional availability, establishment, and successful-relay SLOs | Deterministic proof | `docs/connect-share-operations.md` defines 99.9% admission availability, 99% eligible relayed join, p95/p99 latency, error budget, and multi-window burn alerts | Instrument and prove the indicators in each production region |
+| Load test and capacity-plan realistic sessions, bursts, failover, and degraded upstreams | Deterministic design | Capacity formula, headroom rule, required distributions, evidence bundle, and scenarios are specified | Service repository load generator, staging/production-safe execution, dashboards, and signed results are external/missing |
+| Rate limits and abuse controls protect every boundary without content/graph collection | Deterministic design | Admission-scoped authorization, rotating abuse keys, separate budgets, bounded queues, retry-after, and forbidden inspection are specified | Deployment configuration, load tuning, privacy review, and abuse simulation |
+| Threat-model all critical assets and obtain independent review | Product proof required | `docs/connect-share-threat-model.md` covers invites, identity, endpoint import, admission, recovery, relay, diagnostics/metrics, HTTPS, and updates with required controls | Independent reviewer, findings/remediation, deployment diagrams, and sign-off are external/missing |
+| Privacy-safe observability, alerting, ownership, runbooks, incidents, and postmortems | Deterministic design | Allowlisted signal schema, redaction/retention boundary, alert windows, ownership and required runbooks/communications are explicit | Dashboards, private on-call route, runbook links, exercises, and production evidence |
+| Cost budgets, chaos/failover, staged rollout, and rollback | Deterministic design | Cost/session evidence and seven chaos gates preserve direct joins and require bounded blast radius/rollback | Regional service deployment, cost data, failure injection, and executed evidence |
+| Signed and verifiable release artifacts | Product proof required | Release workflow now uses `actions/attest@v4`, uploads checksums, and verifies GitHub attestations; workflow syntax passes `actionlint` | Run against a disposable published prerelease and verify every public marketplace digest against the attested files |
 
 ## #120 — encrypted identity and friend recovery
 
