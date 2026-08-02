@@ -52,8 +52,9 @@ or blocking cannot be bypassed with an old attempt.
 - Online, playing, and joinable state can each be hidden independently under
   **Privacy**. **Show current server or world** hides both multiplayer server
   names and singleplayer world names. Raw Minecraft status is not treated as
-  presence: it is accepted only for a confirmed friend when online, playing,
-  and current-world visibility are all enabled.
+  social presence: a capability-authenticated route can query it only when
+  online, playing, and current-world visibility are all enabled. The Friends
+  UI still requires a confirmed, privacy-filtered activity response.
 - Each friend can be set to **Ask Every Time**, **Auto-Accept**, or **Never
   Allow**. The default is Ask Every Time.
 - Removing a friend revokes future presence and admissions and is synchronized
