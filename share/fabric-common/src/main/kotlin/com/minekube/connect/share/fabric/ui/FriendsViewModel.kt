@@ -92,8 +92,14 @@ class FriendsViewModel(
         invitationUri: String,
         displayName: String,
         now: Instant = Instant.now(),
+        internetDirectGuestOptIn: Boolean = false,
     ): String? =
-        store.sendRequest(invitationUri, displayName, now).fold(
+        store.sendRequest(
+            invitationUri = invitationUri,
+            displayName = displayName,
+            now = now,
+            internetDirectGuestOptIn = internetDirectGuestOptIn,
+        ).fold(
             ifLeft = { failure ->
                 update { copy(safeMessage = failure.safeMessage) }
                 null

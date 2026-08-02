@@ -60,6 +60,23 @@ class FriendsViewModelTest {
     }
 
     @Test
+    fun `sending a request forwards explicit internet consent`() {
+        val store = FriendStore(tempDir)
+        val viewModel = FriendsViewModel(store)
+
+        viewModel.sendRequest(
+            signedLink(),
+            "Robin",
+            NOW,
+            internetDirectGuestOptIn = true,
+        )
+
+        assertTrue(
+            store.outgoingRequests().single().internetDirectGuestOptIn,
+        )
+    }
+
+    @Test
     fun `signed friend link suggests its sender username`() {
         val viewModel = FriendsViewModel(FriendStore(tempDir))
 

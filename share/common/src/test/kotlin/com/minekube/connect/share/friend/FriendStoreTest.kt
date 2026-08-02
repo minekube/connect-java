@@ -92,6 +92,26 @@ class FriendStoreTest {
     }
 
     @Test
+    fun `sending a request can persist explicit internet consent`() {
+        val store = FriendStore(tempDir)
+
+        val request = assertIs<Either.Right<SavedFriend>>(
+            store.sendRequest(
+                signedLink(),
+                "Robin",
+                NOW,
+                internetDirectGuestOptIn = true,
+            ),
+        ).value
+
+        assertTrue(request.internetDirectGuestOptIn)
+        assertTrue(
+            FriendStore(tempDir).outgoingRequests().single()
+                .internetDirectGuestOptIn,
+        )
+    }
+
+    @Test
     fun `confirming an outgoing request promotes it across restarts`() {
         val store = FriendStore(tempDir)
         store.sendRequest(signedLink(), "Robin", NOW)

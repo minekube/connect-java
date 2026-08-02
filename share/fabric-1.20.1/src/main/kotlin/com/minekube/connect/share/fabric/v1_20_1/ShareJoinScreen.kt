@@ -829,6 +829,7 @@ class ShareJoinScreen(
                 friends.sendRequest(
                     invitationValue,
                     nameValue,
+                    internetDirectGuestOptIn = internetSelected,
                 )
             }
             requestOperationInProgress = false
