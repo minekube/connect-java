@@ -69,6 +69,7 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -99,7 +100,7 @@ final class DirectP2pNodeRuntime {
 
     private final PrivKey privateKey;
     private final List<ProxyRuntime> proxies = new CopyOnWriteArrayList<>();
-    private final java.util.Set<String> discoveredInvitations =
+    private final Set<String> discoveredInvitations =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
     private final java.util.Set<String> mdnsInspections =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -472,7 +473,7 @@ final class DirectP2pNodeRuntime {
                 try {
                     DirectP2pDiscoveredShare found =
                             inspect(address, Duration.ofSeconds(3));
-                    if (discoveredInvitations.add(found.invitation())) {
+                    if (shouldNotifyDiscovery(discoveredInvitations, found)) {
                         listener.onDiscovered(found);
                     }
                     return;
@@ -483,6 +484,12 @@ final class DirectP2pNodeRuntime {
         }, "connect-share-mdns-inspect");
         inspectThread.setDaemon(true);
         inspectThread.start();
+    }
+
+    static boolean shouldNotifyDiscovery(
+            Set<String> discovered,
+            DirectP2pDiscoveredShare share) {
+        return discovered.add(share.invitation() + '\u0000' + share.address());
     }
 
     private synchronized void startHostIfNeeded() {

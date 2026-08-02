@@ -18,6 +18,8 @@ import java.security.Signature
 import java.time.Duration
 import java.time.Instant
 import java.util.Base64
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -184,6 +186,37 @@ class FabricShareBrowserTest {
             target.close()
             browser.close()
         }
+
+    @Test
+    fun `concurrent discoveries retain social and active-world routes`() = runTest {
+        val node = FakeGuestNode()
+        val browser = browser(node)
+        browser.start()
+        val worldPeer = "12D3KooWWorld"
+
+        node.discoverConcurrently(
+            listOf(
+                DirectP2pDiscoveredShare(
+                    "Robin's friend control",
+                    PEER_ID,
+                    LAN_ADDRESS,
+                    invitation(),
+                ),
+                DirectP2pDiscoveredShare(
+                    "Robin's active world",
+                    worldPeer,
+                    lanAddress(worldPeer),
+                    invitation(peerId = worldPeer),
+                ),
+            ),
+        )
+
+        assertEquals(
+            setOf(PEER_ID, worldPeer),
+            browser.discovered.value.map { it.invitation.payload.peerId }.toSet(),
+        )
+        browser.close()
+    }
 
     @Test
     fun `friend control uses saved direct internet route outside the LAN`() = runTest {
@@ -542,6 +575,21 @@ class FabricShareBrowserTest {
 
         fun discover(share: DirectP2pDiscoveredShare) {
             listener?.onDiscovered(share)
+        }
+
+        fun discoverConcurrently(shares: List<DirectP2pDiscoveredShare>) {
+            val ready = CountDownLatch(shares.size)
+            val start = CountDownLatch(1)
+            val threads = shares.map { share ->
+                Thread {
+                    ready.countDown()
+                    start.await()
+                    discover(share)
+                }.also(Thread::start)
+            }
+            assertTrue(ready.await(10, TimeUnit.SECONDS))
+            start.countDown()
+            threads.forEach { it.join(10_000) }
         }
 
         override fun openProxy(

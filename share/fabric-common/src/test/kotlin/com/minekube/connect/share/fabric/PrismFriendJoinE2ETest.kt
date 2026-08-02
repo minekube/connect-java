@@ -5,12 +5,15 @@ import com.minekube.connect.share.friend.FriendJoinRequest
 import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import com.minekube.connect.tunnel.p2p.DirectP2pNode
+import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -37,15 +40,34 @@ class PrismFriendJoinE2ETest {
             guestLog,
             "[old] [Render thread/INFO]: Loaded 41 advancements\n",
         )
-        assertTrue(hasNewLoadedAdvancements(guestLog, absent))
-        val before = snapshotLog(guestLog)
+        assertFalse(hasNewLoadedAdvancements(guestLog, absent))
 
         Files.writeString(
             guestLog,
-            "[new] [Render thread/INFO]: Loaded 41 advancements\n",
+            "[old] [Render thread/INFO]: Loaded 41 advancements\n" +
+                "[new] [Render thread/INFO]: Loaded 41 advancements\n",
         )
 
-        assertTrue(hasNewLoadedAdvancements(guestLog, before))
+        assertTrue(hasNewLoadedAdvancements(guestLog, absent))
+
+        Files.writeString(
+            guestLog,
+            "[before] [Render thread/INFO]: Loaded 41 advancements\n",
+        )
+        val beforeRotation = snapshotLog(guestLog)
+        Files.move(guestLog, guestLog.resolveSibling("latest.log.1"))
+        Files.writeString(
+            guestLog,
+            "[startup] [Render thread/INFO]: Loaded 41 advancements\n",
+        )
+        assertFalse(hasNewLoadedAdvancements(guestLog, beforeRotation))
+
+        Files.writeString(
+            guestLog,
+            "[startup] [Render thread/INFO]: Loaded 41 advancements\n" +
+                "[join] [Render thread/INFO]: Loaded 41 advancements\n",
+        )
+        assertTrue(hasNewLoadedAdvancements(guestLog, beforeRotation))
     }
 
     @Test
@@ -186,25 +208,42 @@ class PrismFriendJoinE2ETest {
         }
 
     private fun snapshotLog(path: Path): LogSnapshot =
-        (if (Files.exists(path)) Files.readString(path) else "").let { contents ->
-            LogSnapshot(
-                contents = contents,
-                loadedAdvancements = loadedAdvancementsCount(contents),
-            )
-        }
+        readLog(path) ?: LogSnapshot(
+            exists = false,
+            fileKey = null,
+            contents = "",
+            loadedAdvancements = 0,
+        )
 
     private fun hasNewLoadedAdvancements(
         path: Path,
         before: LogSnapshot,
     ): Boolean {
-        if (!Files.exists(path)) return false
-        val contents = Files.readString(path)
-        val current = loadedAdvancementsCount(contents)
-        return if (contents.startsWith(before.contents)) {
-            current > before.loadedAdvancements
-        } else {
-            current > 0
+        val current = readLog(path) ?: return false
+        val sameFile = before.exists &&
+            if (before.fileKey != null && current.fileKey != null) {
+                before.fileKey == current.fileKey
+            } else {
+                current.contents.startsWith(before.contents)
+            }
+        if (!sameFile || !current.contents.startsWith(before.contents)) {
+            before.replaceWith(current)
+            return false
         }
+        return current.loadedAdvancements > before.loadedAdvancements
+    }
+
+    private fun readLog(path: Path): LogSnapshot? = try {
+        val attributes = Files.readAttributes(path, BasicFileAttributes::class.java)
+        val contents = Files.readString(path)
+        LogSnapshot(
+            exists = true,
+            fileKey = attributes.fileKey(),
+            contents = contents,
+            loadedAdvancements = loadedAdvancementsCount(contents),
+        )
+    } catch (_: IOException) {
+        null
     }
 
     private fun loadedAdvancementsCount(contents: String): Int =
@@ -213,7 +252,16 @@ class PrismFriendJoinE2ETest {
         }
 
     private data class LogSnapshot(
-        val contents: String,
-        val loadedAdvancements: Int,
-    )
+        var exists: Boolean,
+        var fileKey: Any?,
+        var contents: String,
+        var loadedAdvancements: Int,
+    ) {
+        fun replaceWith(other: LogSnapshot) {
+            exists = other.exists
+            fileKey = other.fileKey
+            contents = other.contents
+            loadedAdvancements = other.loadedAdvancements
+        }
+    }
 }
