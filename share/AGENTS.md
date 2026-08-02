@@ -74,7 +74,7 @@ redesigned for Kotlin.
   `--offline <name>` is authoritative; editing `InstanceAccountId` while Prism
   runs is not, because Prism rewrites it.
 - Prove the flow in layers: mDNS discovery, authenticated friend activity,
-  Minecraft status, then a real login whose host log contains
+  Minecraft status when host privacy permits it, then a real login whose host log contains
   `<name> joined the game`. Control-plane reachability or a status response does
   not prove that the world is joinable. `dns-sd -B
   _minekube-connect-share._tcp local` and `jcmd <pid> GC.class_histogram` are
@@ -86,6 +86,12 @@ redesigned for Kotlin.
   open a separate target for gameplay and keep that target alive until the
   Minecraft connection finishes. Never reuse the friend-control target for a
   status probe or login.
+- Authenticated friend activity is the authority for visible online, playing,
+  world-name, and joinable state. Never promote raw Minecraft status into UI
+  presence without a matching privacy-filtered activity response. The gateway
+  rejects status for unknown peers and whenever online, playing, or the current
+  server/world name is hidden; login remains independently admissible so a
+  privacy-safe join request can still succeed.
 - An integrated server object exists before its local player connection is
   ready. Publish only after both exist, and advertise `HOSTING_WORLD` only from
   an actual `ShareState.Sharing`; otherwise friends see a world that cannot yet

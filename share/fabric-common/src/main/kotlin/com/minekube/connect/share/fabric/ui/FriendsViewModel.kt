@@ -390,9 +390,9 @@ class FriendsViewModel(
     }
 
     private fun SavedFriend.summary(): FriendSummary {
-        val remote = remotePresence[peerId]
-            ?.takeIf { it.online }
         val activity = activities[peerId]
+        val remote = remotePresence[peerId]
+            ?.takeIf { it.online && activity != null }
         return FriendSummary(
             peerId = peerId,
             displayName = displayName,
@@ -401,14 +401,13 @@ class FriendsViewModel(
             internetDirectGuestOptIn = internetDirectGuestOptIn,
             onlineViaLan = remote?.route == ShareRoute.DIRECT_LAN,
             onlineViaConnect = remote?.route == ShareRoute.CONNECT,
-            worldName = remote?.description,
+            worldName = activity?.description,
             activityKind = activity?.kind,
             activityDescription = activity?.description,
             canRequestJoin = activity?.joinable == true &&
                 (
                     activity.kind == FriendActivityKind.PLAYING_SERVER ||
-                        activity.kind == FriendActivityKind.HOSTING_WORLD &&
-                        remote != null
+                        activity.kind == FriendActivityKind.HOSTING_WORLD
                     ),
             canJoinNow = activity?.joinable == true &&
                 remote != null &&

@@ -50,9 +50,10 @@ or blocking cannot be bypassed with an old attempt.
 - Only confirmed peer identities receive presence. Display names are labels,
   never identity or authorization.
 - Online, playing, and joinable state can each be hidden independently under
-  **Privacy**. When a friend is on another server, **Show current server** can
-  also hide that server's name; the current singleplayer world name remains
-  visible while hosting.
+  **Privacy**. **Show current server or world** hides both multiplayer server
+  names and singleplayer world names. Raw Minecraft status is not treated as
+  presence: it is accepted only for a confirmed friend when online, playing,
+  and current-world visibility are all enabled.
 - Each friend can be set to **Ask Every Time**, **Auto-Accept**, or **Never
   Allow**. The default is Ask Every Time.
 - Removing a friend revokes future presence and admissions and is synchronized

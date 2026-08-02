@@ -48,6 +48,17 @@ class FriendRequestServer(
     },
     private val joinTarget: () -> String? = { null },
 ) : FriendControlServer {
+    override fun allowsMinecraftStatus(
+        context: FriendControlContext,
+    ): Boolean {
+        val friend = authenticatedFriend(context) ?: return false
+        val privacy = presencePrivacy()
+        return friend.permissions.canSeeMyWorlds &&
+            privacy.showOnline &&
+            privacy.showPlaying &&
+            privacy.showCurrentServer
+    }
+
     override fun handle(
         context: FriendControlContext,
         request: FriendControlRequest,
@@ -126,7 +137,10 @@ class FriendRequestServer(
 
             else -> current.copy(
                 description = current.description.takeIf {
-                    current.kind != FriendActivityKind.PLAYING_SERVER ||
+                    (
+                        current.kind != FriendActivityKind.PLAYING_SERVER &&
+                            current.kind != FriendActivityKind.HOSTING_WORLD
+                        ) ||
                         privacy.showCurrentServer
                 },
                 joinable = current.joinable && privacy.showJoinable &&

@@ -104,7 +104,6 @@ class FriendsViewModelTest {
                 ),
             ),
         )
-
         assertTrue(viewModel.state.value.friends.isEmpty())
         assertEquals(
             PEER_ID,
@@ -281,6 +280,14 @@ class FriendsViewModelTest {
                 ),
             ),
         )
+        viewModel.updateActivities(
+            mapOf(
+                PEER_ID to FriendActivity(
+                    FriendActivityKind.HOSTING_WORLD,
+                    "Robin's New World",
+                ),
+            ),
+        )
 
         val online = viewModel.state.value.friends.single()
         assertTrue(online.onlineViaLan)
@@ -323,6 +330,14 @@ class FriendsViewModelTest {
                 ),
             ),
         )
+        viewModel.updateActivities(
+            mapOf(
+                PEER_ID to FriendActivity(
+                    FriendActivityKind.HOSTING_WORLD,
+                    "Robin's Remote World",
+                ),
+            ),
+        )
 
         val online = viewModel.state.value.friends.single()
         assertTrue(online.onlineViaConnect)
@@ -357,6 +372,31 @@ class FriendsViewModelTest {
             "connect_share.friends.status.online",
             friend.presentation().statusKey,
         )
+    }
+
+    @Test
+    fun `raw status cannot reveal presence without privacy-safe activity`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        val viewModel = FriendsViewModel(store)
+        viewModel.updateRemotePresence(
+            mapOf(
+                PEER_ID to RemoteFriendPresence(
+                    peerId = PEER_ID,
+                    displayName = "Robin",
+                    online = true,
+                    description = "Secret World",
+                    notifyWhenOnline = true,
+                    route = ShareRoute.DIRECT_LAN,
+                ),
+            ),
+        )
+
+        val friend = viewModel.state.value.friends.single()
+        assertFalse(friend.onlineViaLan)
+        assertEquals(null, friend.worldName)
+        assertFalse(friend.canRequestJoin)
+        assertFalse(friend.canJoinNow)
     }
 
     @Test
@@ -455,6 +495,25 @@ class FriendsViewModelTest {
         val friend = viewModel.state.value.friends.single()
         assertEquals(FriendActivityKind.HOSTING_WORLD, friend.activityKind)
         assertEquals("Survival", friend.activityDescription)
+        assertTrue(friend.canRequestJoin)
+        assertFalse(friend.canJoinNow)
+    }
+
+    @Test
+    fun `privacy-safe activity is enough to request a singleplayer join`() {
+        val store = FriendStore(tempDir)
+        store.accept(signedLink(), "Robin", NOW)
+        val viewModel = FriendsViewModel(store)
+        viewModel.updateActivities(
+            mapOf(
+                PEER_ID to FriendActivity(
+                    FriendActivityKind.HOSTING_WORLD,
+                    joinable = true,
+                ),
+            ),
+        )
+
+        val friend = viewModel.state.value.friends.single()
         assertTrue(friend.canRequestJoin)
         assertFalse(friend.canJoinNow)
     }

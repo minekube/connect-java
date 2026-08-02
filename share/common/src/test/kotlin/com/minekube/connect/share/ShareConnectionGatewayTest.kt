@@ -2,8 +2,10 @@ package com.minekube.connect.share
 
 import com.minekube.connect.network.netty.LocalChannelWithSessionContext
 import com.minekube.connect.share.friend.FriendControlDecode
+import com.minekube.connect.share.friend.FriendControlContext
 import com.minekube.connect.share.friend.FriendControlRequest
 import com.minekube.connect.share.friend.FriendControlResponse
+import com.minekube.connect.share.friend.FriendControlServer
 import com.minekube.connect.share.friend.FriendControlWire
 import io.netty.bootstrap.Bootstrap
 import io.netty.buffer.ByteBuf
@@ -19,6 +21,7 @@ import java.io.ByteArrayOutputStream
 import java.net.Socket
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -27,6 +30,77 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class ShareConnectionGatewayTest {
+    @Test
+    fun `host privacy rejects Minecraft status without blocking login`() {
+        val server = object : FriendControlServer {
+            override fun handle(
+                context: FriendControlContext,
+                request: FriendControlRequest,
+            ): CompletionStage<FriendControlResponse> =
+                CompletableFuture.completedFuture(
+                    FriendControlResponse.Invalid,
+                )
+
+            override fun allowsMinecraftStatus(
+                context: FriendControlContext,
+            ) = false
+        }
+        ShareConnectionGateway.bind(server).use { gateway ->
+            val received = mutableListOf<ByteArray>()
+            gateway.activateMinecraft(
+                object : ChannelInitializer<Channel>() {
+                    override fun initChannel(channel: Channel) {
+                        channel.pipeline().addLast(
+                            object : ChannelInboundHandlerAdapter() {
+                                override fun channelRead(
+                                    context: ChannelHandlerContext,
+                                    message: Any,
+                                ) {
+                                    val buffer = message as ByteBuf
+                                    received += ByteArray(buffer.readableBytes())
+                                        .also(buffer::readBytes)
+                                    buffer.release()
+                                    context.close()
+                                }
+                            },
+                        )
+                    }
+                },
+            ).use {
+                Socket().use { socket ->
+                    socket.soTimeout = 2_000
+                    socket.connect(gateway.directAddress)
+                    socket.getOutputStream().apply {
+                        write(MINECRAFT_STATUS_HANDSHAKE, 0, 3)
+                        flush()
+                        write(
+                            MINECRAFT_STATUS_HANDSHAKE,
+                            3,
+                            MINECRAFT_STATUS_HANDSHAKE.size - 3,
+                        )
+                        flush()
+                    }
+                    assertEquals(-1, socket.getInputStream().read())
+                }
+                assertTrue(received.isEmpty())
+
+                Socket().use { socket ->
+                    socket.soTimeout = 2_000
+                    socket.connect(gateway.directAddress)
+                    socket.getOutputStream().apply {
+                        write(MINECRAFT_LOGIN_HANDSHAKE)
+                        flush()
+                    }
+                    assertEquals(-1, socket.getInputStream().read())
+                }
+                assertContentEquals(
+                    MINECRAFT_LOGIN_HANDSHAKE,
+                    received.single(),
+                )
+            }
+        }
+    }
+
     @Test
     fun `friend control is reachable before a Minecraft world exists`() {
         val requests = mutableListOf<FriendControlRequest>()
@@ -290,6 +364,14 @@ class ShareConnectionGatewayTest {
     }
 
     private companion object {
+        val MINECRAFT_STATUS_HANDSHAKE =
+            byteArrayOf(0x10, 0x00, 0xff.toByte(), 0x05, 0x09) +
+                "localhost".encodeToByteArray() +
+                byteArrayOf(0x63, 0xdd.toByte(), 0x01)
+        val MINECRAFT_LOGIN_HANDSHAKE =
+            MINECRAFT_STATUS_HANDSHAKE.copyOf().also {
+                it[it.lastIndex] = 0x02
+            }
         val REQUEST = FriendControlRequest(
             requestId = UUID.fromString(
                 "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
