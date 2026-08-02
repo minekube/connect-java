@@ -19,13 +19,21 @@ Status meanings:
 
 ## Evidence baseline
 
-- Commit under test: `6073f2f6101d86d38c71e517148725fd2c089c82`.
+- Original acceptance-audit commit:
+  `6073f2f6101d86d38c71e517148725fd2c089c82`.
+- Current deterministic head:
+  `9397658c11dfff381763492954e900b1a09ec57f`.
 - Deterministic friend/safety command: the focused `:share:common:test` and
   `:share:fabric-common:test` selectors listed in the adoption-foundation plan.
   Result on 2026-08-02: `BUILD SUCCESSFUL`.
 - Packaged adapter command: all `*ArtifactTest*` selectors for Fabric 1.20.1,
   1.21.1, 1.21.11, and 26.2; Forge 1.20.1; and NeoForge 1.21.1. Result on
   2026-08-02: 32 tests, zero skipped, zero failures, and zero errors.
+- Gap-fix red/green command: focused `FriendControlWireTest`,
+  `LoadedCompatibilityProfileFactoryTest`, `ShareScreenPresentationTest`, and
+  `ShareUiMessageTest`. The red run failed on the absent wire fingerprint,
+  remote fallback messages, and cancellation presentation; the green run
+  passed. All four Fabric artifact suites then passed in 1 minute.
 
 ## #95 — one-click presence, request, approval, and join
 
@@ -44,11 +52,11 @@ Status meanings:
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
-| Exchange a privacy-safe compatibility fingerprint before admission | Gap | `CompatibilityProfile.fingerprint()`, filtered profile transport in `FriendControlWire`, and compatibility-before-approval ordering in `FriendJoinOrchestratorTest` | Add a focused wire-level assertion that the fingerprint is carried and validated before admission |
+| Exchange a privacy-safe compatibility fingerprint before admission | Deterministic proof | `FriendControlWireTest` (`compatibility fingerprint is carried and validated on the wire`) rejects a tampered fingerprint; `FriendJoinOrchestratorTest` proves compatibility runs before approval | None beyond the full regression gate |
 | Distinguish Minecraft, loader, missing-mod, and mod-version mismatch | Deterministic proof | `CompatibilityProfileTest` (`minecraft loader missing mod and version differences are distinct`) | None beyond the full regression gate |
 | Never report a modpack mismatch as direct or Connect failure | Deterministic proof | `FriendJoinOrchestrator` returns `FriendJoinAttemptFailure.Compatibility` before approval; covered by both mismatch tests in `FriendJoinOrchestratorTest` | None beyond the full regression gate |
 | Show a concise list of blocking differences | Product proof required | semantic rows in `ShareScreenPresentation.compatibilityLines`; `ShareScreenPresentationTest` (`compatibility details use localizable semantic lines`) | Inspect the exact packaged recovery screen |
-| Copy or link matching Modrinth or CurseForge pack metadata | Gap | `LoadedCompatibilityProfileFactory` accepts safe HTTPS metadata and recognizes both platforms; only Modrinth has focused coverage | Add CurseForge and unsafe-link coverage, then prove the rendered copy/open action |
+| Copy or link matching Modrinth or CurseForge pack metadata | Product proof required | `LoadedCompatibilityProfileFactoryTest` covers Modrinth, CurseForge, and rejection of HTTP, credential-bearing, and file URLs; all Fabric mismatch screens copy the safe pack URL | Prove the rendered copy action on an exact packaged client |
 | Advanced override supports compatible client-only differences | Product proof required | client-only mods are omitted in `LoadedCompatibilityProfileFactoryTest`; required-mod mismatch uses explicit `allowModMismatch` in `FriendJoinOrchestratorTest` | Exercise the exact packaged Try Anyway flow |
 | Never upload a complete mod inventory without explicit consent | Deterministic proof | `LoadedCompatibilityProfileFactoryTest` proves only universal/server gameplay mods enter the peer-to-peer profile; `docs/connect-share.md` states the exchange is not uploaded | None beyond the full regression gate |
 
@@ -62,7 +70,7 @@ Status meanings:
 | Address reveals no local or public IP in the UI | Product proof required | `SecretRedactionTest`, `ShareJoinDiagnosticsTest`, and the ordinary Connect hostname presentation | Inspect copy/status UI and diagnostics on the exact artifact |
 | Host approval and capacity still apply | Product proof required | `AdmissionControllerTest` covers timeout, capacity, one-shot approval, and identity binding; `ShareCoordinatorTest` validates the guest range | Record approval, denial/timeout, and capacity behavior for a vanilla guest without automating Minecraft clicks |
 | Confirmed modded friends retain richer presence and direct-first joining | Product proof required | presence tests plus `TransportSelectorTest` (`same LAN is attempted before internet and Connect`) | Record a modded friend join after restoring the exact artifact |
-| Errors distinguish unavailable host from invalid or expired admission | Gap | invitation expiry and host-denial translation keys exist in `ShareUiMessageTest`; no focused no-mod assertion covers the complete distinction | Add no-mod admission outcome coverage and inspect the vanilla disconnect copy |
+| Errors distinguish unavailable host from invalid or expired admission | Product proof required | `RemoteLoginMessage` gives vanilla-readable fallback text for stopped, timed-out, full, denied, and invalid-auth cases; `ShareUiMessageTest` fixes their distinct contracts | Inspect each fallback on a vanilla Direct Connect client |
 
 ## #100 — privacy, permissions, and relationship safety
 
@@ -87,12 +95,13 @@ Status meanings:
 | Auto-accept requires explicit per-friend policy | Deterministic proof | `FriendPermissions.canJoinAutomatically` requires `AUTO_ACCEPT`; request-server policy tests cover Ask/Never Allow | None beyond the full regression gate |
 | Active gameplay is never interrupted automatically | Product proof required | `FollowNextSessionControllerTest` (`active gameplay is never interrupted and receives one join offer`) | Observe Join Now rather than forced connection during active gameplay |
 | Both players receive understandable notifications | Product proof required | follower toasts in each Fabric adapter, normal host admission notifications, and `SocialEventTrackerTest` | Observe both sides on exact packaged clients |
-| TDD covers expiry, cancellation, reconnect, removal, blocks, duplicates, and simultaneous follow | Gap | `FollowNextSessionControllerTest` covers expiry, cancellation, reconnect, removal through confirmed-set loss, duplicates, and simultaneous follow | Add an explicit blocked-relationship regression and verify the packaged cancel notification |
+| TDD covers expiry, cancellation, reconnect, removal, blocks, duplicates, and simultaneous follow | Deterministic proof | `FollowNextSessionControllerTest` explicitly covers every listed case; `ShareScreenPresentationTest` fixes visible automatic-cancellation copy; every Fabric adapter renders it | Verify the packaged cancellation notification during product proof |
 
 ## Open foundation gaps
 
-The baseline intentionally leaves #95, #96, #99, #100, and #103 open. The
-next TDD slice starts with the three explicit automated gaps above, then uses
-the exact-head Prism harness for product proof. Minecraft UI clicks are never
-automated; any irreducible approval interaction is recorded as a human
-checkpoint with all other evidence gathered noninteractively.
+The baseline intentionally leaves #95, #96, #99, #100, and #103 open until the
+remaining exact-head product claims are observed. The deterministic gaps found
+in the first audit are fixed in `9397658c`; the next step is the Prism product
+pass. Minecraft UI clicks are never automated; any irreducible approval
+interaction is recorded as a human checkpoint with all other evidence gathered
+noninteractively.
