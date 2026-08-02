@@ -29,10 +29,11 @@ Keep `SKILL.md` concise and procedural. It will require agents to:
 3. Build and install the exact same 26.2 artifact in both Prism instances.
 4. Launch distinct host and guest identities with Prism's `--profile`,
    `--offline`, `--world`, and `--server` arguments.
-5. Prove discovery, confirmed-friend activity, Minecraft status, join request,
-   approval, and a real `joined the game` log line as separate gates.
-6. Use a fresh direct target for status and gameplay because the current proxy
-   is one-shot.
+5. Prove discovery, confirmed-friend activity, privacy-permitted Minecraft
+   status, join request, approval, and a real `joined the game` log line as
+   separate gates.
+6. Use a fresh direct target for status and gameplay when status is permitted,
+   because the current proxy is one-shot.
 7. Diagnose readiness and pipeline failures with logs, `dns-sd`, and `jcmd`.
 8. Preserve the offline-versus-online authentication invariant.
 9. Restore temporary friend auto-approval and leave both test profiles in a

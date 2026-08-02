@@ -195,8 +195,11 @@ evidence.
 For a manually assembled Prism loader component, include its `cachedRequires`
 metadata and allow one online launch to fetch loader libraries before the
 offline guest run. A valid pass proves, in order, discovery, authenticated
-friend activity, status, approval, and a new `<guest> joined the game` host-log
-line. Startup or control-plane reachability alone does not pass.
+friend activity, privacy-permitted status when the host exposes its world name,
+approval, and a new `<guest> joined the game` host-log line. When that name is
+hidden, the privacy-filtered activity response is the authority and the raw
+status probe is intentionally skipped. Startup or control-plane reachability
+alone does not pass.
 
 ## Evidence to retain
 
