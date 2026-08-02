@@ -27,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
 class DiscoveredLanShare(
@@ -402,13 +403,15 @@ class FabricShareBrowser private constructor(
             invitation = invitation,
             lanAddress = discovered.address(),
         )
-        mutableDiscovered.value = (
-            mutableDiscovered.value.filterNot {
-                val existing = it.invitation.payload
-                existing.shareId == invitation.payload.shareId &&
-                    existing.peerId == invitation.payload.peerId
-            } + found
-        ).takeLast(MAX_DISCOVERED_SHARES)
+        mutableDiscovered.update { current ->
+            (
+                current.filterNot {
+                    val existing = it.invitation.payload
+                    existing.shareId == invitation.payload.shareId &&
+                        existing.peerId == invitation.payload.peerId
+                } + found
+            ).takeLast(MAX_DISCOVERED_SHARES)
+        }
     }
 
     private fun matchingLanAddress(

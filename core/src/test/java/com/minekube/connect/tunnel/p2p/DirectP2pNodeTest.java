@@ -39,7 +39,9 @@ import java.security.KeyFactory;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -317,6 +319,26 @@ class DirectP2pNodeTest {
                 "connect-share-12D3KooWEHeJnnq1Rfwt679bTyTxkEdt",
                 hostName);
         assertTrue(hostName.length() <= 63);
+    }
+
+    @Test
+    void mdnsDiscoveryRefreshesWhenTheAddressChanges() {
+        Set<String> seen = new HashSet<>();
+        DirectP2pDiscoveredShare first = new DirectP2pDiscoveredShare(
+                "World",
+                "12D3KooWHost",
+                "/ip4/192.168.1.20/tcp/4001/p2p/12D3KooWHost",
+                "minekube://share/invitation");
+        DirectP2pDiscoveredShare moved = new DirectP2pDiscoveredShare(
+                "World",
+                "12D3KooWHost",
+                "/ip4/192.168.1.21/tcp/4001/p2p/12D3KooWHost",
+                "minekube://share/invitation");
+
+        assertTrue(DirectP2pNodeRuntime.shouldNotifyDiscovery(seen, first));
+        assertFalse(DirectP2pNodeRuntime.shouldNotifyDiscovery(seen, first));
+        assertTrue(DirectP2pNodeRuntime.shouldNotifyDiscovery(seen, moved));
+        assertFalse(DirectP2pNodeRuntime.shouldNotifyDiscovery(seen, moved));
     }
 
     @Test
