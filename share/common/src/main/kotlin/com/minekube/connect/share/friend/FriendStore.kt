@@ -203,6 +203,7 @@ class FriendStore(
         displayName: String,
         now: Instant = Instant.now(),
         relationshipId: UUID = UUID.randomUUID(),
+        internetDirectGuestOptIn: Boolean = false,
     ): Either<FriendStoreError, SavedFriend> =
         storeInvitation(
             invitationUri = invitationUri,
@@ -211,6 +212,7 @@ class FriendStore(
                 FriendRelationshipStatus.PENDING_OUTGOING,
             now = now,
             relationshipId = relationshipId,
+            internetDirectGuestOptIn = internetDirectGuestOptIn,
         )
 
     @Synchronized
@@ -227,6 +229,7 @@ class FriendStore(
         displayName: String,
         relationshipStatus: FriendRelationshipStatus,
         allowAutomaticJoin: Boolean = false,
+        internetDirectGuestOptIn: Boolean = false,
         now: Instant,
         relationshipId: UUID?,
     ): Either<FriendStoreError, SavedFriend> = either {
@@ -276,7 +279,8 @@ class FriendStore(
             connectAddress = invite.payload.connectAddress,
             internetDirectEnabled = invite.payload.internetDirectEnabled,
             directCandidates = invite.payload.directCandidates,
-            internetDirectGuestOptIn = existing?.internetDirectGuestOptIn == true,
+            internetDirectGuestOptIn = internetDirectGuestOptIn ||
+                existing?.internetDirectGuestOptIn == true,
             displayName = existing?.displayName ?: normalizedName,
             minecraftUuid = existing?.minecraftUuid,
             permissions = (existing?.permissions ?: FriendPermissions())
