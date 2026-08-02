@@ -89,9 +89,11 @@ redesigned for Kotlin.
 - Authenticated friend activity is the authority for visible online, playing,
   world-name, and joinable state. Never promote raw Minecraft status into UI
   presence without a matching privacy-filtered activity response. The gateway
-  rejects status for unknown peers and whenever online, playing, or the current
-  server/world name is hidden; login remains independently admissible so a
-  privacy-safe join request can still succeed.
+  rejects status whenever online, playing, or the current server/world name is
+  hidden. A capability route may answer status only when all three are visible;
+  this must never promote an unknown or pending identity into social presence.
+  Login remains independently admissible so a privacy-safe join request can
+  still succeed.
 - An integrated server object exists before its local player connection is
   ready. Publish only after both exist, and advertise `HOSTING_WORLD` only from
   an actual `ShareState.Sharing`; otherwise friends see a world that cannot yet

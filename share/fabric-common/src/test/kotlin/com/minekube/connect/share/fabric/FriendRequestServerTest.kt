@@ -552,6 +552,26 @@ class FriendRequestServerTest {
         )
     }
 
+    @Test
+    fun `fully visible privacy permits status on a capability route`() = runTest {
+        val hostStore = FriendStore(tempDir.resolve("visible-status-store"))
+        val server = FriendRequestServer(
+            scope = backgroundScope,
+            admission = admission(),
+            issuer = issuer("visible-status-host"),
+            receiver = FriendCardReceiver(hostStore),
+            friendStore = hostStore,
+            presencePrivacy = { PresencePrivacy() },
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        assertTrue(
+            server.allowsMinecraftStatus(
+                FriendControlContext(Ingress.CONNECT, null),
+            ),
+        )
+    }
+
     private fun kotlinx.coroutines.test.TestScope.admission() =
         AdmissionController(
             scope = backgroundScope,

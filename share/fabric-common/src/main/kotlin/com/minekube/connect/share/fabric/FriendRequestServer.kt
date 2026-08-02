@@ -51,12 +51,16 @@ class FriendRequestServer(
     override fun allowsMinecraftStatus(
         context: FriendControlContext,
     ): Boolean {
-        val friend = authenticatedFriend(context) ?: return false
         val privacy = presencePrivacy()
-        return friend.permissions.canSeeMyWorlds &&
-            privacy.showOnline &&
-            privacy.showPlaying &&
-            privacy.showCurrentServer
+        if (
+            !privacy.showOnline ||
+            !privacy.showPlaying ||
+            !privacy.showCurrentServer
+        ) return false
+        val peerId = context.directPeerId ?: return true
+        val friend = authenticatedFriend(context) ?: return false
+        return friend.peerId == peerId &&
+            friend.permissions.canSeeMyWorlds
     }
 
     override fun handle(
