@@ -79,6 +79,38 @@ identifiers and versions, and an optional HTTPS modpack link configured by the
 host. It is not uploaded to Minekube. Client-only differences may be overridden;
 Minecraft or loader differences cannot.
 
+## Backing up friends and identity
+
+Open **Privacy**, then **Backup & restore**. **Back up friends** creates one
+offline file protected by the recovery password you enter twice. It contains
+the social and gameplay identities that let existing friends recognize you,
+saved relationships, access identity, preferences when present, and the local
+Connect endpoint configuration and token when both are present. The file is
+encrypted and integrity checked before it is written; neither the file nor its
+password is sent to Minekube.
+
+Keep the backup and its password separately. The password cannot be recovered,
+and anyone who has both can act as this Share identity. **Restore backup** first
+authenticates the complete file and shows a content-category summary. A second
+confirmation then atomically replaces this device's Share data. Stop sharing
+before restoring and restart Minecraft afterward. A wrong password, damaged
+file, unsupported version, interrupted write, or failed replacement leaves the
+current installation unchanged or rolls it back.
+
+A restored backup is a device transfer, not multi-device synchronization. Do
+not run two copied profiles at the same time: they hold the same identity and
+can race presence or friend operations. If the old device was lost without a
+backup, create a new identity and have friends verify and add it again; removing
+or blocking the old relationship remains the revocation mechanism. Automatic
+cross-device enrollment, remote revocation, and conflict-free simultaneous
+devices require a future recovery protocol and are not provided by the offline
+archive.
+
+The existing **Connect endpoint** token-file import is a separate operation. It
+imports credentials downloaded from the Minekube dashboard and does not restore
+friends or the Share social identity. Conversely, the recovery screen never
+accepts a dashboard token as a recovery password or friend backup.
+
 ## Installation and distribution
 
 Supported artifacts are named

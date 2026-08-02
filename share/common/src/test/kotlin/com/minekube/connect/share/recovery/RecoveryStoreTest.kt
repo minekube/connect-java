@@ -64,6 +64,19 @@ class RecoveryStoreTest {
     }
 
     @Test
+    fun `export cannot overwrite live Share recovery material`() {
+        val source = tempDir.resolve("source").createDirectories()
+        seed(source, "source")
+        val friends = source.resolve(RecoveryArchive.FRIENDS_FILE)
+        val original = friends.readBytes()
+
+        assertIs<RecoveryStoreError.BackupWriteFailed>(
+            store(source).exportTo(friends, PASSPHRASE.copyOf()).leftOrNull(),
+        )
+        assertContentEquals(original, friends.readBytes())
+    }
+
+    @Test
     fun `optional files omitted by the backup are removed on restore`() {
         val source = tempDir.resolve("source").createDirectories()
         val destination = tempDir.resolve("destination").createDirectories()
@@ -114,6 +127,27 @@ class RecoveryStoreTest {
                 PASSPHRASE.copyOf(),
             ).leftOrNull(),
         )
+        assertEquals(original, snapshot(destination))
+    }
+
+    @Test
+    fun `preview authenticates and summarizes without changing live files`() {
+        val source = tempDir.resolve("source").createDirectories()
+        val destination = tempDir.resolve("destination").createDirectories()
+        seed(source, "source")
+        seed(destination, "destination")
+        val original = snapshot(destination)
+        val backup = tempDir.resolve("backup.bin")
+        store(source).exportTo(backup, PASSPHRASE.copyOf())
+
+        val preview = store(destination).preview(
+            backup,
+            PASSPHRASE.copyOf(),
+        ).getOrNull()!!
+
+        assertEquals(7, preview.entryCount)
+        assertTrue(preview.includesPreferences)
+        assertTrue(preview.includesEndpointIdentity)
         assertEquals(original, snapshot(destination))
     }
 

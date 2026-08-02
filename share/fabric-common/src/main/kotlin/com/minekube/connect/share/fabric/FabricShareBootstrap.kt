@@ -6,6 +6,7 @@ import com.minekube.connect.share.ShareCoordinator
 import com.minekube.connect.share.ShareConnectionGateway
 import com.minekube.connect.share.ShareGameMode
 import com.minekube.connect.share.ShareOptions
+import com.minekube.connect.share.ShareState
 import com.minekube.connect.share.VersionedMinecraftBridge
 import com.minekube.connect.share.admission.AdmissionController
 import com.minekube.connect.share.admission.AdmissionIdentity
@@ -13,6 +14,8 @@ import com.minekube.connect.share.direct.ShareInviteCodec
 import com.minekube.connect.share.fabric.ui.ShareViewModel
 import com.minekube.connect.share.fabric.ui.FriendsViewModel
 import com.minekube.connect.share.fabric.ui.StoredEndpointIdentityUiActions
+import com.minekube.connect.share.fabric.recovery.RecoveryViewModel
+import com.minekube.connect.share.fabric.recovery.StoredRecoveryUiActions
 import com.minekube.connect.share.friend.FriendStore
 import com.minekube.connect.share.friend.FriendActivity
 import com.minekube.connect.share.friend.FriendActivityKind
@@ -22,6 +25,7 @@ import com.minekube.connect.share.friend.ShareAccessIdentityStore
 import com.minekube.connect.share.friend.SharePreferences
 import com.minekube.connect.share.friend.SharePreferencesStore
 import com.minekube.connect.share.identity.EndpointIdentityStore
+import com.minekube.connect.share.recovery.RecoveryStore
 import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import com.minekube.connect.util.MessageFormatter
 import java.nio.file.Path
@@ -316,6 +320,15 @@ object FabricShareBootstrap {
                     }
                 },
             )
+            val recoveryViewModel = RecoveryViewModel(
+                scope = scope,
+                actions = StoredRecoveryUiActions(
+                    RecoveryStore(dataDirectory),
+                ),
+                restoreAllowed = {
+                    viewModel.state.value.shareState is ShareState.Idle
+                },
+            )
             val activityMonitor = FriendActivityMonitor(
                 store = friendStore,
                 query = { friend ->
@@ -367,6 +380,7 @@ object FabricShareBootstrap {
             return ConnectShareInstallation(
                 viewModel = viewModel,
                 friendsViewModel = friendsViewModel,
+                recoveryViewModel = recoveryViewModel,
                 runtime = runtime,
                 friendCardIssuer = friendCardIssuer,
                 friendCardReceiver = friendCardReceiver,

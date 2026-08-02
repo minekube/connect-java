@@ -176,6 +176,14 @@ Recognize these established failure signatures:
   require the guest log to contain the actionable denial rather than treating
   generic timeout as acceptable evidence.
 
+For recovery product proof, stop sharing and close the source profile before
+export/import. Use disposable profile copies, compare only expected file hashes
+or redacted relationship counts, and never print the backup path, password,
+archive bytes, private identities, friend capabilities, or endpoint token.
+Verify wrong-password and one-byte-damaged imports leave every live allowlisted
+file hash unchanged. Never launch the source and restored copy simultaneously:
+an offline backup transfers one stable identity and is not multi-device sync.
+
 ## Finish and retain knowledge
 
 Run focused regression tests first, then:

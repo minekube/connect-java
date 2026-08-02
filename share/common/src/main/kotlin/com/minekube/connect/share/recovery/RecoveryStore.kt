@@ -104,30 +104,9 @@ class RecoveryStore(
             return@synchronized RecoveryStoreError.UnsafeMaterial.left()
         }
 
-        val encrypted = try {
-            if (
-                Files.isSymbolicLink(source) ||
-                !Files.isRegularFile(source, NOFOLLOW_LINKS) ||
-                Files.size(source) > RecoveryArchive.MAX_ARCHIVE_BYTES
-            ) {
-                return@synchronized RecoveryStoreError.BackupReadFailed.left()
-            }
-            Files.readAllBytes(source)
-        } catch (_: IOException) {
-            return@synchronized RecoveryStoreError.BackupReadFailed.left()
-        } catch (_: SecurityException) {
-            return@synchronized RecoveryStoreError.BackupReadFailed.left()
-        }
-
-        val entries = try {
-            val decrypted = archive.decrypt(encrypted, passphrase)
-            val failure = decrypted.leftOrNull()
-            if (failure != null) {
-                return@synchronized RecoveryStoreError.ArchiveFailure(failure).left()
-            }
-            decrypted.getOrNull()!!
-        } finally {
-            encrypted.fill(0)
+        val entries = when (val loaded = readArchiveEntries(source, passphrase)) {
+            is Either.Left -> return@synchronized loaded
+            is Either.Right -> loaded.value
         }
 
         try {
@@ -142,6 +121,47 @@ class RecoveryStore(
             RecoveryStoreError.ReplacementFailed.left()
         } finally {
             entries.forEach { it.contents.fill(0) }
+        }
+    }
+
+    fun preview(
+        source: Path,
+        passphrase: CharArray,
+    ): Either<RecoveryStoreError, RecoverySummary> = synchronized(operationLock) {
+        val entries = when (val loaded = readArchiveEntries(source, passphrase)) {
+            is Either.Left -> return@synchronized loaded
+            is Either.Right -> loaded.value
+        }
+        try {
+            summary(entries).right()
+        } finally {
+            entries.forEach { it.contents.fill(0) }
+        }
+    }
+
+    private fun readArchiveEntries(
+        source: Path,
+        passphrase: CharArray,
+    ): Either<RecoveryStoreError, List<RecoveryEntry>> {
+        val encrypted = try {
+            if (
+                Files.isSymbolicLink(source) ||
+                !Files.isRegularFile(source, NOFOLLOW_LINKS) ||
+                Files.size(source) > RecoveryArchive.MAX_ARCHIVE_BYTES
+            ) {
+                return RecoveryStoreError.BackupReadFailed.left()
+            }
+            Files.readAllBytes(source)
+        } catch (_: IOException) {
+            return RecoveryStoreError.BackupReadFailed.left()
+        } catch (_: SecurityException) {
+            return RecoveryStoreError.BackupReadFailed.left()
+        }
+        return try {
+            archive.decrypt(encrypted, passphrase)
+                .mapLeft(RecoveryStoreError::ArchiveFailure)
+        } finally {
+            encrypted.fill(0)
         }
     }
 
@@ -255,6 +275,14 @@ class RecoveryStore(
         val absolute = target.toAbsolutePath().normalize()
         val parent = absolute.parent ?: throw IOException("Backup has no parent")
         Files.createDirectories(parent)
+        val resolvedTarget = parent.toRealPath().resolve(absolute.fileName)
+        val resolvedDataDirectory = directory.toRealPath()
+        if (
+            resolvedTarget in FILE_NAMES.map(resolvedDataDirectory::resolve) ||
+            resolvedTarget == resolvedDataDirectory.resolve(TRANSACTION_DIRECTORY)
+        ) {
+            throw IOException("Backup target overlaps live Share data")
+        }
         if (Files.exists(absolute, NOFOLLOW_LINKS) && Files.isSymbolicLink(absolute)) {
             throw IOException("Backup target is unsafe")
         }

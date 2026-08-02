@@ -154,3 +154,9 @@ redesigned for Kotlin.
   persistent label; split pause-menu buttons must keep copy within their
   100-pixel logical width. The repository Prism skill owns the capture and
   focus-order procedure.
+- Recovery export/import must run only against the fixed Share allowlist and
+  while sharing is stopped. A selected backup target must never resolve to a
+  live identity, friend, preference, endpoint, or transaction path. Validate
+  and decrypt the entire archive before replacement, keep rollback material
+  until a committed marker is durable, and test simulated interruption. Never
+  print archive paths, contents, passwords, identities, or tokens as evidence.
