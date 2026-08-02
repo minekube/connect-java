@@ -404,7 +404,9 @@ class FabricShareBrowser private constructor(
         )
         mutableDiscovered.value = (
             mutableDiscovered.value.filterNot {
-                it.invitation.payload.shareId == invitation.payload.shareId
+                val existing = it.invitation.payload
+                existing.shareId == invitation.payload.shareId &&
+                    existing.peerId == invitation.payload.peerId
             } + found
         ).takeLast(MAX_DISCOVERED_SHARES)
     }

@@ -145,6 +145,47 @@ class FabricShareBrowserTest {
     }
 
     @Test
+    fun `saved friend route survives another peer advertising the same share`() =
+        runTest {
+            val node = FakeGuestNode()
+            val browser = browser(node)
+            browser.start()
+            val friendLink = invitation()
+            val friend = savedFriend(friendLink)
+            node.discover(
+                DirectP2pDiscoveredShare(
+                    "Robin's friend control",
+                    PEER_ID,
+                    LAN_ADDRESS,
+                    friendLink,
+                ),
+            )
+            val worldPeer = "12D3KooWWorld"
+            node.discover(
+                DirectP2pDiscoveredShare(
+                    "Robin's active world",
+                    worldPeer,
+                    lanAddress(worldPeer),
+                    invitation(peerId = worldPeer),
+                ),
+            )
+
+            val result = browser.openFriendControl(
+                friend = friend,
+                authMode = DirectP2pAuthMode.OFFLINE,
+            )
+
+            val target = assertIs<Either.Right<GuestJoinTarget.Direct>>(
+                result,
+            ).value
+            assertEquals(ShareRoute.DIRECT_LAN, target.route)
+            assertEquals(listOf(LAN_ADDRESS), node.openedAddresses)
+            assertEquals(2, browser.discovered.value.size)
+            target.close()
+            browser.close()
+        }
+
+    @Test
     fun `friend control uses saved direct internet route outside the LAN`() = runTest {
         val node = FakeGuestNode()
         val browser = browser(node)

@@ -19,12 +19,35 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assumptions.assumeTrue
+import org.junit.jupiter.api.io.TempDir
 
 /**
  * Opt-in bridge between the deterministic friend tests and a real Prism host
  * plus guest. See share/AGENTS.md for the launch sequence.
  */
 class PrismFriendJoinE2ETest {
+    @TempDir
+    lateinit var tempDir: Path
+
+    @Test
+    fun `rotated guest log counts fresh advancement evidence`() {
+        val guestLog = tempDir.resolve("latest.log")
+        val absent = snapshotLog(guestLog)
+        Files.writeString(
+            guestLog,
+            "[old] [Render thread/INFO]: Loaded 41 advancements\n",
+        )
+        assertTrue(hasNewLoadedAdvancements(guestLog, absent))
+        val before = snapshotLog(guestLog)
+
+        Files.writeString(
+            guestLog,
+            "[new] [Render thread/INFO]: Loaded 41 advancements\n",
+        )
+
+        assertTrue(hasNewLoadedAdvancements(guestLog, before))
+    }
+
     @Test
     fun `saved friend requests and joins a live singleplayer world`() =
         runBlocking {
@@ -44,7 +67,7 @@ class PrismFriendJoinE2ETest {
             val joinsBefore = Files.readString(hostLog)
                 .lineSequence()
                 .count { joinedLine in it }
-            val guestLoadsBefore = guestLog?.let(::loadedAdvancementsCount)
+            val guestLogBefore = guestLog?.let(::snapshotLog)
             val friend = FriendStore(dataDirectory).all().single()
             System.getenv("LIVE_HOST_DATA")?.let { hostDataValue ->
                 val guestPeerId = DirectP2pNode(
@@ -144,11 +167,13 @@ class PrismFriendJoinE2ETest {
                             delay(100)
                         }
                     }
-                    if (guestLog != null && guestLoadsBefore != null) {
+                    if (guestLog != null && guestLogBefore != null) {
                         withTimeout(180_000) {
                             while (
-                                loadedAdvancementsCount(guestLog) <=
-                                guestLoadsBefore
+                                !hasNewLoadedAdvancements(
+                                    guestLog,
+                                    guestLogBefore,
+                                )
                             ) {
                                 delay(100)
                             }
@@ -160,12 +185,35 @@ class PrismFriendJoinE2ETest {
             }
         }
 
-    private fun loadedAdvancementsCount(log: Path): Int =
-        if (Files.exists(log)) {
-            Files.readString(log).lineSequence().count {
-                "Loaded " in it && " advancements" in it
-            }
-        } else {
-            0
+    private fun snapshotLog(path: Path): LogSnapshot =
+        (if (Files.exists(path)) Files.readString(path) else "").let { contents ->
+            LogSnapshot(
+                contents = contents,
+                loadedAdvancements = loadedAdvancementsCount(contents),
+            )
         }
+
+    private fun hasNewLoadedAdvancements(
+        path: Path,
+        before: LogSnapshot,
+    ): Boolean {
+        if (!Files.exists(path)) return false
+        val contents = Files.readString(path)
+        val current = loadedAdvancementsCount(contents)
+        return if (contents.startsWith(before.contents)) {
+            current > before.loadedAdvancements
+        } else {
+            current > 0
+        }
+    }
+
+    private fun loadedAdvancementsCount(contents: String): Int =
+        contents.lineSequence().count {
+            "Loaded " in it && " advancements" in it
+        }
+
+    private data class LogSnapshot(
+        val contents: String,
+        val loadedAdvancements: Int,
+    )
 }
