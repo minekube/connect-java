@@ -48,11 +48,11 @@
 - Modify: each supported Fabric settings/friends adapter and `en_us.json`/`de_de.json`
 - Modify: `docs/connect-share.md`
 
-- [ ] Write failing pure-view-model tests for export confirmation, import preview, wrong-secret/tamper messages, busy-state nonblocking behavior, restart-required success, password clearing, and dashboard-import wording separation.
-- [ ] Add **Back up friends** and **Restore backup** flows with persistent labels, passphrase confirmation on export, explicit overwrite/restart confirmation on import, clear content/loss warnings, and no secret in mutable state after completion.
-- [ ] Run file/crypto work on IO dispatchers; render only typed summaries and safe localizable errors.
-- [ ] Document offline backup, loss of recovery secret, device-copy risks, identity rotation/re-verification, concurrent-device single-active-device semantics, revocation, and the separate dashboard endpoint import.
-- [ ] Add deterministic tests for simultaneous-device duplicate suppression and rotation invalidating the prior identity, or record the exact remaining protocol gap rather than claiming it.
+- [x] Write failing pure-view-model tests for export confirmation, import preview, wrong-secret/tamper messages, busy-state nonblocking behavior, restart-required success, password clearing, and dashboard-import wording separation.
+- [x] Add **Back up friends** and **Restore backup** flows with persistent labels, passphrase confirmation on export, explicit overwrite/restart confirmation on import, clear content/loss warnings, and no secret in mutable state after completion.
+- [x] Run file/crypto work on IO dispatchers; render only typed summaries and safe localizable errors.
+- [x] Document offline backup, loss of recovery secret, device-copy risks, identity rotation/re-verification, concurrent-device single-active-device semantics, revocation, and the separate dashboard endpoint import.
+- [x] Add deterministic tests for simultaneous-device duplicate suppression and rotation invalidating the prior identity, or record the exact remaining protocol gap rather than claiming it.
 
 ### Task 4: Evidence and Delivery
 
@@ -60,7 +60,7 @@
 - Modify: `docs/connect-share-adoption-evidence.md`
 - Modify: `.agents/skills/connect-share-prism-e2e/SKILL.md` and `share/AGENTS.md` only for reusable discoveries
 
-- [ ] Build all supported artifacts and assert recovery strings/entrypoints are packaged where applicable.
+- [x] Build all supported artifacts and assert recovery strings/entrypoints are packaged where applicable.
 - [ ] Export from one isolated Prism profile, rotate its local files, import into a stopped second profile, and prove the restored friend identity/relationship offline without exposing archive contents.
 - [ ] Verify wrong-secret and tampered archives do not change either profile, then leave both profiles in safe Ask Every Time state with matching intended artifacts.
 - [ ] Commit and push incremental reviewed commits to PR #94; comment on #120 with deterministic and product evidence, leaving any account-backed or external-device service work precisely open.

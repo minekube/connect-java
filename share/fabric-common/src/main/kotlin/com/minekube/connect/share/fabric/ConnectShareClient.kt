@@ -6,6 +6,7 @@ import com.minekube.connect.share.fabric.ui.ShareViewModel
 import com.minekube.connect.share.fabric.ui.FriendsViewModel
 import com.minekube.connect.share.fabric.ui.menuLabel
 import com.minekube.connect.share.fabric.ui.overview
+import com.minekube.connect.share.fabric.recovery.RecoveryViewModel
 
 fun interface ConnectShareScreenFactory {
     fun open(parent: Any, active: Boolean)
@@ -22,6 +23,7 @@ fun interface ConnectShareGuestScreenFactory {
 data class ConnectShareInstallation(
     val viewModel: ShareViewModel,
     val friendsViewModel: FriendsViewModel,
+    val recoveryViewModel: RecoveryViewModel,
     val runtime: ConnectShareRuntime,
     val friendCardIssuer: FriendCardIssuer,
     val friendCardReceiver: FriendCardReceiver,
@@ -124,6 +126,10 @@ object ConnectShareClient {
         checkNotNull(installation).friendsViewModel
 
     @JvmStatic
+    fun recoveryViewModel(): RecoveryViewModel =
+        checkNotNull(installation).recoveryViewModel
+
+    @JvmStatic
     fun friendCardIssuer(): FriendCardIssuer =
         checkNotNull(installation).friendCardIssuer
 
@@ -178,6 +184,7 @@ object ConnectShareClient {
         friendCardConsent.cancel()
         guestLease.close()
         installation?.let { installed ->
+            installed.recoveryViewModel.close()
             installed.runtime.shutdown()
             installed.directControlPlane.shutdown()
             installed.controlPlane.shutdown()

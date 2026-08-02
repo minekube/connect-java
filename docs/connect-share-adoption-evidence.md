@@ -52,6 +52,14 @@ Status meanings:
   `SessionProposal`; successful vanilla admission and guest-visible denial
   remain external product evidence, not a local completion claim. The guest mod
   was restored with the matching hash.
+- Encrypted-recovery deterministic gate on 2026-08-03: complete
+  `:share:common:check` and `:share:fabric-common:check` plus all four Fabric
+  adapter test tasks passed in 1 minute 31 seconds. Rebuilt exact artifacts
+  each contained 31 recovery classes/entrypoints, one English stop-sharing
+  safety key, and remained under the 90 MiB artifact gate (approximately
+  64.9–65.5 MB). JSON parsing passed for every English and German language
+  file. No backup content, path, password, identity, capability, or token was
+  emitted during verification.
 
 ## #95 — one-click presence, request, approval, and join
 
@@ -73,7 +81,7 @@ Status meanings:
 | Exchange a privacy-safe compatibility fingerprint before admission | Deterministic proof | `FriendControlWireTest` (`compatibility fingerprint is carried and validated on the wire`) rejects a tampered fingerprint; `FriendJoinOrchestratorTest` proves compatibility runs before approval | None beyond the full regression gate |
 | Distinguish Minecraft, loader, missing-mod, and mod-version mismatch | Deterministic proof | `CompatibilityProfileTest` (`minecraft loader missing mod and version differences are distinct`) | None beyond the full regression gate |
 | Never report a modpack mismatch as direct or Connect failure | Deterministic proof | `FriendJoinOrchestrator` returns `FriendJoinAttemptFailure.Compatibility` before approval; covered by both mismatch tests in `FriendJoinOrchestratorTest` | None beyond the full regression gate |
-| Show a concise list of blocking differences | Product proof required | semantic rows in `ShareScreenPresentation.compatibilityLines`; `ShareScreenPresentationTest` (`compatibility details use localizable semantic lines`) | Inspect the exact packaged recovery screen |
+| Show a concise list of blocking differences | Product proof required | semantic rows in `ShareScreenPresentation.compatibilityLines`; `ShareScreenPresentationTest` (`compatibility details use localizable semantic lines`) | Inspect the exact packaged compatibility screen |
 | Copy or link matching Modrinth or CurseForge pack metadata | Product proof required | `LoadedCompatibilityProfileFactoryTest` covers Modrinth, CurseForge, and rejection of HTTP, credential-bearing, and file URLs; all Fabric mismatch screens copy the safe pack URL | Prove the rendered copy action on an exact packaged client |
 | Advanced override supports compatible client-only differences | Product proof required | client-only mods are omitted in `LoadedCompatibilityProfileFactoryTest`; required-mod mismatch uses explicit `allowModMismatch` in `FriendJoinOrchestratorTest` | Exercise the exact packaged Try Anyway flow |
 | Never upload a complete mod inventory without explicit consent | Deterministic proof | `LoadedCompatibilityProfileFactoryTest` proves only universal/server gameplay mods enter the peer-to-peer profile; `docs/connect-share.md` states the exchange is not uploaded | None beyond the full regression gate |
@@ -114,6 +122,17 @@ Status meanings:
 | Active gameplay is never interrupted automatically | Product proof required | `FollowNextSessionControllerTest` (`active gameplay is never interrupted and receives one join offer`) | Observe Join Now rather than forced connection during active gameplay |
 | Both players receive understandable notifications | Product proof required | follower toasts in each Fabric adapter, normal host admission notifications, and `SocialEventTrackerTest` | Observe both sides on exact packaged clients |
 | TDD covers expiry, cancellation, reconnect, removal, blocks, duplicates, and simultaneous follow | Deterministic proof | `FollowNextSessionControllerTest` explicitly covers every listed case; `ShareScreenPresentationTest` fixes visible automatic-cancellation copy; every Fabric adapter renders it | Verify the packaged cancellation notification during product proof |
+
+## #120 — encrypted identity and friend recovery
+
+| Acceptance criterion | Status | Evidence | Remaining proof |
+|---|---|---|---|
+| Offline export/import keeps recovery plaintext away from Minekube | Deterministic proof | `RecoveryArchiveTest` covers AES-256-GCM round trip, random salt/nonce, PBKDF2-HMAC-SHA256, strict allowlisting, bounds, and redacted values; `RecoveryStoreTest` proves complete offline transfer | Inspect and exercise the exact packaged file-picker flow without recording its path or contents |
+| Wrong password, tampering, unsupported versions, and partial writes fail closed | Deterministic proof | `RecoveryArchiveTest` makes wrong passwords and one-byte tampering the same authentication failure; `RecoveryStoreTest` proves wrong-secret no-op, injected rollback, and next-start recovery after simulated process loss | Repeat wrong-password and damaged-file cases with disposable packaged profiles |
+| Export and restored files are owner-only and atomically replaced | Deterministic proof | `RecoveryStoreTest` verifies POSIX `0600`, atomic replacement of an existing backup, deterministic staged import, and rollback | Confirm permissions on the final packaged-client backup where POSIX applies |
+| Recovery UI is nonblocking, explicit, safe, localized, and distinct from dashboard token import | Product proof required | `RecoveryViewModelTest` covers off-thread work, matching export secrets, authenticated preview, explicit restore confirmation, restart copy, active-share refusal, and password-buffer clearing; all four Fabric adapters compile with English and German recovery strings | Inspect the final screen at minimum and narrow window sizes; verify native save/open dialogs manually |
+| Device loss, rotation, revocation, and concurrent restored-copy semantics are honest | Gap | `docs/connect-share.md` defines the offline archive as a single-device transfer and identifies re-verification/removal/blocking; it explicitly warns that copied profiles must not run simultaneously | A future signed identity-rotation protocol is required to revoke a lost active device and deterministically suppress two restored copies without trusting a central social relay |
+| Optional account-backed recovery is visible, revocable, and rate limited | Gap | No plaintext or recovery secret is uploaded by the local implementation | Requires an authenticated Minekube recovery service, threat model, enrollment/revocation API, audit trail, and abuse/rate-limit controls; it cannot be truthfully completed inside this client-only PR |
 
 ## Open foundation gaps
 

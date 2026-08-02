@@ -76,6 +76,7 @@ class SharePrivacyScreen(
             ).setMaxWidth(layout.contentWidth).setCentered(true),
         )
 
+        val third = (layout.contentWidth - 12) / 3
         addRenderableWidget(
             Button.builder(
                 Component.translatable(
@@ -94,7 +95,7 @@ class SharePrivacyScreen(
             }.bounds(
                 layout.contentX,
                 layout.footerTop,
-                layout.halfButtonWidth,
+                third,
                 20,
             ).build(),
         )
@@ -108,9 +109,21 @@ class SharePrivacyScreen(
             ) {
                 minecraft.gui.setScreen(BlockedFriendsScreen(this))
             }.bounds(
-                layout.contentX + layout.halfButtonWidth + 6,
+                layout.contentX + third + 6,
                 layout.footerTop,
-                layout.halfButtonWidth,
+                third,
+                20,
+            ).build(),
+        )
+        addRenderableWidget(
+            Button.builder(
+                Component.translatable("connect_share.recovery.menu"),
+            ) {
+                minecraft.gui.setScreen(RecoveryScreen(this))
+            }.bounds(
+                layout.contentX + (third + 6) * 2,
+                layout.footerTop,
+                third,
                 20,
             ).build(),
         )
