@@ -48,7 +48,7 @@ external dependency to an owner, verification artifact, and issue criterion.
 ## Task 5: Evidence and handoff
 
 - [x] Extend the acceptance matrix for #117, #118, and #119.
-- [ ] Run Markdown/link checks available in the repository, workflow syntax
+- [x] Run Markdown/link checks available in the repository, workflow syntax
   checks, targeted tests, the broader build, and `git diff --check`.
-- [ ] Push reviewed commits to PR #94; comment on each issue with completed
+- [x] Push reviewed commits to PR #94; comment on each issue with completed
   repository work and exact external gates. Keep the PR unmerged.
