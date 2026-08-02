@@ -1,10 +1,10 @@
 package com.minekube.connect.share.fabric.v26_2
 
+import java.util.UUID
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.network.codec.StreamCodec
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload
 import net.minecraft.resources.Identifier
-import java.util.UUID
 
 data class FriendCardPayload(
     val invitation: String,

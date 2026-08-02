@@ -4,6 +4,7 @@ import com.minekube.connect.share.fabric.ApprovedJoinTracker
 import com.minekube.connect.share.fabric.ConnectShareClient
 import com.minekube.connect.share.fabric.FriendCardIssuer
 import com.minekube.connect.share.fabric.FriendCardReceiver
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +17,6 @@ import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
 import net.neoforged.neoforge.network.PacketDistributor
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent
-import java.util.UUID
 
 object NeoForgeFriendCardNetworking {
     private const val PROTOCOL = "1"

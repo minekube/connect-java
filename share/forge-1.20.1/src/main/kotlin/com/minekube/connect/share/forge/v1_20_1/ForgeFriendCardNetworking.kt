@@ -4,6 +4,7 @@ import com.minekube.connect.share.fabric.ApprovedJoinTracker
 import com.minekube.connect.share.fabric.ConnectShareClient
 import com.minekube.connect.share.fabric.FriendCardIssuer
 import com.minekube.connect.share.fabric.FriendCardReceiver
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +19,6 @@ import net.minecraftforge.network.NetworkDirection
 import net.minecraftforge.network.NetworkRegistry
 import net.minecraftforge.network.PacketDistributor
 import net.minecraftforge.network.simple.SimpleChannel
-import java.util.UUID
 
 object ForgeFriendCardNetworking {
     private const val PROTOCOL = "1"
