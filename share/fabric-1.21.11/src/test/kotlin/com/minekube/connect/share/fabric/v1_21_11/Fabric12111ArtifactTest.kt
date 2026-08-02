@@ -27,12 +27,12 @@ class Fabric12111ArtifactTest {
             ).bufferedReader().use { it.readText() }
 
             assertTrue(
-                "\"connect_share.setup.title\": \"Share this world\"" in
+                "\"connect_share.setup.title\": \"Play this world with friends\"" in
                     language,
             )
             assertTrue(
-                "\"connect_share.status.copy_invitation\": " +
-                    "\"Copy friend link\"" in language,
+                "\"connect_share.status.copy_friend_link\": " +
+                    "\"Copy invite for a new friend\"" in language,
             )
             assertTrue(
                 "\"connect_share.friends.copy_my_link\": " +
@@ -44,11 +44,11 @@ class Fabric12111ArtifactTest {
             )
             assertTrue(
                 "\"connect_share.friends.outgoing_request\": " +
-                    "\"Request to %s\"" in language,
+                    "\"Waiting for %s\"" in language,
             )
             assertTrue(
                 "\"connect_share.friends.incoming_request\": " +
-                    "\"Request from %s · %s\"" in language,
+                    "\"%s wants to be friends · %s\"" in language,
             )
             assertTrue(
                 "\"connect_share.friends.retry_request\": \"Retry\"" in

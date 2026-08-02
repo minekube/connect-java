@@ -38,11 +38,13 @@ class PrismFriendJoinE2ETest {
             val dataDirectory = Path.of(checkNotNull(dataValue))
             val portFile = Path.of(checkNotNull(portValue))
             val hostLog = Path.of(checkNotNull(hostLogValue))
+            val guestLog = System.getenv("LIVE_GUEST_LOG")?.let(Path::of)
             val playerName = System.getenv("LIVE_PLAYER_NAME") ?: "bob"
             val joinedLine = "] $playerName joined the game"
             val joinsBefore = Files.readString(hostLog)
                 .lineSequence()
                 .count { joinedLine in it }
+            val guestLoadsBefore = guestLog?.let(::loadedAdvancementsCount)
             val friend = FriendStore(dataDirectory).all().single()
             System.getenv("LIVE_HOST_DATA")?.let { hostDataValue ->
                 val guestPeerId = DirectP2pNode(
@@ -85,13 +87,17 @@ class PrismFriendJoinE2ETest {
                 )
 
                 // Status and gameplay require different one-shot proxies.
-                assertTrue(
-                    browser.probeLan(
-                        friend,
-                        DirectP2pAuthMode.OFFLINE,
-                        MinecraftStatusProbe(),
-                    ) != null,
-                )
+                withTimeout(30_000) {
+                    while (
+                        browser.probeLan(
+                            friend,
+                            DirectP2pAuthMode.OFFLINE,
+                            MinecraftStatusProbe(),
+                        ) == null
+                    ) {
+                        delay(250)
+                    }
+                }
                 val playerUuid = UUID.nameUUIDFromBytes(
                     "OfflinePlayer:$playerName".toByteArray(
                         StandardCharsets.UTF_8,
@@ -133,9 +139,28 @@ class PrismFriendJoinE2ETest {
                             delay(100)
                         }
                     }
+                    if (guestLog != null && guestLoadsBefore != null) {
+                        withTimeout(180_000) {
+                            while (
+                                loadedAdvancementsCount(guestLog) <=
+                                guestLoadsBefore
+                            ) {
+                                delay(100)
+                            }
+                        }
+                    }
                 }
             } finally {
                 browser.close()
             }
+        }
+
+    private fun loadedAdvancementsCount(log: Path): Int =
+        if (Files.exists(log)) {
+            Files.readString(log).lineSequence().count {
+                "Loaded " in it && " advancements" in it
+            }
+        } else {
+            0
         }
 }

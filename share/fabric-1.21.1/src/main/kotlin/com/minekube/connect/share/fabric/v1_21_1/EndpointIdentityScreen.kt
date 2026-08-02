@@ -1,10 +1,13 @@
 package com.minekube.connect.share.fabric.v1_21_1
 
 import com.minekube.connect.share.fabric.ConnectShareClient
+import com.minekube.connect.share.fabric.ui.AdaptiveShareLayout
 import com.minekube.connect.share.identity.CredentialSource
 import java.nio.file.Path
+import net.minecraft.ChatFormatting
 import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.components.EditBox
+import net.minecraft.client.gui.components.MultiLineTextWidget
 import net.minecraft.client.gui.components.StringWidget
 import net.minecraft.client.gui.screens.ConfirmScreen
 import net.minecraft.client.gui.screens.Screen
@@ -24,76 +27,127 @@ class EndpointIdentityScreen(
 
     override fun init() {
         val state = viewModel.state.value
-        fingerprint = state.copy(importDraft = state.importDraft.copy(token = "")).hashCode()
-        addRenderableWidget(centered(title, 18))
+        fingerprint = state.copy(
+            importDraft = state.importDraft.copy(token = ""),
+        ).hashCode()
+        val layout = AdaptiveShareLayout.form(width, height, 2)
 
-        val identity = state.identity
         addRenderableWidget(
-            centered(
-                Component.translatable(
-                    "connect_share.identity.current",
-                    identity?.endpoint ?: "…",
-                ),
-                38,
-            ),
+            centered(title.copy().withStyle(ChatFormatting.BOLD), layout.headerY),
         )
         addRenderableWidget(
-            centered(
-                Component.translatable(
-                    "connect_share.identity.sources",
-                    identity?.endpointSource?.displayName() ?: "…",
-                    identity?.tokenSource?.displayName() ?: "…",
-                ),
-                52,
-            ),
+            MultiLineTextWidget(
+                layout.contentX,
+                layout.subtitleY,
+                Component.translatable("connect_share.identity.description"),
+                font,
+            ).setMaxWidth(layout.contentWidth).setCentered(true),
         )
 
         addRenderableWidget(
-            centered(Component.translatable("connect_share.identity.endpoint"), 72),
+            StringWidget(
+                layout.contentX,
+                layout.bodyTop,
+                layout.contentWidth,
+                11,
+                Component.translatable("connect_share.identity.endpoint"),
+                font,
+            ),
         )
         endpointBox = EditBox(
             font,
-            width / 2 - 100,
-            84,
-            200,
+            layout.contentX,
+            layout.bodyTop + 12,
+            layout.contentWidth,
             20,
             Component.translatable("connect_share.identity.endpoint"),
         ).also { box ->
             box.value = state.importDraft.endpoint
+            box.setHint(Component.translatable("connect_share.identity.endpoint_hint"))
             box.setResponder(viewModel::setImportEndpoint)
             box.setEditable(state.importDraft.endpointEditable)
             addRenderableWidget(box)
         }
 
         addRenderableWidget(
-            centered(Component.translatable("connect_share.identity.token"), 110),
+            StringWidget(
+                layout.contentX,
+                layout.bodyTop + 38,
+                layout.contentWidth,
+                11,
+                Component.translatable("connect_share.identity.token"),
+                font,
+            ),
         )
         tokenBox = EditBox(
             font,
-            width / 2 - 100,
-            122,
-            200,
+            layout.contentX,
+            layout.bodyTop + 50,
+            layout.contentWidth,
             20,
             Component.translatable("connect_share.identity.token"),
         ).also { box ->
             box.value = state.importDraft.token
+            box.setHint(Component.translatable("connect_share.identity.token_hint"))
             box.setResponder(viewModel::setImportToken)
             box.setFormatter { text, _ ->
-                FormattedCharSequence.forward("•".repeat(text.length), Style.EMPTY)
+                FormattedCharSequence.forward(
+                    "•".repeat(text.length),
+                    Style.EMPTY,
+                )
             }
             box.setEditable(state.importDraft.tokenEditable)
             addRenderableWidget(box)
         }
 
+        val identity = state.identity
+        addRenderableWidget(
+            MultiLineTextWidget(
+                layout.contentX,
+                layout.bodyTop + 78,
+                Component.translatable(
+                    "connect_share.identity.sources",
+                    identity?.endpointSource?.displayName() ?: "…",
+                    identity?.tokenSource?.displayName() ?: "…",
+                ).withStyle(ChatFormatting.GRAY),
+                font,
+            ).setMaxWidth(layout.contentWidth).setCentered(true),
+        )
+        state.safeMessage?.let { safeMessage ->
+            addRenderableWidget(
+                MultiLineTextWidget(
+                    layout.contentX,
+                    layout.bodyTop + 104,
+                    Component.literal(safeMessage)
+                        .withStyle(ChatFormatting.YELLOW),
+                    font,
+                ).setMaxWidth(layout.contentWidth).setCentered(true),
+            )
+        }
+
         val save = addRenderableWidget(
-            Button.builder(Component.translatable("connect_share.identity.save")) {
+            Button.builder(
+                Component.translatable("connect_share.identity.save"),
+            ) {
                 viewModel.importIdentity()
-            }.bounds(width / 2 - 155, 150, 150, 20).build(),
+            }.bounds(
+                layout.contentX,
+                layout.footerTop,
+                layout.halfButtonWidth,
+                20,
+            ).build(),
         )
         val choose = addRenderableWidget(
-            Button.builder(Component.translatable("connect_share.identity.choose_file")) {
+            Button.builder(
+                Component.translatable("connect_share.identity.choose_file"),
+            ) {
                 chooseTokenFile()?.let(viewModel::importTokenFile)
-            }.bounds(width / 2 + 5, 150, 150, 20).build(),
+            }.bounds(
+                layout.contentX + layout.halfButtonWidth + 6,
+                layout.footerTop,
+                layout.halfButtonWidth,
+                20,
+            ).build(),
         )
         save.active = state.importDraft.endpointEditable &&
             state.importDraft.tokenEditable &&
@@ -103,49 +157,66 @@ class EndpointIdentityScreen(
             !state.operationInProgress
 
         val reset = addRenderableWidget(
-            Button.builder(Component.translatable("connect_share.identity.reset")) {
+            Button.builder(
+                Component.translatable("connect_share.identity.reset"),
+            ) {
                 confirmReset()
-            }.bounds(width / 2 - 100, 178, 200, 20).build(),
+            }.bounds(
+                layout.contentX,
+                layout.footerTop + 24,
+                layout.halfButtonWidth,
+                20,
+            ).build(),
         )
         reset.active = state.importDraft.endpointEditable &&
             state.importDraft.tokenEditable &&
             !state.operationInProgress
-
-        state.safeMessage?.let { safeMessage ->
-            addRenderableWidget(centered(Component.literal(safeMessage), 204))
-        }
         addRenderableWidget(
             Button.builder(CommonComponents.GUI_BACK) { onClose() }
-                .bounds(width / 2 - 100, height - 28, 200, 20)
-                .build(),
+                .bounds(
+                    layout.contentX + layout.halfButtonWidth + 6,
+                    layout.footerTop + 24,
+                    layout.halfButtonWidth,
+                    20,
+                ).build(),
         )
     }
 
     override fun tick() {
         super.tick()
         val state = viewModel.state.value
-        val next = state.copy(importDraft = state.importDraft.copy(token = "")).hashCode()
-        if (next != fingerprint || state.importDraft.token.isEmpty() && tokenBox?.value?.isNotEmpty() == true) {
+        val next = state.copy(
+            importDraft = state.importDraft.copy(token = ""),
+        ).hashCode()
+        if (
+            next != fingerprint ||
+            state.importDraft.token.isEmpty() &&
+            tokenBox?.value?.isNotEmpty() == true
+        ) {
             rebuildWidgets()
         }
     }
 
     override fun onClose() {
         viewModel.setImportToken("")
-        minecraft?.setScreen(parent)
+        minecraft!!.setScreen(parent)
     }
 
     private fun confirmReset() {
-        minecraft?.setScreen(
+        minecraft!!.setScreen(
             ConfirmScreen(
                 { confirmed ->
                     if (confirmed) {
                         viewModel.resetIdentity()
                     }
-                    minecraft?.setScreen(this)
+                    minecraft!!.setScreen(this)
                 },
-                Component.translatable("connect_share.identity.reset_confirm.title"),
-                Component.translatable("connect_share.identity.reset_confirm.message"),
+                Component.translatable(
+                    "connect_share.identity.reset_confirm.title",
+                ),
+                Component.translatable(
+                    "connect_share.identity.reset_confirm.message",
+                ),
             ),
         )
     }
@@ -163,9 +234,18 @@ class EndpointIdentityScreen(
 
     private fun centered(message: Component, y: Int): StringWidget {
         val textWidth = font.width(message)
-        return StringWidget(width / 2 - textWidth / 2, y, textWidth, 9, message, font)
+        return StringWidget(
+            width / 2 - textWidth / 2,
+            y,
+            textWidth,
+            11,
+            message,
+            font,
+        )
     }
 }
 
-private fun CredentialSource.displayName(): String =
-    name.lowercase().replaceFirstChar(Char::titlecase)
+private fun CredentialSource.displayName(): Component =
+    Component.translatable(
+        "connect_share.identity.source.${name.lowercase()}",
+    )
