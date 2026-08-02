@@ -154,9 +154,9 @@ val verifyConnectShareArtifactSize = tasks.register("verifyConnectShareArtifactS
     inputs.file(artifact)
     doLast {
         val bytes = artifact.get().asFile.length()
-        val limit = 90L * 1024L * 1024L
+        val limit = 63L * 1024L * 1024L
         logger.lifecycle("Connect Share Fabric 1.20.1 artifact: {} MiB", "%.1f".format(bytes / 1024.0 / 1024.0))
-        check(bytes <= limit) { "Connect Share Fabric 1.20.1 exceeds the 90 MiB release budget ($bytes bytes)" }
+        check(bytes <= limit) { "Connect Share Fabric 1.20.1 exceeds the 63 MiB release budget ($bytes bytes)" }
     }
 }
 tasks.check { dependsOn(verifyConnectShareArtifactSize) }

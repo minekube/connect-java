@@ -5,9 +5,11 @@ import com.minekube.connect.share.fabric.ConnectShareClient
 import com.minekube.connect.tunnel.p2p.DirectP2pNode
 import com.minekube.connect.tunnel.p2p.Libp2pEndpoint
 import com.minekube.connect.tunnel.p2p.Libp2pTunnelTransport
+import java.lang.reflect.Proxy
+import java.net.URLClassLoader
 import java.nio.file.Files
 import java.nio.file.Path
-import java.net.URLClassLoader
+import java.time.Duration
 import java.util.jar.JarInputStream
 import java.util.jar.JarFile
 import kotlin.io.path.name
@@ -159,11 +161,29 @@ class Fabric262ArtifactTest {
             assertTrue(payloadEntries.any { it.startsWith("io/libp2p/") })
             assertTrue(payloadEntries.any { it.startsWith("io/netty/") })
             assertTrue(payloadEntries.any { it.startsWith("kotlin/") })
+            assertFalse(
+                payloadEntries.any {
+                    it.startsWith("org/bouncycastle/pqc/") ||
+                        (it.startsWith("META-INF/versions/") &&
+                            "/org/bouncycastle/pqc/" in it)
+                },
+            )
             assertTrue(
                 "com/minekube/connect/tunnel/p2p/DirectP2pNodeRuntime.class" in
                     payloadEntries,
             )
         }
+    }
+
+    @Test
+    fun `artifact stays within the adoption download budget`() {
+        val bytes = Files.size(artifact())
+
+        assertTrue(
+            bytes <= MAX_ARTIFACT_BYTES,
+            "Connect Share artifact is $bytes bytes; budget is " +
+                "$MAX_ARTIFACT_BYTES bytes",
+        )
     }
 
     @Test
@@ -260,6 +280,97 @@ class Fabric262ArtifactTest {
     }
 
     @Test
+    fun `packaged runtime starts two peers and inspects a published world`() {
+        URLClassLoader(
+            arrayOf(artifact().toUri().toURL()),
+            ClassLoader.getPlatformClassLoader(),
+        ).use { artifactLoader ->
+            val loaderType = Class.forName(
+                "com.minekube.connect.tunnel.p2p.Libp2pRuntimeLoader",
+                true,
+                artifactLoader,
+            )
+            val nodeType = Class.forName(
+                "com.minekube.connect.tunnel.p2p.DirectP2pNode",
+                true,
+                artifactLoader,
+            )
+            val configType = Class.forName(
+                "com.minekube.connect.tunnel.p2p.DirectP2pHostConfig",
+                true,
+                artifactLoader,
+            )
+            val handlerType = Class.forName(
+                "com.minekube.connect.tunnel.p2p.DirectP2pHostHandler",
+                true,
+                artifactLoader,
+            )
+            val hostInfoType = Class.forName(
+                "com.minekube.connect.tunnel.p2p.DirectP2pHostInfo",
+                true,
+                artifactLoader,
+            )
+            val discoveredType = Class.forName(
+                "com.minekube.connect.tunnel.p2p.DirectP2pDiscoveredShare",
+                true,
+                artifactLoader,
+            )
+            val host = nodeType.getDeclaredConstructor().newInstance()
+            val guest = nodeType.getDeclaredConstructor().newInstance()
+            try {
+                val config = configType.getDeclaredConstructor(
+                    String::class.java,
+                    String::class.java,
+                    String::class.java,
+                    Boolean::class.javaPrimitiveType,
+                ).newInstance(
+                    "packaged-share",
+                    "packaged-capability-123456789",
+                    "Packaged world",
+                    false,
+                )
+                val handler = Proxy.newProxyInstance(
+                    artifactLoader,
+                    arrayOf(handlerType),
+                ) { _, _, _ -> java.net.Socket() }
+                val hostInfo = nodeType.getMethod(
+                    "startHost",
+                    configType,
+                    handlerType,
+                ).invoke(host, config, handler)
+                nodeType.getMethod("publish", String::class.java).invoke(
+                    host,
+                    "minekube://share/packaged-runtime",
+                )
+                @Suppress("UNCHECKED_CAST")
+                val lanAddresses = hostInfoType.getMethod("lanAddresses")
+                    .invoke(hostInfo) as List<String>
+                assertTrue(lanAddresses.isNotEmpty())
+
+                val discovered = nodeType.getMethod(
+                    "inspect",
+                    String::class.java,
+                    Duration::class.java,
+                ).invoke(
+                    guest,
+                    lanAddresses.first(),
+                    Duration.ofSeconds(3),
+                )
+                assertTrue(
+                    discoveredType.getMethod("displayName")
+                        .invoke(discovered) == "Packaged world",
+                )
+            } finally {
+                nodeType.getMethod("close").invoke(guest)
+                nodeType.getMethod("close").invoke(host)
+                loaderType.getDeclaredMethod("close")
+                    .apply { isAccessible = true }
+                    .invoke(null)
+            }
+        }
+    }
+
+    @Test
     fun `parent facing APIs do not expose isolated runtime types`() {
         listOf(
             ConnectShareClient::class.java,
@@ -307,6 +418,7 @@ class Fabric262ArtifactTest {
     }
 
     private companion object {
+        const val MAX_ARTIFACT_BYTES = 63L * 1024L * 1024L
         val FORBIDDEN_TYPE_PREFIXES = listOf(
             "io.libp2p.",
             "io.netty.",

@@ -172,9 +172,9 @@ val verifyConnectShareArtifactSize = tasks.register("verifyConnectShareArtifactS
     inputs.file(artifact)
     doLast {
         val bytes = artifact.get().asFile.length()
-        val limit = 90L * 1024L * 1024L
+        val limit = 63L * 1024L * 1024L
         check(bytes <= limit) {
-            "Connect Share NeoForge 1.21.1 exceeds the 90 MiB release budget ($bytes bytes)"
+            "Connect Share NeoForge 1.21.1 exceeds the 63 MiB release budget ($bytes bytes)"
         }
     }
 }

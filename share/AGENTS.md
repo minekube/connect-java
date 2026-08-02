@@ -160,3 +160,10 @@ redesigned for Kotlin.
   and decrypt the entire archive before replacement, keep rollback material
   until a committed marker is durable, and test simulated interruption. Never
   print archive paths, contents, passwords, identities, or tokens as evidence.
+- Do not apply Shadow's generic `minimize()` to the isolated libp2p payload.
+  jvm-libp2p reaches Kotlin, cryptography, protobuf, Noise, Guava, and Netty
+  classes through reflection and DSL entry points that static minimization does
+  not see. Any payload-size reduction must keep cross-platform natives and be
+  proved by constructing, starting, publishing, and inspecting between two
+  peers loaded from the exact packaged artifact. A constructor-only classloader
+  test is insufficient.
