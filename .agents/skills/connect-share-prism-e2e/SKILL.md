@@ -40,7 +40,7 @@ or replace older Connect Share JARs so each instance loads exactly one. Compare
 SHA-256 digests for the build output and both installed copies.
 
 Confirm each fresh `latest.log` contains both Fabric Loader startup and a
-`connect-share` mod entry. Fabric Language Kotlin is packaged as a declared mod
+`connect-share` mod entry. Fabric Language Kotlin is declared as a mod
 dependency; do not infer a successful load merely from the file being present.
 
 ## Launch the two identities
@@ -76,7 +76,7 @@ LIVE_HOST_LOG=<host-minecraft/logs/latest.log> \
 LIVE_GUEST_LOG=<guest-minecraft/logs/latest.log> \
 LIVE_PLAYER_NAME=<guest-name> \
 ./gradlew :share:fabric-common:test \
-  --tests '*PrismFriendJoinE2ETest*' --no-parallel
+  --tests '*PrismFriendJoinE2ETest*' --rerun-tasks --no-parallel
 ```
 
 The test must remain running while the external guest uses the port written to
