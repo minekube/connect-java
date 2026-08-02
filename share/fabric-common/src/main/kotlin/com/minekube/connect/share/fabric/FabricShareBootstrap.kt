@@ -262,6 +262,7 @@ object FabricShareBootstrap {
                             ".play.minekube.net",
                     )
                     startedControlPlane.restart()
+                    startedDirectControlPlane.restart()
                 },
                 startShare = coordinator::start,
                 stopShare = coordinator::stop,

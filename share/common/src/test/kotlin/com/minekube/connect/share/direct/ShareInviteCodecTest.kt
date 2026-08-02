@@ -136,6 +136,23 @@ class ShareInviteCodecTest {
         assertIs<Either.Left<ShareInviteError.PeerMismatch>>(decoded)
     }
 
+    @Test
+    fun `invitations reject excessive direct candidate lists`() {
+        val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+        val oversized = payload(
+            directCandidates = List(257) {
+                "/ip6/2001:db8::8/tcp/4001/p2p/12D3KooWHost"
+            },
+        ).signWith(keyPair)
+
+        val decoded = ShareInviteCodec.decode(
+            ShareInviteCodec.encode(oversized),
+            Instant.ofEpochMilli(NOW),
+        )
+
+        assertIs<Either.Left<ShareInviteError.Malformed>>(decoded)
+    }
+
     private fun payload(
         wireVersion: Int = ShareInviteCodec.WIRE_VERSION,
         expiresAt: Long = NOW + 60_000,

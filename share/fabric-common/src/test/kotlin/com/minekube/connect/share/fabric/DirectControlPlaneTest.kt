@@ -12,6 +12,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -75,6 +76,40 @@ class DirectControlPlaneTest {
     }
 
     @Test
+    fun `restart republishes the fallback after the Connect address changes`() =
+        runTest {
+            val io = StandardTestDispatcher(testScheduler)
+            val delegate = RecordingIngress()
+            var address = CONNECT_ADDRESS
+            val control = DirectControlPlane(
+                scope = backgroundScope,
+                ingress = PersistentDirectIngress(delegate),
+                options = OPTIONS,
+                target = TARGET,
+                connectAddress = { address },
+                ioDispatcher = io,
+            )
+
+            control.start()
+            runCurrent()
+
+            address = "new-control.play.minekube.net"
+            val restart = async { control.restart() }
+            runCurrent()
+            restart.await()
+
+            assertEquals(2, delegate.starts)
+            assertEquals(
+                listOf<String?>(
+                    CONNECT_ADDRESS,
+                    "new-control.play.minekube.net",
+                ),
+                delegate.startedAddresses,
+            )
+            control.shutdown()
+        }
+
+    @Test
     fun `shutdown cancels an in-flight direct host startup`() = runTest {
         val io = StandardTestDispatcher(testScheduler)
         var cancellations = 0
@@ -105,6 +140,7 @@ class DirectControlPlaneTest {
     private class RecordingIngress : DirectShareIngress {
         var starts = 0
         var closes = 0
+        val startedAddresses = mutableListOf<String?>()
 
         override suspend fun start(
             options: ShareOptions,
@@ -112,6 +148,7 @@ class DirectControlPlaneTest {
             connectAddress: String?,
         ): DirectShareHandle {
             starts++
+            startedAddresses += connectAddress
             return DirectShareHandle(
                 invitation = "minekube://share/persistent-control",
                 lanAvailable = true,

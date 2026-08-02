@@ -198,6 +198,11 @@ jobs:
           fi
 
           echo "java-version=$JAVA_VERSION" >> "$GITHUB_OUTPUT"
+          if grep -Eq -- '-Pskip-share=true' "$TAG_WORKFLOW"; then
+            echo "skip_share=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip_share=false" >> "$GITHUB_OUTPUT"
+          fi
           echo "$RELEASE_TAG pins JDK $JAVA_VERSION; Gradle comes from the tag's own wrapper:"
           grep distributionUrl gradle/wrapper/gradle-wrapper.properties
 
@@ -222,7 +227,15 @@ jobs:
       # The same build the tag's own release path ran. A repaired release must
       # not carry weaker provenance than one published on the normal path.
       - name: Build
-        run: ./gradlew build
+        env:
+          SKIP_SHARE: ${{ steps.toolchain.outputs.skip_share }}
+        run: |
+          set -euo pipefail
+          if [ "$SKIP_SHARE" = true ]; then
+            ./gradlew -Pskip-share=true build
+          else
+            ./gradlew build
+          fi
 
       # Asset names follow the convention of the tag's OWN release workflow:
       # tags up to 0.7.0 published version-suffixed jars, 0.7.1 onwards publish

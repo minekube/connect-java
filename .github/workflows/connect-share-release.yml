@@ -29,8 +29,6 @@ jobs:
       RELEASE_TYPE: ${{ inputs.release_type }}
       MODRINTH_PROJECT_ID: ${{ vars.CONNECT_SHARE_MODRINTH_PROJECT_ID }}
       CURSEFORGE_PROJECT_ID: ${{ vars.CONNECT_SHARE_CURSEFORGE_PROJECT_ID }}
-      MODRINTH_TOKEN: ${{ secrets.CONNECT_SHARE_MODRINTH_TOKEN }}
-      CURSEFORGE_TOKEN: ${{ secrets.CONNECT_SHARE_CURSEFORGE_TOKEN }}
 
     steps:
       - name: Checkout release tag
@@ -87,6 +85,17 @@ jobs:
           done
           sha256sum dist/*.jar > dist/SHA256SUMS-connect-share.txt
 
+      - name: Verify marketplace configuration
+        env:
+          MODRINTH_TOKEN: ${{ secrets.CONNECT_SHARE_MODRINTH_TOKEN }}
+          CURSEFORGE_TOKEN: ${{ secrets.CONNECT_SHARE_CURSEFORGE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${MODRINTH_PROJECT_ID:-}" || { echo '::error::CONNECT_SHARE_MODRINTH_PROJECT_ID is unset'; exit 1; }
+          test -n "${CURSEFORGE_PROJECT_ID:-}" || { echo '::error::CONNECT_SHARE_CURSEFORGE_PROJECT_ID is unset'; exit 1; }
+          test -n "${MODRINTH_TOKEN:-}" || { echo '::error::CONNECT_SHARE_MODRINTH_TOKEN is unset'; exit 1; }
+          test -n "${CURSEFORGE_TOKEN:-}" || { echo '::error::CONNECT_SHARE_CURSEFORGE_TOKEN is unset'; exit 1; }
+
       - name: Upload verified artifacts to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -96,15 +105,9 @@ jobs:
           gh release upload "$RELEASE_TAG" dist/*.jar dist/SHA256SUMS-connect-share.txt \
             --repo "$GITHUB_REPOSITORY" --clobber
 
-      - name: Verify marketplace configuration
-        run: |
-          set -euo pipefail
-          test -n "${MODRINTH_PROJECT_ID:-}" || { echo '::error::CONNECT_SHARE_MODRINTH_PROJECT_ID is unset'; exit 1; }
-          test -n "${CURSEFORGE_PROJECT_ID:-}" || { echo '::error::CONNECT_SHARE_CURSEFORGE_PROJECT_ID is unset'; exit 1; }
-          test -n "${MODRINTH_TOKEN:-}" || { echo '::error::CONNECT_SHARE_MODRINTH_TOKEN is unset'; exit 1; }
-          test -n "${CURSEFORGE_TOKEN:-}" || { echo '::error::CONNECT_SHARE_CURSEFORGE_TOKEN is unset'; exit 1; }
-
       - name: Publish verified artifacts to Modrinth
+        env:
+          MODRINTH_TOKEN: ${{ secrets.CONNECT_SHARE_MODRINTH_TOKEN }}
         run: |
           set -euo pipefail
           for spec in \
@@ -143,6 +146,8 @@ jobs:
           done
 
       - name: Publish verified artifacts to CurseForge
+        env:
+          CURSEFORGE_TOKEN: ${{ secrets.CONNECT_SHARE_CURSEFORGE_TOKEN }}
         run: |
           set -euo pipefail
           for spec in \

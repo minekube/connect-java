@@ -121,6 +121,7 @@ object ShareInviteCodec {
     private const val LEGACY_UNSIGNED_FIELD_COUNT = 9
     private const val UNSIGNED_FIELD_COUNT = 10
     private const val MAX_DISPLAY_NAME_LENGTH = 64
+    private const val MAX_CANDIDATE_COUNT = 256
 
     fun encode(invite: SignedShareInvite): String {
         require(
@@ -337,7 +338,11 @@ object ShareInviteCodec {
                 connectAddress = nullableText(),
                 peerId = text(),
                 internetDirectEnabled = bool(),
-                directCandidates = List(readLength(4)) { text() },
+                directCandidates = List(
+                    readLength(4).also {
+                        require(it <= MAX_CANDIDATE_COUNT)
+                    },
+                ) { text() },
                 capability = text(),
                 displayName = if (wireVersion == LEGACY_WIRE_VERSION) {
                     null
