@@ -80,6 +80,10 @@ LIVE_PLAYER_NAME=<guest-name> \
   --tests '*PrismFriendJoinE2ETest*' --rerun-tasks --no-parallel
 ```
 
+The harness tracks the active log file and resets its baseline when Prism
+rotates `latest.log`; keep `LIVE_GUEST_LOG` pointed at that active path and
+wait for a new advancement line after a rotation.
+
 The test must remain running while the external guest uses the port written to
 `LIVE_PORT_FILE`. It proves, in order:
 
@@ -136,10 +140,8 @@ normal pending request, host approval, and one-shot admission path.
 - **Mod load:** inspect both fresh logs for the exact version and startup error.
 - **Discovery:** use `dns-sd -B _minekube-connect-share._tcp local`; expect both
   persistent peer IDs. mDNS presence does not prove friend authentication.
-  The social control peer and active-world peer share a stable share ID but
-  use different peer IDs, so browser discovery must retain entries by
-  `(shareId, peerId)`; retaining only the latest share ID makes friend status
-  and joins depend on mDNS event order.
+  Apply the route-retention and mDNS-refresh invariant in `share/AGENTS.md`
+  before interpreting discovery order or address changes.
 - **Runtime readiness:** use `jcmd <host-pid> GC.class_histogram` to look for
   `ShareState$Sharing`, `ActiveTransport`, `PublishedVanillaTransport`, and
   `ShareCoordinator$ActiveShare` when ordinary logs are insufficient.

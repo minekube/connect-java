@@ -130,9 +130,11 @@ redesigned for Kotlin.
   and can produce misleading libp2p stream failures.
 - The persistent social control peer and the active-world peer intentionally
   advertise the same stable share ID with different peer IDs. Discovery must
-  retain one entry per `(shareId, peerId)`; deduplicating by share ID alone can
-  evict the saved friend's control route immediately after authenticated
-  activity and make status/join readiness appear flaky.
+  retain one entry per `(shareId, peerId)` and refresh that entry when the same
+  peer advertises a changed address; deduplicating by share ID alone or
+  suppressing same-invitation address changes can evict the saved friend's
+  control route immediately after authenticated activity and make status/join
+  readiness appear flaky.
 - Manually constructed Prism Forge/NeoForge components need correct
   `cachedRequires` metadata and usually one online first launch to download
   loader libraries. Kotlin for Forge must be installed from its `-all.jar`;
