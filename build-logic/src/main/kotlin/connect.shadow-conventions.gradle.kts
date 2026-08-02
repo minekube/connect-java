@@ -58,6 +58,10 @@ tasks {
             "META-INF/*.DSA",
             "META-INF/*.RSA",
             "META-INF/INDEX.LIST",
+            // jvm-libp2p uses Bouncy Castle's conventional Ed25519/EC
+            // primitives, never its post-quantum algorithm families.
+            "org/bouncycastle/pqc/**",
+            "META-INF/versions/*/org/bouncycastle/pqc/**",
         )
     }
     named("build") {
