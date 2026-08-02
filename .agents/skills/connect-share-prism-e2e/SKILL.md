@@ -58,10 +58,10 @@ prismlauncher --launch <guest-instance> --offline <guest-name> \
 `--offline <name>` is authoritative for the guest. Do not edit
 `InstanceAccountId` while Prism is running because Prism rewrites it.
 
-Wait until the host log records its local player joining and `Published LAN
-server`. The integrated server object exists before the local client connection
-is ready; the mod must publish only when both exist and must advertise
-`HOSTING_WORLD` only from an actual `ShareState.Sharing`.
+Wait until the host log records its local player joining and `Connect Share
+friend gateway is ready`. The integrated server object exists before the local
+client connection is ready; the mod must publish only when both exist and must
+advertise `HOSTING_WORLD` only from an actual `ShareState.Sharing`.
 
 ## Run the opt-in live harness
 

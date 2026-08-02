@@ -118,7 +118,7 @@ Connect.
 4. On a directly reachable network, confirm the direct route succeeds and the
    host approval identifies it as internet-direct.
 5. Make the advertised direct address unreachable while leaving Connect
-   available. Confirm one bounded direct attempt is followed by exactly one
+   available. Confirm the bounded direct attempts are followed by exactly one
    Connect attempt and the guest can still join.
 6. Repeat without a usable Connect ingress. Confirm same-LAN sharing remains
    available, while a relay-required remote guest receives a safe no-route
