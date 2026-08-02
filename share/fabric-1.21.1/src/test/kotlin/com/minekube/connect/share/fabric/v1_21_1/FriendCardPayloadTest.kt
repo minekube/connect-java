@@ -1,11 +1,11 @@
 package com.minekube.connect.share.fabric.v1_21_1
 
 import io.netty.buffer.Unpooled
+import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
 import net.minecraft.network.FriendlyByteBuf
-import java.util.UUID
 
 class FriendCardPayloadTest {
     @Test

@@ -1,8 +1,8 @@
 package com.minekube.connect.share.fabric.v1_20_1
 
-import net.minecraft.resources.ResourceLocation
-import net.minecraft.network.FriendlyByteBuf
 import java.util.UUID
+import net.minecraft.network.FriendlyByteBuf
+import net.minecraft.resources.ResourceLocation
 
 data class FriendCardPayload(
     val invitation: String,

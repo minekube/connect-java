@@ -98,17 +98,27 @@ address, such as a publicly routed host or an explicitly configured network.
 The mod does not open a public Minecraft listener, configure UPnP, or use a
 self-hosted libp2p relay.
 
-Friend control is separate from gameplay fallback. Copying a friend link is an
-explicit disclosure action and may include signed direct candidates. A saved
-friend tries fresh mDNS first, then those candidates; requests, presence, and
-removal must never use Connect.
+Friend control is separate from gameplay fallback. Its always-on social libp2p
+path can carry signed direct candidates even when no world is being shared.
+Copying a friend link is an explicit disclosure action. The mDNS advertisement
+contains only local discovery metadata and never public candidates,
+capabilities, or endpoint tokens. A saved friend tries fresh mDNS first, then
+those signed candidates; requests, presence, and removal must never use
+Connect.
 
 1. Copy the signed invitation from the host status screen and paste it into
    **Join Connect Share** on a guest outside the LAN.
-2. With internet-direct disabled on either peer, confirm the guest does not
-   attempt a direct internet route and uses Connect once.
-3. Enable internet-direct on both peers. Confirm both UIs disclose that the
-   path reveals public IP addresses before it is attempted.
+2. With the host's internet-direct share option disabled, or the guest's
+   per-friend **Allow direct internet routes for this friend** option disabled,
+   confirm the guest does not attempt a direct internet route and uses Connect
+   once.
+3. Enable **Allow faster direct internet connections** on the host. On the
+   guest, open that friend’s **Manage** screen and enable **Allow direct
+   internet routes for this friend**. Confirm the host's share setup explains
+   that the path reveals public IP addresses. For a pasted invitation, confirm
+   the guest's direct-join disclosure appears before the route is attempted.
+   Restart the guest and confirm the per-friend choice remains enabled without
+   a new background consent prompt.
 4. On a directly reachable network, confirm the direct route succeeds and the
    host approval identifies it as internet-direct.
 5. Make the advertised direct address unreachable while leaving Connect
