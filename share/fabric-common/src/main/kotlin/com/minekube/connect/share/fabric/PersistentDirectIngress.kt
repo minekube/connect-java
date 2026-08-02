@@ -98,6 +98,21 @@ class PersistentDirectIngress(
             }
         }
 
+    suspend fun restart() {
+        lifecycle.withLock {
+            if (mutableState.value == PersistentDirectState.Closed) {
+                return@withLock
+            }
+            val acquired = active
+            active = null
+            try {
+                acquired?.handle?.close?.invoke()
+            } finally {
+                mutableState.value = PersistentDirectState.Idle
+            }
+        }
+    }
+
     override suspend fun start(
         options: ShareOptions,
         target: SocketAddress,
