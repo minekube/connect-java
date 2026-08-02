@@ -1,11 +1,11 @@
 # Connect Share acceptance
 
-Connect Share is built separately for Fabric 1.20.1, 1.21.1, 1.21.11, and 26.2,
-Forge 1.20.1, and NeoForge 1.21.1 on their respective Java toolchains. The
-Minecraft 1.20.1 artifacts target Java 17 and the 1.21.x artifacts target Java
-21. Fabric 26.2 builds on and targets Java 25. Run this pass against every
-artifact before calling the singleplayer and direct-sharing implementation
-release-ready.
+Connect Share is built separately for every loader/version in the supported
+matrix in [the player guide](connect-share.md), on the matching Java
+toolchain. The Minecraft 1.20.1 artifacts target Java 17 and the 1.21.x
+artifacts target Java 21. Fabric 26.2 builds on and targets Java 25. Run this
+pass against every artifact before calling the singleplayer and direct-sharing
+implementation release-ready.
 
 The mod build does not publish a Connect Java plugin release, rebuild a hub
 image, or roll anything out to production.
@@ -25,13 +25,9 @@ From the repository root:
 
 Use the unclassified versioned JAR in each module's `build/libs` directory.
 Do not install `sources`, `dev`, `unshaded`, or `parent-shadow` artifacts.
-Install the matching Fabric Loader, Fabric API, and Fabric Language Kotlin.
-Marketplace installs must resolve the latter two automatically.
-
-For Forge or NeoForge, install the matching loader and Kotlin for Forge. A
-manual install must use Kotlin for Forge's `-all.jar`; its plain Maven artifact
-is only a compile/library artifact and is not recognized as the loader mod.
-Marketplace installs must resolve Kotlin for Forge automatically.
+Install the loader and dependencies listed in [the player guide](connect-share.md).
+That guide also calls out the manual Forge/NeoForge `-all.jar` requirement and
+the marketplace dependency metadata.
 
 ## Identity reuse and import
 
@@ -94,7 +90,7 @@ route works.
 ## Invitation, internet-direct, and fallback behavior
 
 Internet-direct is best-effort and requires an actually reachable public
-address, such as a publicly routed host or an explicitly configured network.
+address from a host network interface.
 The mod does not open a public Minecraft listener, configure UPnP, or use a
 self-hosted libp2p relay.
 
@@ -164,7 +160,7 @@ Inspect the final JARs:
 
 ```sh
 for version in 1.20.1 1.21.1 1.21.11 26.2; do
-  jar tf "share/fabric-${version//./-}/build/libs/connect-share-fabric-$version-"*.jar
+  jar tf "share/fabric-$version/build/libs/connect-share-fabric-$version-"*.jar
 done
 jar tf share/forge-1.20.1/build/libs/connect-share-forge-1.20.1-*.jar
 jar tf share/neoforge-1.21.1/build/libs/connect-share-neoforge-1.21.1-*.jar
@@ -185,8 +181,11 @@ The nested payload must include
 
 ## Real Prism matrix
 
-Use the opt-in `PrismFriendJoinE2ETest` harness for each of the six packaged
-artifacts. Run it with `--rerun-tasks`: its live environment variables are
+Use the opt-in `PrismFriendJoinE2ETest` harness with the exact packaged
+artifact under test, repeating the host/guest run for each of the six artifacts.
+The harness is implemented and invoked from `share/fabric-common`; it is
+loader-neutral and does not replace launching the loader-specific artifact in
+Prism. Run it with `--rerun-tasks`: its live environment variables are
 deliberately not Gradle task inputs, so an up-to-date test result is not live
 evidence. Keep exactly one host and one guest identity active. Cloned Prism
 instances copy `share-libp2p-identity.key`; running two clones with the same key

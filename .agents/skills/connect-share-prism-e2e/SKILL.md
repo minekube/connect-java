@@ -9,6 +9,11 @@ Use the repository's opt-in live harness to prove the complete friend-to-world
 flow. Treat discovery, activity, status, approval, and Minecraft login as
 separate gates; success at an earlier gate never proves a later one.
 
+The commands below use Fabric 26.2 as the reference target. For another
+supported loader/version artifact, preserve the same evidence gates and follow
+`docs/connect-share-testing.md` for the complete matrix and loader-specific
+packaging steps.
+
 ## Prepare safely
 
 1. Read the root `AGENTS.md` and `share/AGENTS.md` completely.

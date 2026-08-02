@@ -16,10 +16,9 @@ Please refer to https://connect.minekube.com for more documentation.
 ## Connect Share mod
 
 Connect Share is a client-side Fabric, Forge, and NeoForge mod.
-It supports Fabric 1.20.1, 1.21.1, 1.21.11, and 26.2; Forge 1.20.1; and
-NeoForge 1.21.1. It shares a singleplayer world through Minekube Connect or
-directly between two modded clients without exposing Minecraft's listener to
-the LAN or internet.
+It shares a singleplayer world through Minekube Connect or directly between
+two modded clients without exposing Minecraft's listener to the LAN or
+internet.
 
 The current implementation provides:
 
@@ -42,12 +41,8 @@ The current implementation provides:
 - follow-next-session intents that never interrupt active gameplay; and
 - isolated, version-and-loader-labelled artifacts for every supported target.
 
-Fabric builds require Fabric API and Fabric Language Kotlin. Forge and NeoForge
-builds require the installable Kotlin for Forge `-all.jar`. Marketplace release
-metadata declares the matching dependencies so compatible launchers, including
-Prism, can install them automatically. Connect Share is MIT licensed and may be
-included in modpacks without asking for additional permission. See
-[the player, privacy, and distribution guide](docs/connect-share.md).
+See [the player, privacy, installation, and distribution guide](docs/connect-share.md)
+for the supported versions, required dependencies, and release details.
 
 The mod artifacts have their own build and acceptance process. They are not part
 of the stable proxy/plugin release workflow. See
