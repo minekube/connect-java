@@ -16,6 +16,9 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 
 concurrency:
   group: connect-share-release-${{ inputs.release_tag }}
@@ -84,6 +87,13 @@ jobs:
             cp "$source" "dist/connect-share-$coordinate-$RELEASE_TAG.jar"
           done
           sha256sum dist/*.jar > dist/SHA256SUMS-connect-share.txt
+
+      - name: Attest artifact provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/*.jar
+            dist/SHA256SUMS-connect-share.txt
 
       - name: Verify marketplace configuration
         env:
@@ -197,4 +207,5 @@ jobs:
             --json assets --jq '.assets[].name' > release-assets.txt
           for file in dist/*.jar dist/SHA256SUMS-connect-share.txt; do
             grep -Fx "$(basename "$file")" release-assets.txt >/dev/null
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY" >/dev/null
           done
