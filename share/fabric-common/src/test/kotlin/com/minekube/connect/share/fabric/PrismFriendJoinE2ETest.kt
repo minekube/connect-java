@@ -86,9 +86,9 @@ class PrismFriendJoinE2ETest {
                     )
                 assertEquals(FriendActivityKind.HOSTING_WORLD, activity.kind)
 
-                // A hidden world name intentionally rejects raw Minecraft
-                // status. Authenticated activity remains the privacy-safe
-                // authority, and gameplay admission is independent.
+                // A hidden world name intentionally skips raw Minecraft status.
+                // Authenticated activity remains the privacy-safe authority,
+                // and gameplay admission is independent.
                 if (activity.description != null) {
                     // Status and gameplay require different one-shot proxies.
                     withTimeout(30_000) {

@@ -6,8 +6,9 @@ description: Drive and diagnose Connect Share with two real Prism Launcher clien
 # Connect Share Prism E2E
 
 Use the repository's opt-in live harness to prove the complete friend-to-world
-flow. Treat discovery, activity, status, approval, and Minecraft login as
-separate gates; success at an earlier gate never proves a later one.
+flow. Treat discovery, activity, privacy-permitted status, approval, and
+Minecraft login as separate gates; success at an earlier gate never proves a
+later one.
 
 The commands below use Fabric 26.2 as the reference target. For another
 supported loader/version artifact, preserve the same evidence gates and follow
@@ -84,7 +85,9 @@ The test must remain running while the external guest uses the port written to
 
 1. mDNS discovers the saved confirmed friend's peer identity.
 2. Authenticated friend control reports `HOSTING_WORLD`.
-3. A dedicated direct proxy answers a real Minecraft status probe.
+3. When the host exposes its world name, a dedicated direct proxy answers a
+   real Minecraft status probe; otherwise privacy-filtered activity remains the
+   authority and raw status is intentionally skipped.
 4. The libp2p friend join request reaches the host and is approved.
 5. A fresh gameplay proxy is opened.
 6. A real guest login causes a new `<guest> joined the game` host-log line and
