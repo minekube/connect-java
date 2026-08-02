@@ -87,6 +87,8 @@
   "connect_share.notification.follow_ready_detail": "Open Friends to join now; active gameplay was not interrupted.",
   "connect_share.notification.follow_expired": "Follow expired",
   "connect_share.notification.follow_expired_detail": "%s did not become joinable in time.",
+  "connect_share.notification.follow_cancelled": "Follow cancelled",
+  "connect_share.notification.follow_cancelled_detail": "%s can no longer be followed because the friendship or access changed.",
   "connect_share.notification.follow_failed": "Could not follow friend",
   "connect_share.friends.playing_server": "%s · playing on %s",
   "connect_share.friends.hosting_world": "%s · playing %s",

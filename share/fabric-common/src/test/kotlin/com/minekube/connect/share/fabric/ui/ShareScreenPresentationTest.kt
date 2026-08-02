@@ -1,5 +1,6 @@
 package com.minekube.connect.share.fabric.ui
 
+import com.minekube.connect.share.fabric.FollowAction
 import com.minekube.connect.share.friend.CompatibilityDifference
 import com.minekube.connect.share.friend.FriendActivityKind
 import com.minekube.connect.share.friend.FriendPermissions
@@ -165,6 +166,19 @@ class ShareScreenPresentationTest {
             lines.map(CompatibilityLine::translationKey),
         )
         assertEquals(listOf("26.2", "1.21.11"), lines.first().arguments)
+    }
+
+    @Test
+    fun `automatic follow cancellation has a visible explanation`() {
+        assertEquals(
+            FollowTerminalNotification(
+                titleKey = "connect_share.notification.follow_cancelled",
+                detailKey =
+                    "connect_share.notification.follow_cancelled_detail",
+                displayName = "Robin",
+            ),
+            FollowAction.Cancelled("peer", "Robin").terminalNotification(),
+        )
     }
 
     private fun friend(

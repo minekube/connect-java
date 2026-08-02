@@ -20,6 +20,7 @@ import com.minekube.connect.share.fabric.LoadedCompatibilityProfileFactory
 import com.minekube.connect.share.fabric.LoadedMod
 import com.minekube.connect.share.fabric.ModSide
 import com.minekube.connect.share.fabric.ui.ShareUiMessage
+import com.minekube.connect.share.fabric.ui.terminalNotification
 import com.minekube.connect.share.fabric.ui.uiMessage
 import com.minekube.connect.share.ShareState
 import com.minekube.connect.share.friend.FriendStore
@@ -371,14 +372,16 @@ class ConnectShare1211Runtime(
                     action.displayName,
                 )
 
-                is FollowAction.Expired -> followToast(
-                    minecraft,
-                    "connect_share.notification.follow_expired",
-                    "connect_share.notification.follow_expired_detail",
-                    action.displayName,
-                )
-
-                is FollowAction.Cancelled -> Unit
+                is FollowAction.Expired,
+                is FollowAction.Cancelled ->
+                    checkNotNull(action.terminalNotification()).let {
+                        followToast(
+                            minecraft,
+                            it.titleKey,
+                            it.detailKey,
+                            it.displayName,
+                        )
+                    }
             }
         }
     }

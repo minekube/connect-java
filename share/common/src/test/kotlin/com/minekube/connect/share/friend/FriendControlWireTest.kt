@@ -6,6 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class FriendControlWireTest {
     @Test
@@ -86,6 +87,38 @@ class FriendControlWireTest {
             assertEquals(response, decoded.value)
             assertEquals(encoded.size, decoded.consumedBytes)
         }
+    }
+
+    @Test
+    fun `compatibility fingerprint is carried and validated on the wire`() {
+        val profile = CompatibilityProfile(
+            minecraftVersion = "1.21.1",
+            loader = ModLoader.FABRIC,
+            requiredMods = listOf(RequiredMod("world-mod", "2.0")),
+        )
+        val encoded = FriendControlWire.encodeResponse(
+            FriendControlResponse.Activity(
+                FriendActivity(
+                    kind = FriendActivityKind.HOSTING_WORLD,
+                    compatibility = profile,
+                ),
+            ),
+        )
+        val fingerprint = profile.fingerprint().encodeToByteArray()
+        val fingerprintStart = encoded.indexOf(fingerprint)
+
+        assertTrue(fingerprintStart >= 0)
+        val tampered = encoded.copyOf().also { bytes ->
+            bytes[fingerprintStart] =
+                if (bytes[fingerprintStart] == '0'.code.toByte()) {
+                    '1'.code.toByte()
+                } else {
+                    '0'.code.toByte()
+                }
+        }
+        assertIs<FriendControlDecode.Invalid>(
+            FriendControlWire.decodeResponse(tampered),
+        )
     }
 
     @Test
@@ -189,6 +222,14 @@ class FriendControlWireTest {
             val packetIdLength = varIntLength(body)
             return frame(body.copyOfRange(0, packetIdLength + 16))
         }
+
+        fun ByteArray.indexOf(sequence: ByteArray): Int =
+            indices.firstOrNull { start ->
+                start + sequence.size <= size &&
+                    sequence.indices.all { offset ->
+                        this[start + offset] == sequence[offset]
+                    }
+            } ?: -1
 
         fun frame(body: ByteArray): ByteArray = ByteArrayOutputStream().apply {
             writeVarInt(body.size)

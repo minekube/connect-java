@@ -103,6 +103,29 @@ class FollowNextSessionControllerTest {
     }
 
     @Test
+    fun `blocking a friend cancels follow before any join request`() {
+        val controller = FollowNextSessionController(now = { NOW })
+        controller.follow(ROBIN, "Robin")
+
+        val actions = controller.update(
+            activities = mapOf(
+                ROBIN to FriendActivity(
+                    FriendActivityKind.HOSTING_WORLD,
+                    sessionEpoch = "blocked-world",
+                ),
+            ),
+            activeGameplay = false,
+            confirmedPeerIds = emptySet(),
+        )
+
+        assertEquals(
+            listOf(FollowAction.Cancelled(ROBIN, "Robin")),
+            actions,
+        )
+        assertTrue(controller.state.value.isEmpty())
+    }
+
+    @Test
     fun `reconnect with a new world epoch can retry without duplicating either epoch`() {
         val controller = FollowNextSessionController(now = { NOW })
         controller.follow(ROBIN, "Robin")
