@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/minekube/connect-java/compare/0.14.0...0.15.0) (2026-08-03)
+
+
+### Features
+
+* **bedrock:** consume signed principal v2 ([#129](https://github.com/minekube/connect-java/issues/129)) ([b4dfbb7](https://github.com/minekube/connect-java/commit/b4dfbb770b2753d5571d3c27c18301f36da2ac5c))
+
 ## [0.14.0](https://github.com/minekube/connect-java/compare/0.13.3...0.14.0) (2026-07-30)
 
 
