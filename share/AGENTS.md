@@ -141,8 +141,13 @@ redesigned for Kotlin.
 - `PrismFriendJoinE2ETest` is the opt-in live harness. Start the host first,
   then follow [the testing guide](../docs/connect-share-testing.md) for the
   complete two-client launch and evidence gates. Keep machine-specific paths
-  in `LIVE_DATA`, `LIVE_PORT_FILE`, `LIVE_HOST_LOG`, and `LIVE_GUEST_LOG`
-  environment variables.
+  in `LIVE_DATA`, `LIVE_TARGET_FILE`, `LIVE_HOST_LOG`, and `LIVE_GUEST_LOG`
+  environment variables (`LIVE_PORT_FILE` remains a direct-only compatibility
+  alias). Set `LIVE_FORCE_CONNECT_FALLBACK=true` to close the guest's direct
+  node after authenticated approval while retaining the discovered LAN route;
+  the real direct attempt must then fail, the harness must assert a Connect
+  target, and the client must complete a real login rather than merely emit a
+  selector message.
 - Invoke the live harness with `--rerun-tasks`. Its environment variables are
   intentionally not task inputs, so an up-to-date result is not live evidence.
 - Keep only one host and one guest identity active during a live run. Cloning a

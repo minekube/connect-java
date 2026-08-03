@@ -13,7 +13,6 @@ import java.nio.file.attribute.BasicFileAttributes
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.coroutines.delay
@@ -83,17 +82,20 @@ class PrismFriendJoinE2ETest {
     fun `saved friend requests and joins a live singleplayer world`() =
         runBlocking {
             val dataValue = System.getenv("LIVE_DATA")
-            val portValue = System.getenv("LIVE_PORT_FILE")
+            val targetValue = System.getenv("LIVE_TARGET_FILE")
+                ?: System.getenv("LIVE_PORT_FILE")
             val hostLogValue = System.getenv("LIVE_HOST_LOG")
             assumeTrue(
-                dataValue != null && portValue != null && hostLogValue != null,
-                "LIVE_DATA, LIVE_PORT_FILE, and LIVE_HOST_LOG enable this E2E",
+                dataValue != null && targetValue != null && hostLogValue != null,
+                "LIVE_DATA, LIVE_TARGET_FILE, and LIVE_HOST_LOG enable this E2E",
             )
             val dataDirectory = Path.of(checkNotNull(dataValue))
-            val portFile = Path.of(checkNotNull(portValue))
+            val targetFile = Path.of(checkNotNull(targetValue))
             val hostLog = Path.of(checkNotNull(hostLogValue))
             val guestLog = System.getenv("LIVE_GUEST_LOG")?.let(Path::of)
             val playerName = System.getenv("LIVE_PLAYER_NAME") ?: "bob"
+            val forceConnectFallback =
+                System.getenv("LIVE_FORCE_CONNECT_FALLBACK") == "true"
             val joinedLine = "] $playerName joined the game"
             val joinsBefore = Files.readString(hostLog)
                 .lineSequence()
@@ -179,17 +181,26 @@ class PrismFriendJoinE2ETest {
                         ).getOrNull()
                     },
                 )
-                val gameplay = assertIs<GuestJoinTarget.Direct>(
-                    browser.join(
-                        friend,
-                        DirectP2pAuthMode.OFFLINE,
-                    ).getOrNull(),
-                )
+                if (forceConnectFallback) {
+                    forceDirectFailure(browser)
+                }
+                val gameplay = browser.join(
+                    friend,
+                    DirectP2pAuthMode.OFFLINE,
+                ).getOrNull() ?: fail("No gameplay route was available")
                 gameplay.use {
-                    Files.writeString(
-                        portFile,
-                        gameplay.localAddress.port.toString(),
-                    )
+                    val target = when (gameplay) {
+                        is GuestJoinTarget.Direct -> {
+                            assertTrue(!forceConnectFallback)
+                            gameplay.localAddress.port.toString()
+                        }
+
+                        is GuestJoinTarget.Connect -> {
+                            assertTrue(forceConnectFallback)
+                            gameplay.publicAddress
+                        }
+                    }
+                    Files.writeString(targetFile, target)
                     withTimeout(180_000) {
                         while (Files.readString(hostLog)
                                 .lineSequence()
@@ -215,6 +226,13 @@ class PrismFriendJoinE2ETest {
                 browser.close()
             }
         }
+
+    private fun forceDirectFailure(browser: FabricShareBrowser) {
+        val field = FabricShareBrowser::class.java
+            .getDeclaredField("node")
+            .apply { isAccessible = true }
+        (field.get(browser) as AutoCloseable).close()
+    }
 
     private fun snapshotLog(path: Path): LogSnapshot =
         readLog(path) ?: LogSnapshot(
