@@ -106,6 +106,7 @@ final class Libp2pEndpointRuntime {
             PlatformInjector platformInjector,
             SimpleConnectApi api,
             BedrockIdentityReadiness bedrockIdentityReadiness,
+            BedrockPrincipalReadiness bedrockPrincipalReadiness,
             BedrockAdmissionCoordinator admissionCoordinator) {
         this.dataDirectory = dataDirectory;
         this.connectConfig = connectConfig;
@@ -115,9 +116,7 @@ final class Libp2pEndpointRuntime {
         this.platformInjector = platformInjector;
         this.api = api;
         this.bedrockIdentityReadiness = bedrockIdentityReadiness;
-        this.bedrockPrincipalReadiness = connectConfig == null
-                ? null
-                : new BedrockPrincipalReadiness(connectConfig);
+        this.bedrockPrincipalReadiness = bedrockPrincipalReadiness;
         this.admissionCoordinator = admissionCoordinator;
     }
 
@@ -131,7 +130,7 @@ final class Libp2pEndpointRuntime {
             SimpleConnectApi api,
             BedrockIdentityReadiness bedrockIdentityReadiness) {
         this(dataDirectory, connectConfig, connectToken, platformUtils, logger, platformInjector, api,
-                bedrockIdentityReadiness, null);
+                bedrockIdentityReadiness, null, null);
     }
 
     @Inject

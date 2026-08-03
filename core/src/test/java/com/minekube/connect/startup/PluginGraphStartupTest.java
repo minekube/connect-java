@@ -26,6 +26,7 @@
 package com.minekube.connect.startup;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
@@ -39,7 +40,9 @@ import com.minekube.connect.api.packet.PacketHandlers;
 import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.bedrock.BedrockIdentityEnforcer;
 import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
+import com.minekube.connect.bedrock.BedrockPrincipalReadiness;
 import com.minekube.connect.config.ConfigHolder;
+import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.inject.CommonPlatformInjector;
 import com.minekube.connect.module.ServerCommonModule;
 import com.minekube.connect.platform.util.PlatformUtils;
@@ -142,7 +145,13 @@ class PluginGraphStartupTest {
                 });
 
         assertNotNull(injector.getInstance(ConnectApi.class));
-        assertNotNull(injector.getInstance(ConfigHolder.class));
+        ConfigHolder configHolder = injector.getInstance(ConfigHolder.class);
+        assertNotNull(configHolder);
+        configHolder.set(new ConnectConfig());
+        BedrockPrincipalReadiness principalReadiness =
+                injector.getInstance(BedrockPrincipalReadiness.class);
+        assertNotNull(principalReadiness);
+        assertSame(principalReadiness, injector.getInstance(BedrockPrincipalReadiness.class));
         assertNotNull(injector.getInstance(BedrockAdmissionCoordinator.class));
         assertNotNull(injector.getInstance(BedrockIdentityEnforcer.class));
         assertNotNull(injector.getInstance(BedrockIdentityKeyProvider.class));

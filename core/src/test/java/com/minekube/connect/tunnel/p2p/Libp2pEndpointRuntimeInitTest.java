@@ -31,7 +31,9 @@ import static org.mockito.Mockito.mock;
 
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
+import com.minekube.connect.bedrock.BedrockPrincipalReadiness;
 import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
+import com.minekube.connect.config.ConnectConfig;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
@@ -51,6 +53,8 @@ class Libp2pEndpointRuntimeInitTest {
     void initializesRuntimeAcrossIsolatedLoaderBoundary(
             @TempDir Path dataDirectory) throws Exception {
         ConnectLogger logger = mock(ConnectLogger.class);
+        BedrockPrincipalReadiness principalReadiness =
+                new BedrockPrincipalReadiness(new ConnectConfig());
         BedrockAdmissionCoordinator admissionCoordinator = new BedrockAdmissionCoordinator(
                 new VerifiedBedrockIdentityRegistry());
 
@@ -64,6 +68,7 @@ class Libp2pEndpointRuntimeInitTest {
                     null,   // PlatformInjector
                     null,   // SimpleConnectApi
                     null,   // BedrockIdentityReadiness
+                    principalReadiness,
                     admissionCoordinator);
 
             Field runtimeField = Libp2pEndpoint.class.getDeclaredField("runtime");
@@ -82,6 +87,11 @@ class Libp2pEndpointRuntimeInitTest {
 
             assertNotNull(runtimeAdmissionCoordinator);
             assertSame(admissionCoordinator, runtimeAdmissionCoordinator);
+
+            Field principalReadinessField = runtime.getClass()
+                    .getDeclaredField("bedrockPrincipalReadiness");
+            principalReadinessField.setAccessible(true);
+            assertSame(principalReadiness, principalReadinessField.get(runtime));
         } finally {
             admissionCoordinator.close();
         }

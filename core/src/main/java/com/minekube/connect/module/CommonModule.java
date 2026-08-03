@@ -41,6 +41,7 @@ import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.packet.PacketHandlers;
 import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness;
+import com.minekube.connect.bedrock.BedrockPrincipalReadiness;
 import com.minekube.connect.config.ConfigHolder;
 import com.minekube.connect.config.ConfigLoader;
 import com.minekube.connect.config.ConfigLoader.EndpointNameGenerator;
@@ -135,6 +136,12 @@ public class CommonModule extends AbstractModule {
             ConfigHolder configHolder,
             BedrockIdentityKeyProvider keyProvider) {
         return new BedrockIdentityReadiness(configHolder.get(), keyProvider);
+    }
+
+    @Provides
+    @Singleton
+    public BedrockPrincipalReadiness bedrockPrincipalReadiness(ConfigHolder configHolder) {
+        return new BedrockPrincipalReadiness(configHolder.get());
     }
 
     @Provides
