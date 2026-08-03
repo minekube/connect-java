@@ -101,6 +101,25 @@ Status meanings:
   advancement evidence after discovery, authenticated activity, and approval.
   The test-only automatic admission was removed, the host was restarted, and
   `ASK_EVERY_TIME` was verified afterward.
+- Final six-adapter release-candidate matrix on 2026-08-03: source commit
+  `4663efe17631088e831e861d523c463906015b82` passed a clean 133-task build
+  for Fabric 1.20.1, 1.21.1, 1.21.11, and 26.2; Forge 1.20.1; and NeoForge
+  1.21.1. Each exact clean artifact was installed into an isolated host and
+  guest Prism profile and passed discovery, authenticated friend activity,
+  one-shot approval, a real host join, and a fresh guest advancement load on
+  macOS arm64. The tested clean SHA-256 values were
+  `ebdc93da66bae111c7b58b07317418af4fe46437eccb1a604d47951000e1a838`,
+  `2b0c22fb2c99b0ff9d2929fd14b2e2c09a62dd49c6e26f1c1f167291cf8e6707`,
+  `857b2cd0c1fd270b0b0f8a78b3eeb22b0c41ff7b47bd94f1d03bca1f8f975fff`,
+  `433e58c9190d691ecd4fd3a75079876c941c192808ffc9c132ac9234f30a1cf6`,
+  `78fd30f3ba1a0d976354831742a0808d65f730b2316fbd2058ac52bfc67a46c3`,
+  and `08ba9e3e9f92d3a41a94306a0e5fac820e2b96fb01068080f465706fdcfe1e43`
+  in the adapter order above.
+  Every pair had zero muxer reference-count failures and zero loader packet
+  rejections. Forge additionally proved a native modded-server handshake after
+  red/green coverage for loader-thread affinity and native login negotiation.
+  Every temporary `AUTO_ACCEPT` permission was restored to `ASK_EVERY_TIME`,
+  and all twelve Minecraft processes were stopped by exact instance cwd.
 
 ## #95 — one-click presence, request, approval, and join
 
@@ -132,7 +151,7 @@ Status meanings:
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
 | Maintain latest plus the 1.21.1 and 1.20.1 modpack anchors | Deterministic proof | Fabric adapters cover 26.2, 1.21.11, 1.21.1, and 1.20.1; the six-adapter gate passed from the current head | Define and operate the measured latest-version release target after the first public release |
-| Provide Fabric, Forge, and NeoForge adapters | Deterministic proof | Fabric 1.20.1/1.21.1/1.21.11/26.2, Forge 1.20.1, and NeoForge 1.21.1 all built and passed packaged artifact tests | Real-client startup and join evidence remains required for every release target |
+| Provide Fabric, Forge, and NeoForge adapters | Product proof | Fabric 1.20.1/1.21.1/1.21.11/26.2, Forge 1.20.1, and NeoForge 1.21.1 all passed clean packaged builds and exact-artifact two-client joins on macOS arm64 | Extend the same matrix to supported Windows/Linux and x86_64 before claiming broad platform proof |
 | Publish verified artifacts on Modrinth, CurseForge, and GitHub Releases | Gap | Artifacts have unambiguous loader/version archive names; `.github/workflows/connect-share-release.yml` fails closed, publishes the six artifacts, creates checksums and GitHub/Sigstore provenance, and verifies release assets/attestations | Marketplace projects, credentials, public metadata, a disposable prerelease proof, and final publication are external release operations and have not occurred from this unmerged PR |
 | Modrinth App and Prism install dependencies automatically | Product proof required | Fabric metadata declares Fabric API and Fabric Language Kotlin dependencies; Forge/NeoForge package KotlinForForge in their distributable artifact | Prove fresh one-click installs through published Modrinth metadata and Prism on all supported loader families |
 | Permit modpack inclusion and document dependencies/compatibility | Deterministic proof | `docs/connect-share.md` explicitly permits public/private modpack inclusion under MIT, names every loader/version artifact, and documents automatic and manual Kotlin/loader dependencies | Marketplace copy must reproduce the same contract before publication |
@@ -149,7 +168,7 @@ Status meanings:
 | Reconnect after IP, LAN, or world changes needs no relinking | Deterministic proof | `FriendStoreTest` persists signed candidates/consent; discovery retains per-peer refreshed routes; `ShareCoordinatorTest` and identity-store tests preserve identity through world replacement | Two-machine IP/LAN/VPN change and world-switch evidence on exact release artifacts |
 | Concise stage, actionable failure, and secret-safe diagnostics | Product proof required | `ShareUiMessageTest`, `ShareJoinDiagnosticsTest`, `SecretRedactionTest`, and the plain-language stage/failure models reject transport jargon and secret values | Exercise unavailable, denied, timeout, incompatible, fallback-failed, and resumed states in packaged clients |
 | Automated two-client direct, fallback, offline, online, and network-change cases | Partial product proof | Real libp2p direct, forced Connect fallback, and vanilla no-mod Connect joins pass on Fabric 26.2; deterministic selector/auth/network refresh cases pass | Paid online-auth, two-machine network-change, and remaining loader automation still require the external matrix |
-| Real-client startup/join gate for every supported release target | Gap | Six packaged adapter suites pass and Fabric 26.2 clean-head direct join is proven | Fabric 1.20.1/1.21.1/1.21.11 plus Forge 1.20.1 and NeoForge 1.21.1 startup/join, then OS/architecture breadth |
+| Real-client startup/join gate for every supported release target | Product proof | All six clean release-candidate artifacts passed exact-JAR host/guest startup, authenticated approval, real login, and gameplay load on macOS arm64; Forge also proved native FML negotiation | Add Windows/Linux and x86_64 breadth to the release automation |
 
 ## #99 — let friends join without installing the mod
 

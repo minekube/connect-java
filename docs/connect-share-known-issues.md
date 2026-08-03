@@ -9,7 +9,7 @@ item is resolved and its evidence is linked.
 | HTTPS invite | The handoff page and launcher-resume protocol are not deployed | Share the signed in-mod friend invitation; hosts with a proven Connect ingress may separately share the ordinary Minecraft address |
 | Marketplace install | Modrinth and CurseForge projects/credentials and a public Share release have not been verified | Use the exact locally built artifact and dependencies from `docs/connect-share.md`; do not redistribute an unreviewed snapshot as a stable release |
 | Recovery | Offline backup transfers one identity but cannot revoke a lost active device or safely run the same restored identity concurrently | Close the old profile before restoring; if a device is lost, remove/block the old relationship and re-link a new identity |
-| Platform matrix | Clean packaged direct, Connect fallback, no-mod approval, and no-mod terminal-denial product proof exists for Fabric 26.2 on macOS arm64; the remaining loader/version/OS/architecture matrix is deterministic only | Treat other artifacts as prerelease until their real-client startup and join gates pass |
+| Platform matrix | Every supported loader/version has clean packaged two-client join proof on macOS arm64; Windows, Linux, and x86_64 remain deterministic/build-only | Treat the artifacts as prerelease outside the proven platform until those real-client gates pass |
 | Localization | English and German are packaged | Do not claim another locale until its complete safety, recovery, compatibility, and failure journeys are reviewed |
 
 Support reports should include **Copy safe diagnostics**, exact Minecraft
