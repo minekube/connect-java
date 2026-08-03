@@ -44,6 +44,19 @@ bedrock-identity:
   # Required exact policy: linked_java_only or trusted_bedrock_xuid.
   expected-policy: trusted_bedrock_xuid
 
+# Signed Bedrock principal v2 is additive to the legacy identity path above. New generated
+# configurations require it; files created before this section existed remain generation 0,
+# preserve their legacy behavior, and never advertise v2 until explicitly upgraded.
+bedrock-principal:
+  config-generation: 2
+  mode: require
+  issuer: minekube-connect
+  trust-domain: urn:minekube:connect:production
+  audience: urn:minekube:connect:bedrock-principal:v2
+  metadata-origin: https://connect.minekube.com
+  metadata-path: /.well-known/minekube-connect/bedrock-principal-v2.json
+  public-keys: {}
+
 # The default locale for Connect. By default, Connect uses the system locale
 #default-locale: en_US
 

@@ -1,5 +1,45 @@
 # Bedrock identity defaults
 
+Connect Java supports two additive identity paths. Existing `config-version: 1` files retain the
+original `bedrock-identity` v1 behavior and `enforcement: warn` unchanged. Merely upgrading the
+plugin does not rewrite such a file or advertise generation-2 capability.
+
+## Signed principal v2
+
+New generated configuration includes `bedrock-principal.config-generation: 2` and `mode: require`.
+The v2 consumer accepts the compact signed principal only from the authenticated Watch/libp2p
+session field; a game-profile property with the reserved v2 name is rejected. It verifies the
+closed schema, Ed25519 signature, proposal bindings, time bounds, identity/link invariants, and an
+atomic one-use replay key before applying the verifier-selected effective profile. A linked Java
+profile always takes precedence over the derived Bedrock profile.
+
+The connector advertises `bedrock-verified-principal-v2` only when generation 2 is in `require`
+mode and its trust configuration and static Ed25519 pins are usable. Watch readiness challenges
+are answered on their authenticated lease. Libp2p first negotiates `kind-prefixed-v1` framing on
+a successful legacy renewal, then answers challenges on that same registration stream. Losing
+configuration, keys, framing, or the stream fails closed and suppresses operational readiness.
+
+Static v2 pins use canonical unpadded base64url and contain the raw 32-byte Ed25519 public key:
+
+```yaml
+bedrock-principal:
+  config-generation: 2
+  mode: require
+  issuer: minekube-connect
+  trust-domain: urn:minekube:connect:production
+  audience: urn:minekube:connect:bedrock-principal:v2
+  metadata-origin: https://connect.minekube.com
+  metadata-path: /.well-known/minekube-connect/bedrock-principal-v2.json
+  public-keys:
+    "<kid>": "<canonical-unpadded-base64url-raw-ed25519-key>"
+```
+
+Verification failures expose only the bounded `PrincipalError` category. Compact envelopes,
+nonces, replay IDs, XUIDs, and link material are excluded from exception messages, stack traces,
+principal `toString()` output, and sanitized session proposals.
+
+## Legacy v1
+
 Connect Edge authenticates Bedrock players with Microsoft/Xbox and signs a short-lived,
 endpoint-scoped identity before forwarding the session. A newly installed Connect Java plugin
 trusts that Minekube-signed identity without extra operator configuration: it validates the

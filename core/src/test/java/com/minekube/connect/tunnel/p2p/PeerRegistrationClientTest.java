@@ -3,12 +3,15 @@ package com.minekube.connect.tunnel.p2p;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.protobuf.ByteString;
+import com.minekube.connect.bedrock.BedrockPrincipalReadiness;
+import com.minekube.connect.config.ConnectConfig;
 import io.libp2p.core.Stream;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufInputStream;
@@ -16,8 +19,11 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Path;
+import java.lang.reflect.Field;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -27,6 +33,10 @@ import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterChallenge;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterCommit;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterInit;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterResult;
+import minekube.connect.v1alpha1.ConnectLibp2P.RegistrationModeResult;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.ReadinessAttestation;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.ReadinessChallenge;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
@@ -256,6 +266,87 @@ class PeerRegistrationClientTest {
 
         verify(stream, timeout(3_000)).close();
         assertTrue(client.closedFuture().isCompletedExceptionally());
+    }
+
+    @Test
+    void negotiatesFramingBeforeAnsweringReadinessChallenge() throws Exception {
+        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
+        PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
+                identity, "endpoint", "token", "instance", Collections.emptyList(),
+                OfflineMode.OFFLINE_MODE_ALLOWED, Arrays.asList("session", "status"),
+                PeerCapacity.newBuilder().setMaxSessions(100).build());
+        Stream stream = mock(Stream.class);
+        when(stream.closeFuture()).thenReturn(new CompletableFuture<>());
+        PeerRegistrationClient client = new PeerRegistrationClient(handshake, readyPrincipalConsumer());
+
+        client.install(stream, Collections.singletonList(
+                "/ip4/127.0.0.1/tcp/1234/p2p/" + identity.peerId()), 9, 1_000);
+        ArgumentCaptor<ChannelHandler> handlers = ArgumentCaptor.forClass(ChannelHandler.class);
+        verify(stream, times(2)).pushHandler(handlers.capture());
+        EmbeddedChannel channel = new EmbeddedChannel(handlers.getAllValues().toArray(ChannelHandler[]::new));
+        channel.writeInbound(frame(PeerRegisterChallenge.newBuilder()
+                .setEndpointId("endpoint-id").setEndpointHash("endpoint-hash")
+                .setPublisherId("publisher").setPublisherPeerId("publisher-peer")
+                .setRegion("local").setKvTtlMs(10_000).setRenewIntervalMs(1_000)
+                .setNonce(ByteString.copyFromUtf8("nonce")).build()));
+        channel.writeInbound(frame(PeerRegisterResult.newBuilder().setKvRevision(1).build()));
+
+        ArgumentCaptor<Object> offeredFrame = ArgumentCaptor.forClass(Object.class);
+        verify(stream, timeout(2_500).times(3)).writeAndFlush(offeredFrame.capture());
+        PeerRegisterCommit offered = P2PFrameCodec.read(
+                new ByteBufInputStream((ByteBuf) offeredFrame.getAllValues().get(2)),
+                PeerRegisterCommit.parser(), P2PFrameCodec.MAX_CONTROL_FRAME_SIZE);
+        assertEquals("kind-prefixed-v1", offered.getModeOffer().getFraming());
+
+        long now = System.currentTimeMillis() / 1_000;
+        ReadinessChallenge readinessChallenge = ReadinessChallenge.newBuilder()
+                .setRequestId("request").setNonce(ByteString.copyFrom(new byte[16]))
+                .setEndpointId("endpoint-id").setOrganizationId("organization-id")
+                .setConnectorInstanceId("instance").setLeaseId("lease")
+                .setTransport(TunnelTransport.Type.TYPE_LIBP2P).setPolicyRevision(2)
+                .setIssuedAtUnix(now).setExpiresAtUnix(now + 30).build();
+        clearInvocations(stream);
+        channel.writeInbound(negotiationAndChallenge(
+                PeerRegisterResult.newBuilder().setKvRevision(2)
+                        .setModeResult(RegistrationModeResult.newBuilder()
+                                .setVersion(2).setAccepted(true)).build(),
+                readinessChallenge));
+
+        ArgumentCaptor<Object> answerFrame = ArgumentCaptor.forClass(Object.class);
+        verify(stream, timeout(500)).writeAndFlush(answerFrame.capture());
+        P2PFrameCodec.KindPrefixedFrame answer = P2PFrameCodec.readKindPrefixed(
+                new ByteBufInputStream((ByteBuf) answerFrame.getValue()));
+        assertEquals(P2PFrameCodec.READINESS_ATTESTATION, answer.kind());
+        assertEquals(ReadinessAttestation.Result.RESULT_READY,
+                answer.parse(ReadinessAttestation.parser()).getResult());
+        client.close();
+    }
+
+    private static BedrockPrincipalReadiness readyPrincipalConsumer() throws Exception {
+        ConnectConfig config = new ConnectConfig();
+        set(config.getBedrockPrincipal(), "configGeneration", 2);
+        set(config.getBedrockPrincipal(), "mode", "require");
+        set(config.getBedrockPrincipal(), "issuer", "minekube-connect");
+        set(config.getBedrockPrincipal(), "trustDomain", "urn:minekube:connect:production");
+        set(config.getBedrockPrincipal(), "audience", "urn:minekube:connect:bedrock-principal:v2");
+        set(config.getBedrockPrincipal(), "metadataOrigin", "https://connect.minekube.com");
+        set(config.getBedrockPrincipal(), "publicKeys", Map.of("kid", Base64.getUrlEncoder()
+                .withoutPadding().encodeToString(new byte[32])));
+        return new BedrockPrincipalReadiness(config);
+    }
+
+    private static void set(Object target, String name, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    private static ByteBuf negotiationAndChallenge(
+            PeerRegisterResult result, ReadinessChallenge challenge) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        P2PFrameCodec.write(out, result);
+        P2PFrameCodec.writeKindPrefixed(out, P2PFrameCodec.READINESS_CHALLENGE, challenge);
+        return io.netty.buffer.Unpooled.wrappedBuffer(out.toByteArray());
     }
 
     private static ByteBuf frame(com.google.protobuf.MessageLite message) throws Exception {

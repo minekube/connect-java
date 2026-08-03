@@ -2,6 +2,7 @@ package com.minekube.connect.watch;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -10,6 +11,7 @@ import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness;
+import com.minekube.connect.bedrock.BedrockPrincipalReadiness;
 import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
 import com.minekube.connect.config.ConnectConfig;
 import java.util.concurrent.atomic.AtomicReference;
@@ -20,6 +22,9 @@ import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.WatchResponse;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.ReadinessChallenge;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.WatchRequest;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.WebSocket;
@@ -101,5 +106,44 @@ class WatchClientTest {
         verify(httpClient).newWebSocket(request.capture(), any(WebSocketListener.class));
         assertFalse(request.getValue().headers("Connect-Capabilities")
                 .contains("bedrock-identity-v1"));
+    }
+
+    @Test
+    void readinessChallengeIsAnsweredAndNeverDeliveredAsSession() {
+        ConnectConfig config = new ConnectConfig();
+        OkHttpClient httpClient = mock(OkHttpClient.class);
+        WatchClient client = new WatchClient(httpClient, config);
+        Watcher watcher = mock(Watcher.class);
+        WebSocket socket = mock(WebSocket.class);
+
+        client.watch(watcher);
+        ArgumentCaptor<WebSocketListener> listener = ArgumentCaptor.forClass(WebSocketListener.class);
+        verify(httpClient).newWebSocket(any(Request.class), listener.capture());
+        ReadinessChallenge challenge = ReadinessChallenge.newBuilder()
+                .setRequestId("request")
+                .setNonce(com.google.protobuf.ByteString.copyFrom(new byte[16]))
+                .setEndpointId("endpoint")
+                .setOrganizationId("organization")
+                .setConnectorInstanceId("instance")
+                .setLeaseId("lease")
+                .setTransport(TunnelTransport.Type.TYPE_WEBSOCKET)
+                .setPolicyRevision(1)
+                .setIssuedAtUnix(1)
+                .setExpiresAtUnix(31)
+                .build();
+
+        listener.getValue().onMessage(socket, ByteString.of(WatchResponse.newBuilder()
+                .setReadinessChallenge(challenge).build().toByteArray()));
+
+        ArgumentCaptor<ByteString> response = ArgumentCaptor.forClass(ByteString.class);
+        verify(socket).send(response.capture());
+        WatchRequest request;
+        try {
+            request = WatchRequest.parseFrom(response.getValue().toByteArray());
+        } catch (com.google.protobuf.InvalidProtocolBufferException error) {
+            throw new AssertionError(error);
+        }
+        assertTrue(request.hasReadinessAttestation());
+        verify(watcher, org.mockito.Mockito.never()).onProposal(any());
     }
 }

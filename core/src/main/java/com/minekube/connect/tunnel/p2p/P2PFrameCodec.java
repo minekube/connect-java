@@ -34,6 +34,11 @@ import java.io.OutputStream;
 
 public final class P2PFrameCodec {
     public static final int MAX_CONTROL_FRAME_SIZE = 1 << 20;
+    public static final int MAX_KIND_PREFIXED_FRAME_SIZE = 4096;
+    public static final byte RENEWAL_COMMIT = 0x01;
+    public static final byte RENEWAL_RESULT = 0x02;
+    public static final byte READINESS_CHALLENGE = 0x03;
+    public static final byte READINESS_ATTESTATION = 0x04;
 
     private P2PFrameCodec() {
     }
@@ -64,6 +69,59 @@ public final class P2PFrameCodec {
             throw new EOFException("truncated frame payload");
         }
         return parser.parseFrom(payload);
+    }
+
+    public static void writeKindPrefixed(OutputStream out, byte kind, MessageLite message)
+            throws IOException {
+        requireKind(kind);
+        byte[] payload = message.toByteArray();
+        int length = 1 + payload.length;
+        if (length > MAX_KIND_PREFIXED_FRAME_SIZE) {
+            throw new IllegalArgumentException("kind-prefixed frame exceeds maximum size");
+        }
+        writeVarint(out, length);
+        out.write(kind);
+        out.write(payload);
+        out.flush();
+    }
+
+    public static KindPrefixedFrame readKindPrefixed(InputStream in) throws IOException {
+        long length = readVarint(in);
+        if (length < 1) {
+            throw new IllegalArgumentException("kind-prefixed frame has no kind");
+        }
+        if (length > MAX_KIND_PREFIXED_FRAME_SIZE) {
+            throw new IllegalArgumentException("kind-prefixed frame exceeds maximum size");
+        }
+        int kind = in.read();
+        if (kind < 0) throw new EOFException("truncated kind-prefixed frame");
+        requireKind((byte) kind);
+        byte[] payload = in.readNBytes((int) length - 1);
+        if (payload.length != length - 1) {
+            throw new EOFException("truncated kind-prefixed frame payload");
+        }
+        return new KindPrefixedFrame((byte) kind, payload);
+    }
+
+    public record KindPrefixedFrame(byte kind, byte[] protobuf) {
+        public KindPrefixedFrame {
+            protobuf = protobuf.clone();
+        }
+
+        @Override
+        public byte[] protobuf() {
+            return protobuf.clone();
+        }
+
+        public <T extends MessageLite> T parse(Parser<T> parser) throws IOException {
+            return parser.parseFrom(protobuf);
+        }
+    }
+
+    private static void requireKind(byte kind) {
+        if (kind < RENEWAL_COMMIT || kind > READINESS_ATTESTATION) {
+            throw new IllegalArgumentException("unknown kind-prefixed frame kind");
+        }
     }
 
     private static void writeVarint(OutputStream out, int value) throws IOException {

@@ -27,6 +27,7 @@ package com.minekube.connect.api;
 
 import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
+import com.minekube.connect.api.player.principal.VerifiedBedrockPrincipal;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
@@ -75,6 +76,14 @@ public interface ConnectApi {
      * @return immutable verified claims, or empty when no verified claims exist for the session
      */
     default Optional<BedrockIdentityClaims> getVerifiedBedrockIdentity(ConnectPlayer player) {
+        return Optional.empty();
+    }
+
+    /**
+     * Returns the verifier-created v2 Bedrock principal for this player's current session.
+     * Callers must not log or serialize identity/link accessors.
+     */
+    default Optional<VerifiedBedrockPrincipal> getVerifiedBedrockPrincipal(ConnectPlayer player) {
         return Optional.empty();
     }
 }

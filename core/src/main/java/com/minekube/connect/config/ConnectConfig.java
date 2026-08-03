@@ -28,6 +28,7 @@ package com.minekube.connect.config;
 import com.minekube.connect.util.Utils;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import lombok.Getter;
 
 /**
@@ -59,6 +60,12 @@ public class ConnectConfig {
      * Verification settings for Moxy-signed Bedrock identity envelopes.
      */
     private BedrockIdentityConfig bedrockIdentity = new BedrockIdentityConfig();
+
+    /**
+     * Generation-2 signed-principal settings. A missing section remains generation zero and
+     * cannot advertise v2, preserving existing configuration files without migration.
+     */
+    private BedrockPrincipalConfig bedrockPrincipal = new BedrockPrincipalConfig();
 
     /**
      * Optional parent endpoint names sent to WatchService as Connect-Endpoint-Parents.
@@ -126,5 +133,25 @@ public class ConnectConfig {
          * Required exact policy: linked_java_only or trusted_bedrock_xuid.
          */
         private String expectedPolicy = "trusted_bedrock_xuid";
+    }
+
+    @Getter
+    public static class BedrockPrincipalConfig {
+        /** Exact local configuration generation. Only generation 2 can become v2-capable. */
+        private int configGeneration;
+        /** Exact v2 enforcement mode. Only require can advertise v2 readiness. */
+        private String mode = "disabled";
+        /** Locally trusted issuer. */
+        private String issuer = "";
+        /** Locally trusted administrative key namespace. */
+        private String trustDomain = "";
+        /** Locally trusted singleton audience. */
+        private String audience = "";
+        /** Pinned HTTPS metadata origin, without a path. */
+        private String metadataOrigin = "";
+        /** Frozen metadata path. */
+        private String metadataPath = "/.well-known/minekube-connect/bedrock-principal-v2.json";
+        /** Optional static Ed25519 pins keyed by kid are configured by host integration. */
+        private Map<String, String> publicKeys = Collections.emptyMap();
     }
 }

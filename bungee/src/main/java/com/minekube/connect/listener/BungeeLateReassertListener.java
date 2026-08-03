@@ -84,9 +84,8 @@ public final class BungeeLateReassertListener implements Listener {
         }
         if (connection.isOnlineMode()) {
             connection.setOnlineMode(false);
-            logger.debug("Re-asserted offline mode for Connect session {} at pre-login; another "
-                            + "plugin had changed it (set login-reassert.enabled to false to allow that)",
-                    player.getUsername());
+            logger.debug("Re-asserted offline mode for a Connect session at pre-login; another "
+                    + "plugin had changed it (set login-reassert.enabled to false to allow that)");
         }
         if (!config.getLoginReassert().isRestoreFullProfile()) {
             return;

@@ -16,19 +16,21 @@ service WatchService {
 }
 
 message WatchRequest {
-  // Sending this message rejects a session proposed by the WatchService. This message should be sent to inform
-  // the WatchService that the server will not try to make a take the proposed session. The only purpose of
-  // this message is to provide quicker feedback to the player that he will not be connected with an optional
-  // localized reason. See https://github.com/grpc/grpc/blob/master/src/proto/grpc/status/status.proto.
-  // If the session is not rejected the watcher should establish the connection for the proposed session.
-  // If neither of these actions happen the proposal times out out and the player receives a connection timeout
-  // error indicating that the endpoint is currently unavailable.
-  SessionRejection session_rejection = 1;
+  oneof payload {
+    // Sending this message rejects a session proposed by the WatchService.
+    SessionRejection session_rejection = 1;
+    // The readiness answer for a challenge sent on this authenticated Watch lease.
+    ReadinessAttestation readiness_attestation = 2;
+  }
 }
 
 message WatchResponse {
-  // The proposed session that intents to connect.
-  Session session = 1;
+  oneof payload {
+    // The proposed session that intents to connect.
+    Session session = 1;
+    // A readiness challenge bound to this authenticated Watch lease.
+    ReadinessChallenge readiness_challenge = 2;
+  }
 }
 
 message SessionRejection {
@@ -61,6 +63,65 @@ message Session {
   // The player protocol determined by the authenticated Connect Edge.
   // Legacy senders omit this field and decode as SESSION_PROTOCOL_UNSPECIFIED.
   SessionProtocol protocol = 6;
+  // The selected endpoint ID from the final authenticated proposal snapshot.
+  string endpoint_id = 7;
+  // The selected endpoint organization ID from the final authenticated proposal snapshot.
+  string organization_id = 8;
+  // A per-session 16-byte random nonce. Legacy senders omit this field.
+  bytes connect_session_nonce = 9;
+  // The authenticated source protocol version negotiated by the Connect Edge.
+  int32 source_protocol_version = 10;
+  // The positive endpoint policy revision from the final proposal snapshot.
+  int64 policy_revision = 11;
+  // The compact Bedrock principal v2 JWS. V1 identity metadata remains separate.
+  bytes signed_bedrock_principal_v2 = 12;
+}
+
+// PrincipalError is the internal, bounded Bedrock principal v2 failure category.
+enum PrincipalError {
+  PRINCIPAL_ERROR_UNSPECIFIED = 0;
+  PRINCIPAL_ERROR_MALFORMED = 1;
+  PRINCIPAL_ERROR_TRUST = 2;
+  PRINCIPAL_ERROR_SIGNATURE = 3;
+  PRINCIPAL_ERROR_BINDING_MISMATCH = 4;
+  PRINCIPAL_ERROR_TIME = 5;
+  PRINCIPAL_ERROR_IDENTITY = 6;
+  PRINCIPAL_ERROR_LINK = 7;
+  PRINCIPAL_ERROR_REPLAY = 8;
+  PRINCIPAL_ERROR_CAPACITY = 9;
+  PRINCIPAL_ERROR_METADATA_UNAVAILABLE = 10;
+  PRINCIPAL_ERROR_KEY_REVOKED = 11;
+  PRINCIPAL_ERROR_READINESS = 12;
+  PRINCIPAL_ERROR_INTERNAL = 13;
+}
+
+message ReadinessChallenge {
+  string request_id = 1;
+  bytes nonce = 2;
+  string endpoint_id = 3;
+  string organization_id = 4;
+  string connector_instance_id = 5;
+  string lease_id = 6;
+  TunnelTransport.Type transport = 7;
+  int64 policy_revision = 8;
+  int64 issued_at_unix = 9;
+  int64 expires_at_unix = 10;
+}
+
+message ReadinessAttestation {
+  enum Result {
+    RESULT_UNSPECIFIED = 0;
+    RESULT_READY = 1;
+    RESULT_NOT_READY = 2;
+  }
+
+  ReadinessChallenge challenge = 1;
+  string capability = 2;
+  string mode = 3;
+  bytes readiness_revision = 4;
+  int64 observed_at_unix = 5;
+  Result result = 6;
+  PrincipalError reason = 7;
 }
 
 message TunnelTransport {

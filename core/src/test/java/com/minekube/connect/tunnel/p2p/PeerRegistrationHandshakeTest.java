@@ -64,6 +64,7 @@ class PeerRegistrationHandshakeTest {
                 .setNonce(ByteString.copyFromUtf8("nonce"))
                 .build();
         PeerRegisterCommit commit = handshake.commit(challenge, init.getObservedAddrsList(), 7, 1_000);
+        assertFalse(commit.hasModeOffer());
 
         EndpointPeerRecord record = commit.getRecord();
         assertEquals("endpoint", record.getEndpoint());
@@ -86,6 +87,11 @@ class PeerRegistrationHandshakeTest {
         assertTrue(publicKey.verify(
                 PeerRecordSigningPayload.bytes(record),
                 commit.getSignature().toByteArray()));
+
+        PeerRegisterCommit offered = handshake.commit(
+                challenge, init.getObservedAddrsList(), 8, 2_000, true);
+        assertEquals(2, offered.getModeOffer().getVersion());
+        assertEquals("kind-prefixed-v1", offered.getModeOffer().getFraming());
     }
 
     @Test

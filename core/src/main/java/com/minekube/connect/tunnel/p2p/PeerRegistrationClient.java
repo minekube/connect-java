@@ -24,11 +24,14 @@
 package com.minekube.connect.tunnel.p2p;
 
 import com.google.protobuf.MessageLite;
+import com.minekube.connect.bedrock.BedrockPrincipalReadiness;
 import io.libp2p.core.Stream;
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.handler.codec.ByteToMessageDecoder;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.List;
@@ -43,15 +46,22 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterChallenge;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterResult;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.ReadinessChallenge;
 
 final class PeerRegistrationClient {
     private final PeerRegistrationHandshake handshake;
     private final ScheduledExecutorService renewExecutor;
+    private final BedrockPrincipalReadiness readiness;
     private final CompletableFuture<Void> closed = new CompletableFuture<>();
     private volatile Stream stream;
 
     PeerRegistrationClient(PeerRegistrationHandshake handshake) {
+        this(handshake, null);
+    }
+
+    PeerRegistrationClient(PeerRegistrationHandshake handshake, BedrockPrincipalReadiness readiness) {
         this.handshake = Objects.requireNonNull(handshake, "handshake");
+        this.readiness = readiness;
         this.renewExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "connect-libp2p-registration-renew");
             thread.setDaemon(true);
@@ -115,16 +125,27 @@ final class PeerRegistrationClient {
                 PeerRegisterResult.parser(),
                 P2PFrameCodec.MAX_CONTROL_FRAME_SIZE);
         ctx.pipeline().addLast(resultDecoder);
-        ctx.pipeline().addLast(new ResultHandler(stream, challenge, observedAddrsSupplier, sequence, result));
+        ctx.pipeline().addLast(new ResultHandler(
+                stream, resultDecoder, challenge, observedAddrsSupplier, sequence, result));
     }
 
-    private static void writeFrame(Stream stream, MessageLite message) {
+    private synchronized void writeFrame(Stream stream, MessageLite message) {
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             P2PFrameCodec.write(out, message);
             stream.writeAndFlush(Unpooled.wrappedBuffer(out.toByteArray()));
         } catch (IOException e) {
             throw new IllegalStateException("encode libp2p registration frame", e);
+        }
+    }
+
+    private synchronized void writeKindFrame(Stream stream, byte kind, MessageLite message) {
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            P2PFrameCodec.writeKindPrefixed(out, kind, message);
+            stream.writeAndFlush(Unpooled.wrappedBuffer(out.toByteArray()));
+        } catch (IOException e) {
+            throw new IllegalStateException("encode kind-prefixed libp2p registration frame", e);
         }
     }
 
@@ -183,19 +204,25 @@ final class PeerRegistrationClient {
 
     private final class ResultHandler extends SimpleChannelInboundHandler<PeerRegisterResult> {
         private final Stream stream;
+        private final ChannelHandler legacyDecoder;
         private final PeerRegisterChallenge challenge;
         private final Supplier<List<String>> observedAddrsSupplier;
         private final AtomicLong sequence;
         private final CompletableFuture<PeerRegisterResult> result;
         private volatile ScheduledFuture<?> ackTimeout;
+        private volatile boolean offerAttempted;
+        private volatile boolean framed;
+        private volatile boolean awaitingResult = true;
 
         private ResultHandler(
                 Stream stream,
+                ChannelHandler legacyDecoder,
                 PeerRegisterChallenge challenge,
                 Supplier<List<String>> observedAddrsSupplier,
                 long sequence,
                 CompletableFuture<PeerRegisterResult> result) {
             this.stream = stream;
+            this.legacyDecoder = legacyDecoder;
             this.challenge = challenge;
             this.observedAddrsSupplier = observedAddrsSupplier;
             this.sequence = new AtomicLong(sequence);
@@ -204,8 +231,28 @@ final class PeerRegistrationClient {
 
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, PeerRegisterResult msg) {
+            handleResult(ctx, msg);
+        }
+
+        private void handleResult(ChannelHandlerContext ctx, PeerRegisterResult msg) {
+            if (!awaitingResult) {
+                failRegistration(new IllegalArgumentException(
+                        "unexpected duplicate libp2p registration result"));
+                ctx.close();
+                return;
+            }
+            awaitingResult = false;
             cancelAckTimeout();
             result.complete(msg);
+            if (!framed && offerAttempted && msg.hasModeResult()
+                    && msg.getModeResult().getVersion() == 2
+                    && msg.getModeResult().getAccepted()) {
+                framed = true;
+                ctx.pipeline().addLast(new KindFrameDecoder());
+                ctx.pipeline().addLast(new KindFrameHandler(this));
+                ctx.pipeline().remove(this);
+                ctx.pipeline().remove(legacyDecoder);
+            }
             scheduleRenew();
         }
 
@@ -213,11 +260,21 @@ final class PeerRegistrationClient {
             renewExecutor.schedule(() -> {
                 if (!stream.closeFuture().isDone()) {
                     try {
-                        writeFrame(stream, handshake.commit(
+                        boolean offer = !framed && !offerAttempted
+                                && readiness != null && readiness.isReady();
+                        MessageLite commit = handshake.commit(
                                 challenge,
                                 observedAddrsSupplier.get(),
                                 sequence.incrementAndGet(),
-                                System.currentTimeMillis()));
+                                System.currentTimeMillis(),
+                                offer);
+                        awaitingResult = true;
+                        if (framed) {
+                            writeKindFrame(stream, P2PFrameCodec.RENEWAL_COMMIT, commit);
+                        } else {
+                            writeFrame(stream, commit);
+                            if (offer) offerAttempted = true;
+                        }
                         scheduleAckTimeout();
                     } catch (RuntimeException e) {
                         failRegistration(e);
@@ -262,6 +319,79 @@ final class PeerRegistrationClient {
             renewExecutor.shutdownNow();
             closed.complete(null);
             super.channelInactive(ctx);
+        }
+    }
+
+    private final class KindFrameHandler
+            extends SimpleChannelInboundHandler<P2PFrameCodec.KindPrefixedFrame> {
+        private final ResultHandler registration;
+
+        private KindFrameHandler(ResultHandler registration) {
+            this.registration = registration;
+        }
+
+        @Override
+        protected void channelRead0(
+                ChannelHandlerContext ctx, P2PFrameCodec.KindPrefixedFrame frame) throws Exception {
+            if (frame.kind() == P2PFrameCodec.RENEWAL_RESULT) {
+                registration.handleResult(ctx, frame.parse(PeerRegisterResult.parser()));
+                return;
+            }
+            if (frame.kind() == P2PFrameCodec.READINESS_CHALLENGE && readiness != null) {
+                ReadinessChallenge challenge = frame.parse(ReadinessChallenge.parser());
+                writeKindFrame(stream, P2PFrameCodec.READINESS_ATTESTATION,
+                        readiness.attest(challenge, BedrockPrincipalReadiness.Transport.LIBP2P));
+                return;
+            }
+            registration.failRegistration(new IllegalArgumentException(
+                    "unexpected kind-prefixed registration frame"));
+        }
+
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            registration.failRegistration(cause);
+            ctx.close();
+        }
+    }
+
+    private static final class KindFrameDecoder extends ByteToMessageDecoder {
+        @Override
+        protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
+            in.markReaderIndex();
+            long length = 0;
+            int shift = 0;
+            boolean complete = false;
+            for (int index = 0; index < 10; index++) {
+                if (!in.isReadable()) {
+                    in.resetReaderIndex();
+                    return;
+                }
+                int value = in.readUnsignedByte();
+                if (index == 9 && value > 1) {
+                    throw new IllegalArgumentException("kind-prefixed frame length overflow");
+                }
+                length |= (long) (value & 0x7f) << shift;
+                if ((value & 0x80) == 0) {
+                    complete = true;
+                    break;
+                }
+                shift += 7;
+            }
+            if (!complete || length < 1 || length > P2PFrameCodec.MAX_KIND_PREFIXED_FRAME_SIZE) {
+                throw new IllegalArgumentException("invalid kind-prefixed frame length");
+            }
+            if (in.readableBytes() < length) {
+                in.resetReaderIndex();
+                return;
+            }
+            byte kind = in.readByte();
+            if (kind < P2PFrameCodec.RENEWAL_COMMIT
+                    || kind > P2PFrameCodec.READINESS_ATTESTATION) {
+                throw new IllegalArgumentException("unknown kind-prefixed frame kind");
+            }
+            byte[] payload = new byte[(int) length - 1];
+            in.readBytes(payload);
+            out.add(new P2PFrameCodec.KindPrefixedFrame(kind, payload));
         }
     }
 

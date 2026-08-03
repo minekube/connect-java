@@ -158,7 +158,7 @@ public final class SpigotDataHandler extends CommonDataHandler {
             return true; // next is LOGIN_START_PACKET
         }
         if (ClassNames.LOGIN_START_PACKET.isInstance(packet)) {
-            debug("Processing LOGIN_START_PACKET for " + sessionCtx.getPlayer().getUsername());
+            debug("Processing LOGIN_START_PACKET for " + logPlayer());
             if (!enforceBedrockIdentity()) {
                 return false;
             }
@@ -230,7 +230,7 @@ public final class SpigotDataHandler extends CommonDataHandler {
                 GameProfile profileToUse = returnedProfile != null ? (GameProfile) returnedProfile : gameProfile;
 
                 if (config.isDebug()) {
-                    debug("callPlayerPreLoginEvents returned profile: " + profileToUse);
+                    debug("callPlayerPreLoginEvents returned a profile for " + logPlayer());
                 }
 
                 ClassNames.START_CLIENT_VERIFICATION.invoke(packetListener, profileToUse);
@@ -241,6 +241,12 @@ public final class SpigotDataHandler extends CommonDataHandler {
             return false;
         }
         return true;
+    }
+
+    private String logPlayer() {
+        return sessionCtx.getSessionProposal().hasBedrockPrincipalV2()
+                ? "<bedrock-principal-v2>"
+                : sessionCtx.getPlayer().getUsername();
     }
 
     boolean enforceBedrockIdentity() {

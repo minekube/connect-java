@@ -80,12 +80,25 @@ message PeerRegisterChallenge {
 message PeerRegisterCommit {
   EndpointPeerRecord record = 1;
   bytes signature = 2;
+  RegistrationModeOffer mode_offer = 3;
 }
 
 message PeerRegisterResult {
   string endpoint_id = 1;
   string endpoint_hash = 2;
   uint64 kv_revision = 3;
+  RegistrationModeResult mode_result = 4;
+}
+
+message RegistrationModeOffer {
+  uint32 version = 1;
+  string framing = 2;
+}
+
+message RegistrationModeResult {
+  uint32 version = 1;
+  bool accepted = 2;
+  PrincipalError reason = 3;
 }
 
 message SessionOffer {
@@ -98,6 +111,10 @@ message SessionOffer {
   string endpoint_org_id = 7;
   // Mirrors the authenticated legacy Session protocol discriminator.
   SessionProtocol protocol = 8;
+  bytes connect_session_nonce = 9;
+  int32 source_protocol_version = 10;
+  int64 policy_revision = 11;
+  bytes signed_bedrock_principal_v2 = 12;
 }
 
 message SessionPlayer {

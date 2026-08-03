@@ -38,6 +38,7 @@ import minekube.connect.v1alpha1.ConnectLibp2P.PeerCapacity;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterChallenge;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterCommit;
 import minekube.connect.v1alpha1.ConnectLibp2P.PeerRegisterInit;
+import minekube.connect.v1alpha1.ConnectLibp2P.RegistrationModeOffer;
 
 final class PeerRegistrationHandshake {
     static final String BEDROCK_IDENTITY_V1_CAPABILITY = "bedrock-identity-v1";
@@ -131,6 +132,15 @@ final class PeerRegistrationHandshake {
     }
 
     PeerRegisterCommit commit(PeerRegisterChallenge challenge, List<String> addrs, long sequence, long nowUnixMs) {
+        return commit(challenge, addrs, sequence, nowUnixMs, false);
+    }
+
+    PeerRegisterCommit commit(
+            PeerRegisterChallenge challenge,
+            List<String> addrs,
+            long sequence,
+            long nowUnixMs,
+            boolean offerKindPrefixedV1) {
         long ttlMs = challenge.getKvTtlMs() > 0 ? challenge.getKvTtlMs() : 45_000;
         List<String> recordAddrs = recordRelayCircuitAddrs(challenge, addrs);
         if (recordAddrs.isEmpty() && challenge.getRelayAddrsList().isEmpty()) {
@@ -158,10 +168,15 @@ final class PeerRegistrationHandshake {
                 .setExpiresAtUnixMs(nowUnixMs + ttlMs)
                 .setNonce(challenge.getNonce())
                 .build();
-        return PeerRegisterCommit.newBuilder()
+        PeerRegisterCommit.Builder commit = PeerRegisterCommit.newBuilder()
                 .setRecord(record)
-                .setSignature(ByteString.copyFrom(identity.sign(PeerRecordSigningPayload.bytes(record))))
-                .build();
+                .setSignature(ByteString.copyFrom(identity.sign(PeerRecordSigningPayload.bytes(record))));
+        if (offerKindPrefixedV1) {
+            commit.setModeOffer(RegistrationModeOffer.newBuilder()
+                    .setVersion(2)
+                    .setFraming("kind-prefixed-v1"));
+        }
+        return commit.build();
     }
 
     private List<String> recordRelayCircuitAddrs(PeerRegisterChallenge challenge, List<String> reservedAddrs) {

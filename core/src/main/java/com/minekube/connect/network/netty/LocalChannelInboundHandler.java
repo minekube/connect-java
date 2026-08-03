@@ -100,7 +100,8 @@ public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<Byte
             }
 
             if (api.setPendingRemove(context.getPlayer())) {
-                if (!context.getPlayer().getUsername().isEmpty()) { // might be just a ping request
+                if (!context.getSessionProposal().hasBedrockPrincipalV2()
+                        && !context.getPlayer().getUsername().isEmpty()) { // might be just a ping request
                     logger.translatedInfo("connect.ingame.disconnect_name",
                             context.getPlayer().getUsername());
                 }
@@ -195,7 +196,9 @@ public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<Byte
     }
 
     private String playerName() {
-        return context.getPlayer().getUsername();
+        return context.getSessionProposal().hasBedrockPrincipalV2()
+                ? "<bedrock-principal-v2>"
+                : context.getPlayer().getUsername();
     }
 
     private String sessionId() {
