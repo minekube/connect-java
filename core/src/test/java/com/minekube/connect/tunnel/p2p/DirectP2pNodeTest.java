@@ -125,6 +125,63 @@ class DirectP2pNodeTest {
     }
 
     @Test
+    void java17PeersTransferAcrossManyMuxerWindows() throws Exception {
+        byte[] payload = new byte[4 * 1024 * 1024];
+        for (int index = 0; index < payload.length; index++) {
+            payload[index] = (byte) (index * 31);
+        }
+
+        try (ServerSocket target = new ServerSocket()) {
+            target.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
+            CompletableFuture<Void> echo = CompletableFuture.runAsync(() -> {
+                try (Socket accepted = target.accept()) {
+                    accepted.setSoTimeout(15_000);
+                    byte[] received = new DataInputStream(accepted.getInputStream())
+                            .readNBytes(payload.length);
+                    assertArrayEquals(payload, received);
+                    new DataOutputStream(accepted.getOutputStream()).write(received);
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+
+            host = new DirectP2pNode();
+            DirectP2pHostInfo hostInfo = host.startHost(
+                    new DirectP2pHostConfig(
+                            "large-share",
+                            "large-capability",
+                            "Large transfer",
+                            false),
+                    ignored -> {
+                        Socket socket = new Socket();
+                        socket.connect(target.getLocalSocketAddress());
+                        return socket;
+                    });
+            guest = new DirectP2pNode();
+            DirectP2pProxy proxy = guest.openProxy(
+                    hostInfo.lanAddresses().get(0),
+                    "large-share",
+                    "large-capability",
+                    DirectP2pAuthMode.OFFLINE,
+                    Duration.ofSeconds(3));
+
+            try (Socket client = new Socket()) {
+                client.setSoTimeout(15_000);
+                client.connect(proxy.localAddress());
+                client.getOutputStream().write(payload);
+                assertArrayEquals(
+                        payload,
+                        new DataInputStream(client.getInputStream())
+                                .readNBytes(payload.length));
+            } finally {
+                proxy.close();
+            }
+
+            echo.get(15, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
     void everyHostUsesAnEphemeralPeerIdentityAndSignsWithIt() throws Exception {
         host = new DirectP2pNode();
         DirectP2pHostInfo first = host.startHost(

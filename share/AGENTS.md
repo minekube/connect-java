@@ -178,6 +178,15 @@ redesigned for Kotlin.
   `cachedRequires` metadata and usually one online first launch to download
   loader libraries. Kotlin for Forge must be installed from its `-all.jar`;
   the smaller Maven compile artifact is not a discoverable loader mod.
+- Replace Prism mods by matching the JAR basename at the immediate `mods/`
+  level. Do not apply a `connect-share-*.jar` regex to the full absolute path:
+  E2E instance directory names also contain `connect-share`, so that pattern
+  can move Fabric API, Fabric Language Kotlin, or Kotlin for Forge by mistake.
+- Keep the direct runtime on jvm-libp2p's tested Mplex default until another
+  muxer passes both the Java 17 multi-window regression and every real-client
+  adapter. Yamux on Netty 4.2 can double-release its buffered window data on
+  Java 17 after server login, disconnecting the player while flooding the host
+  with `IllegalReferenceCountException`.
 - Legacy Forge's final reobfuscated JAR must contain its generated Mixin refmap
   and name it from the loader-specific mixin config. Forge and NeoForge client
   resources need a compatible `pack.mcmeta`, otherwise startup can stop at a

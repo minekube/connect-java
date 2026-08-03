@@ -118,7 +118,11 @@ public final class Libp2pTunnelTransportRuntime implements TunnelClientTransport
         RelayBindings relay = relayBindings(privateKey, relayAddrs, relayService);
         HostBuilder builder = new HostBuilder(HostBuilder.DefaultMode.None)
                 .secureChannel(NoiseXXSecureChannel::new)
-                .muxer(StreamMuxerProtocol::getYamux)
+                // jvm-libp2p's Yamux window queue can double-release Netty 4.2
+                // buffers on Java 17 during normal Minecraft-sized transfers.
+                // Mplex is the library's tested default and both Share peers
+                // are under our control, so prefer the stable muxer here.
+                .muxer(StreamMuxerProtocol::getMplex)
                 .secureTransport((priv, protocols) ->
                         QuicTransport.Ed25519(priv, protocols, new QuicConfig()));
         if (relay == null) {

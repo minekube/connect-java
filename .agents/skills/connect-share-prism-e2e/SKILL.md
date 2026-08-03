@@ -40,6 +40,11 @@ that exact artifact into both instances' `minecraft/mods/` directories. Remove
 or replace older Connect Share JARs so each instance loads exactly one. Compare
 SHA-256 digests for the build output and both installed copies.
 
+Match replacement JARs by basename at the immediate `mods/` level. Never run a
+`connect-share-*.jar` regex against the full absolute path: these test instance
+directory names also contain `connect-share`, so a greedy match can remove
+Fabric API, Fabric Language Kotlin, or Kotlin for Forge along with the mod.
+
 Confirm each fresh `latest.log` contains both Fabric Loader startup and a
 `connect-share` mod entry. Fabric Language Kotlin is declared as a mod
 dependency; do not infer a successful load merely from the file being present.
@@ -188,6 +193,11 @@ Recognize these established failure signatures:
 - `Invalid session` for an explicitly offline libp2p guest means vanilla Mojang
   authentication ran too early. Create Minecraft's standard offline profile in
   `handleHello`; never downgrade an `ONLINE` direct session.
+- A Java 17 guest that reaches server login, immediately disconnects, and makes
+  the host flood Yamux `IllegalReferenceCountException`/freed-buffer warnings
+  has crossed every control-plane gate but failed gameplay transport. Preserve
+  the multi-window `DirectP2pNodeTest` regression and use jvm-libp2p's tested
+  Mplex default; do not retry or hide the post-login disconnect.
 - A host `lost connection: Disconnected` line alone is incomplete evidence.
   Inspect the guest log or screen and whether the owner of the one-shot proxy
   closed it.
