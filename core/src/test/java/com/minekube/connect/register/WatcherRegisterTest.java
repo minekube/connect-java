@@ -22,6 +22,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.google.rpc.Code;
+import com.google.rpc.LocalizedMessage;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
@@ -487,6 +488,11 @@ class WatcherRegisterTest {
             assertNotNull(rejection.get());
             assertEquals(Code.PERMISSION_DENIED_VALUE, rejection.get().getCode());
             assertEquals("Host approval timed out", rejection.get().getMessage());
+            assertEquals(1, rejection.get().getDetailsCount());
+            LocalizedMessage detail = rejection.get().getDetails(0)
+                    .unpack(LocalizedMessage.class);
+            assertEquals("en-US", detail.getLocale());
+            assertEquals("Host approval timed out", detail.getMessage());
         });
         verifyNoInteractions(fixture.tunneler);
     }
