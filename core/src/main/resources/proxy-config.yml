@@ -99,5 +99,6 @@ metrics:
   # The unique id that should be consistent for a server/proxy.
   uuid: ${metrics.uuid}
 
-# Do not change this
+# The legacy config file format remains version 1; v2 generation is controlled by
+# bedrock-principal.config-generation above.
 config-version: 1
