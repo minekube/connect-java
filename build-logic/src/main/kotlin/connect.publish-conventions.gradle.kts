@@ -22,7 +22,6 @@ artifactory {
     publish {
         repository {
             setRepoKey(if (isSnapshot()) "maven-snapshots" else "maven-releases")
-            setMavenCompatible(true)
         }
         defaults {
             publications("mavenJava")

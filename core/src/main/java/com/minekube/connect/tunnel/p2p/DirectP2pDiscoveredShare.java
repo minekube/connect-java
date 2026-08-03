@@ -1,0 +1,66 @@
+/*
+ * Copyright (c) 2021-2022 Minekube. https://minekube.com
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
+
+package com.minekube.connect.tunnel.p2p;
+
+import java.util.Objects;
+
+public final class DirectP2pDiscoveredShare {
+    private final String displayName;
+    private final String peerId;
+    private final String address;
+    private final String invitation;
+
+    public DirectP2pDiscoveredShare(
+            String displayName,
+            String peerId,
+            String address,
+            String invitation) {
+        this.displayName = Objects.requireNonNull(displayName, "displayName");
+        this.peerId = Objects.requireNonNull(peerId, "peerId");
+        this.address = Objects.requireNonNull(address, "address");
+        this.invitation = Objects.requireNonNull(invitation, "invitation");
+    }
+
+    public String displayName() {
+        return displayName;
+    }
+
+    public String peerId() {
+        return peerId;
+    }
+
+    public String address() {
+        return address;
+    }
+
+    public String invitation() {
+        return invitation;
+    }
+
+    @Override
+    public String toString() {
+        return "DirectP2pDiscoveredShare{displayName='" + displayName
+                + "', peerId='" + peerId
+                + "', address=<redacted>, invitation=<redacted>}";
+    }
+}

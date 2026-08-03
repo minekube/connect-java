@@ -13,6 +13,32 @@ low latency edge proxies network nearest to you.
 
 Please refer to https://connect.minekube.com for more documentation.
 
+## Connect Share mod
+
+Connect Share is a client-side Fabric, Forge, and NeoForge mod.
+It shares a singleplayer world through Minekube Connect or directly between
+two modded clients without exposing Minecraft's listener to the LAN or
+internet.
+
+See [the player, privacy, installation, and distribution guide](docs/connect-share.md)
+for the supported versions, required dependencies, player flow, and release
+details.
+
+Release and adoption work is governed by the
+[fallback operations](docs/connect-share-operations.md),
+[threat model](docs/connect-share-threat-model.md),
+[staged launch](docs/connect-share-launch.md), and
+[HTTPS handoff](docs/connect-share-handoff.md) contracts. Those documents
+separate repository evidence from external deployment and review gates.
+Marketplace and support teams use the
+[creator source kit](docs/connect-share-marketplace-kit.md) and
+[known-issues page](docs/connect-share-known-issues.md).
+
+The mod artifacts have their own build and acceptance process. They are not part
+of the stable proxy/plugin release workflow. See
+[docs/connect-share-testing.md](docs/connect-share-testing.md) for the manual
+singleplayer, direct-connect, and fallback acceptance pass.
+
 ## Integrating with login / auth plugins
 
 Connect authenticates players at the edge, so login plugins that force online mode on a

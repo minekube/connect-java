@@ -1,0 +1,211 @@
+name: Release Connect Share
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing GitHub release tag that receives the verified mod artifacts
+        required: true
+        type: string
+      release_type:
+        description: Marketplace release channel
+        required: true
+        default: beta
+        type: choice
+        options: [release, beta, alpha]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+concurrency:
+  group: connect-share-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_TYPE: ${{ inputs.release_type }}
+      MODRINTH_PROJECT_ID: ${{ vars.CONNECT_SHARE_MODRINTH_PROJECT_ID }}
+      CURSEFORGE_PROJECT_ID: ${{ vars.CONNECT_SHARE_CURSEFORGE_PROJECT_ID }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and verify every supported adapter
+        run: >-
+          ./gradlew
+          :share:fabric-1-20-1:build
+          :share:fabric-1-21-1:build
+          :share:fabric-1-21-11:build
+          :share:fabric-26-2:build
+          :share:forge-1-20-1:build
+          :share:neoforge-1-21-1:build
+          --no-parallel
+
+      - name: Stage unambiguous artifacts and checksums
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for minecraft in 1.20.1 1.21.1 1.21.11 26.2; do
+            project="fabric-$minecraft"
+            source="$(find "share/$project/build/libs" -maxdepth 1 -type f \
+              -name "connect-share-fabric-$minecraft-*.jar" \
+              ! -name '*-sources.jar' ! -name '*-dev-*.jar' \
+              ! -name '*-unshaded.jar' ! -name '*-parent-shadow.jar' \
+              -print -quit)"
+            test -n "$source"
+            cp "$source" "dist/connect-share-fabric-$minecraft-$RELEASE_TAG.jar"
+          done
+          for spec in 'forge-1.20.1:forge-1.20.1' 'neoforge-1.21.1:neoforge-1.21.1'; do
+            project="${spec%%:*}"
+            coordinate="${spec#*:}"
+            source="$(find "share/$project/build/libs" -maxdepth 1 -type f \
+              -name "connect-share-$coordinate-*.jar" \
+              ! -name '*-sources.jar' ! -name '*-dev-*.jar' \
+              ! -name '*-unshaded.jar' ! -name '*-parent-shadow.jar' \
+              -print -quit)"
+            test -n "$source"
+            cp "$source" "dist/connect-share-$coordinate-$RELEASE_TAG.jar"
+          done
+          sha256sum dist/*.jar > dist/SHA256SUMS-connect-share.txt
+
+      - name: Attest artifact provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/*.jar
+            dist/SHA256SUMS-connect-share.txt
+
+      - name: Verify marketplace configuration
+        env:
+          MODRINTH_TOKEN: ${{ secrets.CONNECT_SHARE_MODRINTH_TOKEN }}
+          CURSEFORGE_TOKEN: ${{ secrets.CONNECT_SHARE_CURSEFORGE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${MODRINTH_PROJECT_ID:-}" || { echo '::error::CONNECT_SHARE_MODRINTH_PROJECT_ID is unset'; exit 1; }
+          test -n "${CURSEFORGE_PROJECT_ID:-}" || { echo '::error::CONNECT_SHARE_CURSEFORGE_PROJECT_ID is unset'; exit 1; }
+          test -n "${MODRINTH_TOKEN:-}" || { echo '::error::CONNECT_SHARE_MODRINTH_TOKEN is unset'; exit 1; }
+          test -n "${CURSEFORGE_TOKEN:-}" || { echo '::error::CONNECT_SHARE_CURSEFORGE_TOKEN is unset'; exit 1; }
+
+      - name: Upload verified artifacts to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh release upload "$RELEASE_TAG" dist/*.jar dist/SHA256SUMS-connect-share.txt \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Publish verified artifacts to Modrinth
+        env:
+          MODRINTH_TOKEN: ${{ secrets.CONNECT_SHARE_MODRINTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          for spec in \
+            'fabric:1.20.1' 'fabric:1.21.1' 'fabric:1.21.11' 'fabric:26.2' \
+            'forge:1.20.1' 'neoforge:1.21.1'; do
+            loader="${spec%%:*}"
+            minecraft="${spec#*:}"
+            file="dist/connect-share-$loader-$minecraft-$RELEASE_TAG.jar"
+            part="connect_share_${loader}_${minecraft//./_}"
+            if test "$loader" = fabric; then
+              dependencies='[{"project_id":"P7dR8mSH","dependency_type":"required"},{"project_id":"Ha28R6CL","dependency_type":"required"}]'
+            else
+              dependencies='[{"project_id":"ordsPcFz","dependency_type":"required"}]'
+            fi
+            jq -n \
+              --arg project "$MODRINTH_PROJECT_ID" \
+              --arg name "Connect Share $RELEASE_TAG for $loader $minecraft" \
+              --arg version "$RELEASE_TAG-$loader-$minecraft" \
+              --arg type "$RELEASE_TYPE" \
+              --arg loader "$loader" \
+              --arg game "$minecraft" \
+              --arg part "$part" \
+              --argjson dependencies "$dependencies" \
+              --arg changelog "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" \
+              '{project_id:$project,name:$name,version_number:$version,
+                changelog:$changelog,version_type:$type,loaders:[$loader],
+                game_versions:[$game],featured:true,status:"listed",
+                environment:"client_only_server_optional",file_parts:[$part],
+                primary_file:$part,dependencies:$dependencies}' > modrinth.json
+            curl --fail-with-body --silent --show-error \
+              -H "Authorization: $MODRINTH_TOKEN" \
+              -H "User-Agent: minekube/connect-java ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY)" \
+              -F "data=@modrinth.json;type=application/json" \
+              -F "$part=@$file;type=application/java-archive" \
+              https://api.modrinth.com/v2/version >/dev/null
+          done
+
+      - name: Publish verified artifacts to CurseForge
+        env:
+          CURSEFORGE_TOKEN: ${{ secrets.CONNECT_SHARE_CURSEFORGE_TOKEN }}
+        run: |
+          set -euo pipefail
+          for spec in \
+            'fabric:1.20.1' 'fabric:1.21.1' 'fabric:1.21.11' 'fabric:26.2' \
+            'forge:1.20.1' 'neoforge:1.21.1'; do
+            loader="${spec%%:*}"
+            minecraft="${spec#*:}"
+            file="dist/connect-share-$loader-$minecraft-$RELEASE_TAG.jar"
+            case "$loader" in
+              fabric)
+                loader_name=Fabric
+                relations='[{"projectID":"306612","type":"requiredDependency"},{"projectID":"308769","type":"requiredDependency"}]'
+                ;;
+              forge)
+                loader_name=Forge
+                relations='[{"projectID":"351264","type":"requiredDependency"}]'
+                ;;
+              neoforge)
+                loader_name=NeoForge
+                relations='[{"projectID":"351264","type":"requiredDependency"}]'
+                ;;
+            esac
+            jq -n \
+              --arg name "Connect Share $RELEASE_TAG for $loader_name $minecraft" \
+              --arg game "$minecraft" \
+              --arg loader "$loader_name" \
+              --arg type "$RELEASE_TYPE" \
+              --argjson relations "$relations" \
+              --arg changelog "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" \
+              '{displayName:$name,changelog:$changelog,changelogType:"markdown",
+                gameVersionNames:[$game,$loader],releaseType:$type,
+                relations:{projects:$relations}}' > curseforge.json
+            curl --fail-with-body --silent --show-error \
+              -H "X-Api-Token: $CURSEFORGE_TOKEN" \
+              -F "metadata=@curseforge.json;type=application/json" \
+              -F "file=@$file;type=application/java-archive" \
+              "https://minecraft.curseforge.com/api/projects/$CURSEFORGE_PROJECT_ID/upload-file" \
+              >/dev/null
+          done
+
+      - name: Verify GitHub release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' > release-assets.txt
+          for file in dist/*.jar dist/SHA256SUMS-connect-share.txt; do
+            grep -Fx "$(basename "$file")" release-assets.txt >/dev/null
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY" >/dev/null
+          done

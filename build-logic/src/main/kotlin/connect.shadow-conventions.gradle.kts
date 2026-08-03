@@ -6,6 +6,19 @@ plugins {
     id("com.gradleup.shadow")
 }
 
+val connectLibp2pRuntime = configurations.create("connectLibp2pRuntime") {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    description = "Child-only libp2p runtime used by self-contained Connect artifacts"
+}
+
+dependencies {
+    add(
+        connectLibp2pRuntime.name,
+        "io.libp2p:jvm-libp2p:${Versions.jvmLibp2pVersion}",
+    )
+}
+
 tasks {
     named<Jar>("jar") {
         archiveClassifier.set("unshaded")
@@ -32,6 +45,24 @@ tasks {
             // for example Velocity, the relocation will be gone for Velocity)
             addRelocations(project, sJar)
         }
+    }
+    register<ShadowJar>("libp2pRuntimeJar") {
+        group = "build"
+        description = "Builds the child-only Connect libp2p runtime payload"
+        configurations = listOf(connectLibp2pRuntime)
+        archiveFileName.set("libp2p-runtime.jar")
+        destinationDirectory.set(layout.buildDirectory.dir("connect-runtime"))
+        mergeServiceFiles()
+        exclude(
+            "META-INF/*.SF",
+            "META-INF/*.DSA",
+            "META-INF/*.RSA",
+            "META-INF/INDEX.LIST",
+            // jvm-libp2p uses Bouncy Castle's conventional Ed25519/EC
+            // primitives, never its post-quantum algorithm families.
+            "org/bouncycastle/pqc/**",
+            "META-INF/versions/*/org/bouncycastle/pqc/**",
+        )
     }
     named("build") {
         dependsOn(shadowJar)
@@ -112,5 +143,5 @@ fun addRelocations(project: Project, shadowJar: ShadowJar) {
 fun callAddRelocations(configuration: Configuration, shadowJar: ShadowJar) =
     configuration.dependencies.forEach {
         if (it is ProjectDependency)
-            addRelocations(it.dependencyProject, shadowJar)
+            addRelocations(shadowJar.project.project(it.path), shadowJar)
     }

@@ -2,8 +2,13 @@
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    // Loom must publish and resolve remapped Minecraft/mod artifacts through
+    // project-local cache repositories that it owns.
+    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
     repositories {
+        maven("https://maven.fabricmc.net/") {
+            name = "Fabric"
+        }
         // Geyser, Cumulus etc. TODO remove
         maven("https://repo.opencollab.dev/maven-releases") {
             mavenContent { releasesOnly() }
@@ -64,16 +69,27 @@ dependencyResolutionManagement {
 
 pluginManagement {
     repositories {
+        maven("https://maven.fabricmc.net/") {
+            name = "Fabric"
+        }
+        maven("https://maven.neoforged.net/releases") {
+            name = "NeoForged"
+        }
         gradlePluginPortal()
     }
     repositories {
         maven("https://plugins.gradle.org/m2/")
     }
     plugins {
-        id("net.kyori.blossom") version "1.2.0"
+        id("net.kyori.blossom") version "2.2.0"
         id("net.kyori.indra")
         id("net.kyori.indra.git")
-        id("com.google.protobuf") version "0.8.18"
+        id("com.google.protobuf") version "0.10.0"
+        id("net.fabricmc.fabric-loom") version "1.17.17"
+        id("net.fabricmc.fabric-loom-remap") version "1.17.17"
+        id("net.neoforged.moddev.legacyforge") version "2.0.143"
+        id("net.neoforged.moddev") version "2.0.143"
+        id("org.jetbrains.kotlin.jvm") version "2.4.10"
     }
     includeBuild("build-logic")
 }
@@ -85,3 +101,23 @@ include(":core")
 include(":bungee")
 include(":spigot")
 include(":velocity")
+
+// Fabric Loom has a newer JVM floor than the legacy Connect modules. The
+// Java 17/21 root CI build skips these modules; dedicated Share jobs use their
+// normal project paths with their matching JDK.
+if (!gradle.startParameter.projectProperties.containsKey("skip-share")) {
+    include(":share:common")
+    include(":share:fabric-common")
+    include(":share:fabric-1-21-11")
+    project(":share:fabric-1-21-11").projectDir = file("share/fabric-1.21.11")
+    include(":share:fabric-1-21-1")
+    project(":share:fabric-1-21-1").projectDir = file("share/fabric-1.21.1")
+    include(":share:fabric-1-20-1")
+    project(":share:fabric-1-20-1").projectDir = file("share/fabric-1.20.1")
+    include(":share:fabric-26-2")
+    project(":share:fabric-26-2").projectDir = file("share/fabric-26.2")
+    include(":share:forge-1-20-1")
+    project(":share:forge-1-20-1").projectDir = file("share/forge-1.20.1")
+    include(":share:neoforge-1-21-1")
+    project(":share:neoforge-1-21-1").projectDir = file("share/neoforge-1.21.1")
+}

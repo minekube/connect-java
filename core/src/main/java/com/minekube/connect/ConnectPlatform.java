@@ -52,6 +52,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ConnectPlatform {
     private static final String DOMAIN_SUFFIX = ".play.minekube.net";
@@ -65,6 +66,9 @@ public class ConnectPlatform {
 
     private ConnectConfig config;
     private Injector guice;
+    private boolean embedded;
+    private boolean runtimeEnabled;
+    private final AtomicBoolean disabled = new AtomicBoolean();
 
     public ConnectPlatform(
             ConnectApi api,
@@ -101,16 +105,38 @@ public class ConnectPlatform {
             ConfigHolder configHolder,
             PacketHandlers packetHandlers) {
 
-        if (!Files.isDirectory(dataDirectory)) {
-            try {
-                Files.createDirectory(dataDirectory);
-            } catch (IOException exception) {
-                logger.error("Failed to create the data folder", exception);
-                throw new RuntimeException("Failed to create the data folder", exception);
-            }
-        }
+        ensureDataDirectory(dataDirectory);
+        ConnectConfig loadedConfig = configLoader.load();
+        initialize(loadedConfig, configHolder, packetHandlers);
+    }
 
-        config = configLoader.load();
+    public void initEmbedded(
+            Path dataDirectory,
+            ConnectConfig config,
+            ConfigHolder configHolder,
+            PacketHandlers packetHandlers) {
+        ensureDataDirectory(dataDirectory);
+        embedded = true;
+        initialize(config, configHolder, packetHandlers);
+    }
+
+    private void ensureDataDirectory(Path dataDirectory) {
+        if (Files.isDirectory(dataDirectory)) {
+            return;
+        }
+        try {
+            Files.createDirectories(dataDirectory);
+        } catch (IOException exception) {
+            logger.error("Failed to create the data folder", exception);
+            throw new RuntimeException("Failed to create the data folder", exception);
+        }
+    }
+
+    private void initialize(
+            ConnectConfig initializedConfig,
+            ConfigHolder configHolder,
+            PacketHandlers packetHandlers) {
+        config = initializedConfig;
         if (config.isDebug()) {
             logger.enableDebug();
             logger.debug("Debug mode enabled");
@@ -146,8 +172,11 @@ public class ConnectPlatform {
         }
 
         this.guice = guice.createChildInjector(new PostInitializeModule(postInitializeModules));
+        runtimeEnabled = true;
 
-        guice.getInstance(Metrics.class);
+        if (!embedded) {
+            guice.getInstance(Metrics.class);
+        }
 
         logger.info("Endpoint name: " + config.getEndpoint());
         if (config.getSuperEndpoints() != null && !config.getSuperEndpoints().isEmpty()) {
@@ -155,21 +184,28 @@ public class ConnectPlatform {
         }
         logger.info("Your public address: " + config.getEndpoint() + DOMAIN_SUFFIX);
 
-        // Check for updates asynchronously
-        guice.getInstance(UpdateChecker.class).checkForUpdates();
+        if (!embedded) {
+            // Check for updates asynchronously
+            guice.getInstance(UpdateChecker.class).checkForUpdates();
+        }
 
         return true;
     }
 
     public boolean disable() {
+        if (!disabled.compareAndSet(false, true)) {
+            return true;
+        }
         try {
-            try {
-                guice.getInstance(Libp2pEndpoint.class).stop();
-            } catch (ConfigurationException ignored) {
+            if (runtimeEnabled || !embedded) {
+                try {
+                    guice.getInstance(Libp2pEndpoint.class).stop();
+                } catch (ConfigurationException ignored) {
+                }
+                guice.getInstance(WatchHealthServer.class).stop();
+                guice.getInstance(WatcherRegister.class).stop();
+                guice.getInstance(Tunneler.class).close();
             }
-            guice.getInstance(WatchHealthServer.class).stop();
-            guice.getInstance(WatcherRegister.class).stop();
-            guice.getInstance(Tunneler.class).close();
         } finally {
             try {
                 admissionCoordinator.close();

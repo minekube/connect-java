@@ -11,13 +11,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Run the full build (incl. the per-platform plugin startup tests) on more than one JDK so a
-        # JDK-version-dependent DI/reflective startup regression is caught in CI. 17 is the primary
-        # (release) toolchain and the only one that publishes artifacts; 21 is the highest JDK
-        # Gradle 8.5 can run on. The Java-26-class reflective/DI failures (Guice 7 provisioning,
-        # Libp2pEndpointRuntime constructor arity) are additionally guarded by signature-level
-        # reflective tests that are independent of the running JDK, so they are covered even though
-        # the build cannot run on JDK 26 until Gradle is upgraded.
+        # Run the legacy Connect build (incl. the per-platform plugin startup tests) on more than
+        # one JDK so JDK-version-dependent DI/reflective startup regressions are caught in CI.
+        # Fabric Share modules are skipped here and built by dedicated jobs because each Minecraft
+        # version has its own JVM floor and toolchain.
         java: ['17', '21']
 
     steps:
@@ -37,7 +34,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Build
-        run: ./gradlew build
+        run: ./gradlew -Pskip-share=true build
 
       - name: Archive artifacts (Connect Bungee)
         uses: actions/upload-artifact@v4
@@ -59,3 +56,130 @@ jobs:
         with:
           name: Connect Velocity
           path: velocity/build/libs/connect-velocity.jar
+
+  share-anchor-versions:
+    name: Connect Share / ${{ matrix.loader }} ${{ matrix.minecraft }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - minecraft: 1.20.1
+            project: fabric-1-20-1
+            directory: fabric-1.20.1
+            loader: Fabric
+            artifact: connect-share-fabric-1.20.1-*.jar
+          - minecraft: 1.21.1
+            project: fabric-1-21-1
+            directory: fabric-1.21.1
+            loader: Fabric
+            artifact: connect-share-fabric-1.21.1-*.jar
+          - minecraft: 1.20.1
+            project: forge-1-20-1
+            directory: forge-1.20.1
+            loader: Forge
+            artifact: connect-share-forge-1.20.1-*.jar
+          - minecraft: 1.21.1
+            project: neoforge-1-21-1
+            directory: neoforge-1.21.1
+            loader: NeoForge
+            artifact: connect-share-neoforge-1.21.1-*.jar
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and verify packaged Connect Share
+        run: ./gradlew :share:${{ matrix.project }}:build
+
+      - name: Archive Connect Share
+        uses: actions/upload-artifact@v4
+        with:
+          name: Connect Share ${{ matrix.loader }} ${{ matrix.minecraft }}
+          path: |
+            share/${{ matrix.directory }}/build/libs/${{ matrix.artifact }}
+            !share/${{ matrix.directory }}/build/libs/*-sources.jar
+            !share/${{ matrix.directory }}/build/libs/*-dev-*.jar
+            !share/${{ matrix.directory }}/build/libs/*-dev-shadow.jar
+            !share/${{ matrix.directory }}/build/libs/*-unshaded.jar
+            !share/${{ matrix.directory }}/build/libs/*-parent-shadow.jar
+
+  share-1-21-11:
+    name: Connect Share / Minecraft 1.21.11
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Connect Share for Minecraft 1.21.11
+        run: ./gradlew :share:fabric-1-21-11:build
+
+      - name: Archive Connect Share for Minecraft 1.21.11
+        uses: actions/upload-artifact@v4
+        with:
+          name: Connect Share Fabric 1.21.11
+          path: |
+            share/fabric-1.21.11/build/libs/connect-share-fabric-1.21.11-*.jar
+            !share/fabric-1.21.11/build/libs/*-sources.jar
+            !share/fabric-1.21.11/build/libs/*-dev-*.jar
+            !share/fabric-1.21.11/build/libs/*-unshaded.jar
+            !share/fabric-1.21.11/build/libs/*-parent-shadow.jar
+
+  share-26-2:
+    name: Connect Share / Minecraft 26.2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Connect Share for Minecraft 26.2
+        run: ./gradlew :share:fabric-26-2:build
+
+      - name: Archive Connect Share for Minecraft 26.2
+        uses: actions/upload-artifact@v4
+        with:
+          name: Connect Share Fabric 26.2
+          path: |
+            share/fabric-26.2/build/libs/connect-share-fabric-26.2-*.jar
+            !share/fabric-26.2/build/libs/*-sources.jar
+            !share/fabric-26.2/build/libs/*-dev-*.jar
+            !share/fabric-26.2/build/libs/*-unshaded.jar
+            !share/fabric-26.2/build/libs/*-parent-shadow.jar

@@ -211,6 +211,7 @@ nbdist/
 .gradle
 **/build/
 !src/**/build/
+**/run/
 
 # Ignore Gradle GUI config
 gradle-app.setting
