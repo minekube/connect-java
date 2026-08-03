@@ -2,6 +2,8 @@ package com.minekube.connect.share.fabric
 
 import com.minekube.connect.share.admission.AdmissionAnswer
 import com.minekube.connect.share.admission.AdmissionIdentity
+import com.minekube.connect.share.direct.ShareInviteCodec
+import java.time.Instant
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -52,20 +54,30 @@ class ApprovedJoinTracker(
             approved.remove(key, timedProof)
             return false
         }
-        return true
+        return timedProof.directPeerId != null
     }
 
     fun consume(
         name: String,
         uuid: UUID,
+        invitation: String,
     ): ApprovedJoinProof? {
         val timedProof = approved.remove(
             PlayerKey(name.normalized(), uuid),
         ) ?: return null
-        return timedProof.proof.takeIf {
-            nowMillis() - timedProof.approvedAtMillis <=
-                PROOF_LIFETIME_MILLIS
+        val now = nowMillis()
+        if (
+            now - timedProof.approvedAtMillis >
+            PROOF_LIFETIME_MILLIS
+        ) {
+            return null
         }
+        val expectedPeerId = timedProof.directPeerId ?: return null
+        val invitationPeerId = ShareInviteCodec.decode(
+            invitation,
+            Instant.ofEpochMilli(now),
+        ).getOrNull()?.payload?.peerId ?: return null
+        return timedProof.proof.takeIf { invitationPeerId == expectedPeerId }
     }
 
     fun revokeDirectPeer(

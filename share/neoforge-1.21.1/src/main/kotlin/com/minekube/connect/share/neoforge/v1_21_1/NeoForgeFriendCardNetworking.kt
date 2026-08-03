@@ -60,6 +60,7 @@ object NeoForgeFriendCardNetworking {
             val proof = handlers.approvedJoins.consume(
                 player.gameProfile.name,
                 player.uuid,
+                payload.invitation,
             ) ?: return@playToServer
             handlers.scope.launch(Dispatchers.IO) {
                 handlers.receiver.receive(

@@ -66,6 +66,7 @@ object ForgeFriendCardNetworking {
                 val proof = handlers.approvedJoins.consume(
                     player.gameProfile.name,
                     player.uuid,
+                    message.invitation,
                 ) ?: return@consumerMainThread
                 handlers.scope.launch(Dispatchers.IO) {
                     handlers.receiver.receive(

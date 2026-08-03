@@ -20,11 +20,12 @@ class AdmissionController(
     private val connectedCount: () -> Int,
     private val maxGuests: () -> Int,
     private val autoApprove: (AdmissionIdentity) -> Boolean = { false },
+    private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
     private val lock = Any()
     private val requests = linkedMapOf<AdmissionKey, PendingRequest>()
     private val authenticatedApprovals = mutableSetOf<AuthenticatedApproval>()
-    private val preapprovedJoins = mutableSetOf<PreapprovedJoin>()
+    private val preapprovedJoins = linkedMapOf<PreapprovedJoin, Long>()
     private val mutablePending = MutableStateFlow<List<PendingAdmission>>(emptyList())
 
     val pending: StateFlow<List<PendingAdmission>> = mutablePending.asStateFlow()
@@ -51,7 +52,8 @@ class AdmissionController(
                 return@synchronized RequestLookup.Immediate(AdmissionAnswer.CAPACITY)
             }
             if (purpose == AdmissionPurpose.JOIN) {
-                val preapproved = preapprovedJoins.firstOrNull {
+                removeExpiredPreapprovals(nowMillis())
+                val preapproved = preapprovedJoins.keys.firstOrNull {
                     it.matches(identity)
                 }
                 if (preapproved != null) {
@@ -137,7 +139,7 @@ class AdmissionController(
         purpose: AdmissionPurpose,
     ): Int {
         val denied = synchronized(lock) {
-            preapprovedJoins.removeIf { it.directPeerId == peerId }
+            preapprovedJoins.keys.removeIf { it.directPeerId == peerId }
             val matches = requests.entries.filter { entry ->
                 entry.value.pending.purpose == purpose &&
                     entry.value.pending.identity.directPeerId == peerId
@@ -155,7 +157,7 @@ class AdmissionController(
         minecraftUuid: UUID? = null,
     ): Int {
         val revoked = synchronized(lock) {
-            preapprovedJoins.removeIf { it.directPeerId == peerId }
+            preapprovedJoins.keys.removeIf { it.directPeerId == peerId }
             authenticatedApprovals.removeIf {
                 it.directPeerId == peerId ||
                     (
@@ -197,10 +199,24 @@ class AdmissionController(
 
     fun approveNextJoin(identity: AdmissionIdentity) {
         synchronized(lock) {
-            preapprovedJoins += PreapprovedJoin(
+            val now = nowMillis()
+            removeExpiredPreapprovals(now)
+            val grant = PreapprovedJoin(
                 directPeerId = identity.directPeerId,
                 minecraftUuid = identity.uuid,
             )
+            preapprovedJoins.remove(grant)
+            while (preapprovedJoins.size >= maxPending) {
+                preapprovedJoins.remove(preapprovedJoins.keys.first())
+            }
+            preapprovedJoins[grant] = now
+        }
+    }
+
+    private fun removeExpiredPreapprovals(now: Long) {
+        val lifetimeMillis = timeout.inWholeMilliseconds
+        preapprovedJoins.entries.removeIf { (_, approvedAt) ->
+            now >= approvedAt && now - approvedAt >= lifetimeMillis
         }
     }
 

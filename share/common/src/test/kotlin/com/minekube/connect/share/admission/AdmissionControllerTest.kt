@@ -327,6 +327,57 @@ class AdmissionControllerTest {
     }
 
     @Test
+    fun `preapproved join expires before a late gameplay connection`() = runTest {
+        var nowMillis = 1_000L
+        val controller = controller(nowMillis = { nowMillis })
+        val requestedIdentity = offline("RoboFlax2", "friend-request").copy(
+            directPeerId = "12D3KooWFriend",
+            ingress = Ingress.DIRECT_LAN,
+        )
+        controller.approveNextJoin(requestedIdentity)
+        nowMillis += 30_001L
+
+        val late = async {
+            controller.request(
+                requestedIdentity.copy(connectionId = "late-gameplay"),
+            )
+        }
+        runCurrent()
+
+        assertEquals(1, controller.pending.value.size)
+        controller.resetShare()
+        assertEquals(AdmissionAnswer.STOPPED, late.await())
+    }
+
+    @Test
+    fun `preapproved joins are bounded and evict the oldest grant`() = runTest {
+        val controller = controller(maxPending = 2)
+        val identities = (1..3).map { index ->
+            offline("Player$index", "friend-request-$index").copy(
+                directPeerId = "12D3KooWFriend$index",
+                ingress = Ingress.DIRECT_LAN,
+            )
+        }
+        identities.forEach(controller::approveNextJoin)
+
+        val evicted = async {
+            controller.request(
+                identities.first().copy(connectionId = "gameplay-1"),
+            )
+        }
+        runCurrent()
+        assertEquals(1, controller.pending.value.size)
+        assertEquals(
+            AdmissionAnswer.ALLOW,
+            controller.request(
+                identities.last().copy(connectionId = "gameplay-3"),
+            ),
+        )
+        controller.resetShare()
+        assertEquals(AdmissionAnswer.STOPPED, evicted.await())
+    }
+
+    @Test
     fun `removing a direct peer revokes every peer-scoped admission grant`() = runTest {
         val controller = controller()
         val peerId = "12D3KooWRemovedFriend"
@@ -381,13 +432,16 @@ class AdmissionControllerTest {
         connectedCount: () -> Int = { 0 },
         maxGuests: () -> Int = { 8 },
         autoApprove: (AdmissionIdentity) -> Boolean = { false },
+        maxPending: Int = 16,
+        nowMillis: () -> Long = System::currentTimeMillis,
     ) = AdmissionController(
         scope = backgroundScope,
         timeout = 30.seconds,
-        maxPending = 16,
+        maxPending = maxPending,
         connectedCount = connectedCount,
         maxGuests = maxGuests,
         autoApprove = autoApprove,
+        nowMillis = nowMillis,
     )
 
     private fun authenticated(
