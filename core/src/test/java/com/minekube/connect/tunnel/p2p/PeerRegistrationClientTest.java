@@ -1,6 +1,7 @@
 package com.minekube.connect.tunnel.p2p;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.clearInvocations;
@@ -274,6 +275,7 @@ class PeerRegistrationClientTest {
         PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
                 identity, "endpoint", "token", "instance", Collections.emptyList(),
                 OfflineMode.OFFLINE_MODE_ALLOWED, Arrays.asList("session", "status"),
+                Arrays.asList("session", "status", BedrockPrincipalReadiness.CAPABILITY),
                 PeerCapacity.newBuilder().setMaxSessions(100).build());
         Stream stream = mock(Stream.class);
         when(stream.closeFuture()).thenReturn(new CompletableFuture<>());
@@ -297,6 +299,7 @@ class PeerRegistrationClientTest {
                 new ByteBufInputStream((ByteBuf) offeredFrame.getAllValues().get(2)),
                 PeerRegisterCommit.parser(), P2PFrameCodec.MAX_CONTROL_FRAME_SIZE);
         assertEquals("kind-prefixed-v1", offered.getModeOffer().getFraming());
+        assertFalse(offered.getRecord().getCapabilitiesList().contains(BedrockPrincipalReadiness.CAPABILITY));
 
         long now = System.currentTimeMillis() / 1_000;
         ReadinessChallenge readinessChallenge = ReadinessChallenge.newBuilder()
@@ -319,6 +322,7 @@ class PeerRegistrationClientTest {
         assertEquals(P2PFrameCodec.READINESS_ATTESTATION, answer.kind());
         assertEquals(ReadinessAttestation.Result.RESULT_READY,
                 answer.parse(ReadinessAttestation.parser()).getResult());
+
         client.close();
     }
 
@@ -330,8 +334,8 @@ class PeerRegistrationClientTest {
         set(config.getBedrockPrincipal(), "trustDomain", "urn:minekube:connect:production");
         set(config.getBedrockPrincipal(), "audience", "urn:minekube:connect:bedrock-principal:v2");
         set(config.getBedrockPrincipal(), "metadataOrigin", "https://connect.minekube.com");
-        set(config.getBedrockPrincipal(), "publicKeys", Map.of("kid", Base64.getUrlEncoder()
-                .withoutPadding().encodeToString(new byte[32])));
+        set(config.getBedrockPrincipal(), "publicKeys", Map.of(
+                "kid", "diQm8c6MI-Zwn1nie8hq4wqf3mYLuI96uJBC6NHCTDg"));
         return new BedrockPrincipalReadiness(config);
     }
 

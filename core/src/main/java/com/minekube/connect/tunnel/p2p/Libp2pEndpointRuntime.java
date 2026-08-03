@@ -284,6 +284,7 @@ final class Libp2pEndpointRuntime {
             PeerRegistrationClient client = null;
             try {
                 Stream stream = openRegisterStream(address);
+                List<String> capabilities = principalCapabilities();
                 PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
                         identity,
                         connectConfig.getEndpoint(),
@@ -294,7 +295,8 @@ final class Libp2pEndpointRuntime {
                                 : connectConfig.getSuperEndpoints(),
                         offlineMode,
                         authType,
-                        principalCapabilities(),
+                        capabilities,
+                        framedPrincipalCapabilities(capabilities),
                         this::currentCapacity);
                 client = new PeerRegistrationClient(handshake, bedrockPrincipalReadiness);
                 PeerRegisterResult result = await(client.install(
@@ -321,10 +323,17 @@ final class Libp2pEndpointRuntime {
     private List<String> principalCapabilities() {
         List<String> legacy = bedrockIdentityReadiness.capabilities(
                 libp2pConfig.capabilities(), Transport.LIBP2P);
-        return bedrockPrincipalReadiness == null
-                ? legacy
-                : bedrockPrincipalReadiness.capabilities(
-                        legacy, BedrockPrincipalReadiness.Transport.LIBP2P);
+        legacy.removeIf(BedrockPrincipalReadiness.CAPABILITY::equals);
+        return List.copyOf(legacy);
+    }
+
+    private List<String> framedPrincipalCapabilities(List<String> legacy) {
+        if (bedrockPrincipalReadiness == null || !bedrockPrincipalReadiness.isReady()) {
+            return legacy;
+        }
+        List<String> framed = new ArrayList<>(legacy);
+        framed.add(BedrockPrincipalReadiness.CAPABILITY);
+        return List.copyOf(framed);
     }
 
     static List<String> registerAttemptAddresses(List<String> registerAddrs, int attemptsPerAddress) {

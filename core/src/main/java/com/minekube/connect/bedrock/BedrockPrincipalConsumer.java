@@ -2,6 +2,7 @@ package com.minekube.connect.bedrock;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import com.google.protobuf.ByteString;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityProfiles;
 import com.minekube.connect.api.player.principal.BedrockPrincipalVerifier;
 import com.minekube.connect.api.player.principal.BedrockPrincipalVerifierFactory;
@@ -29,6 +30,7 @@ import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
 /** Consumes the frozen opaque Watch/libp2p v2 fields before host profile application. */
 @Singleton
 public final class BedrockPrincipalConsumer {
+    private static final int MAX_ENVELOPE_BYTES = 16 * 1024;
     private final Supplier<ConnectConfig> config;
     private final Clock clock;
     private BedrockPrincipalVerifier verifier;
@@ -52,10 +54,22 @@ public final class BedrockPrincipalConsumer {
         if (hasInjectedProperty(session)) {
             throw new BedrockPrincipalAdmissionException(PrincipalError.BINDING_MISMATCH);
         }
+        ConnectConfig currentConfig;
+        BedrockPrincipalConfiguration principalConfiguration;
+        try {
+            currentConfig = config();
+            principalConfiguration = BedrockPrincipalConfiguration.from(
+                    currentConfig.getBedrockPrincipal());
+        } catch (RuntimeException ignored) {
+            throw new BedrockPrincipalAdmissionException(PrincipalError.READINESS);
+        }
         if (session.getSignedBedrockPrincipalV2().isEmpty()) {
+            if (principalConfiguration.isRequired()) {
+                throw new BedrockPrincipalAdmissionException(PrincipalError.READINESS);
+            }
             return Optional.empty();
         }
-        if (!BedrockPrincipalConfiguration.from(config().getBedrockPrincipal()).isCapable()) {
+        if (!principalConfiguration.isCapable()) {
             throw new BedrockPrincipalAdmissionException(PrincipalError.READINESS);
         }
         if (session.getProtocol() != SessionProtocol.SESSION_PROTOCOL_BEDROCK
@@ -67,15 +81,19 @@ public final class BedrockPrincipalConsumer {
                 || session.getId().isEmpty()) {
             throw new BedrockPrincipalAdmissionException(PrincipalError.BINDING_MISMATCH);
         }
-        ConnectConfig.BedrockPrincipalConfig principalConfig = config().getBedrockPrincipal();
+        ConnectConfig.BedrockPrincipalConfig principalConfig = currentConfig.getBedrockPrincipal();
         TrustedProposalContext expected = new TrustedProposalContext(
                 principalConfig.getIssuer(), principalConfig.getTrustDomain(), principalConfig.getAudience(),
                 session.getEndpointId(), session.getOrganizationId(), session.getId(),
                 session.getConnectSessionNonce().toByteArray(), "bedrock",
                 session.getSourceProtocolVersion(), session.getPolicyRevision());
         try {
+            ByteString envelope = session.getSignedBedrockPrincipalV2();
+            if (envelope.size() > MAX_ENVELOPE_BYTES) {
+                throw new BedrockPrincipalAdmissionException(PrincipalError.MALFORMED);
+            }
             return Optional.of(verifier().verifyAndConsume(
-                    SignedPrincipalEnvelope.of(strictUtf8(session.getSignedBedrockPrincipalV2().toByteArray())),
+                    SignedPrincipalEnvelope.of(strictUtf8(envelope.toByteArray())),
                     expected));
         } catch (PrincipalVerificationException error) {
             throw new BedrockPrincipalAdmissionException(error.error());
@@ -86,7 +104,15 @@ public final class BedrockPrincipalConsumer {
 
     private synchronized BedrockPrincipalVerifier verifier() {
         if (verifier != null) return verifier;
-        ConnectConfig.BedrockPrincipalConfig principalConfig = config().getBedrockPrincipal();
+        ConnectConfig.BedrockPrincipalConfig principalConfig;
+        try {
+            principalConfig = config().getBedrockPrincipal();
+        } catch (RuntimeException ignored) {
+            throw new BedrockPrincipalAdmissionException(PrincipalError.READINESS);
+        }
+        if (principalConfig == null) {
+            throw new BedrockPrincipalAdmissionException(PrincipalError.READINESS);
+        }
         VerifierConfiguration.Builder configuration = VerifierConfiguration.builder().clock(clock);
         Map<String, String> pins = principalConfig.getPublicKeys();
         if (pins == null || pins.isEmpty()) {
@@ -102,7 +128,7 @@ public final class BedrockPrincipalConsumer {
             });
             verifier = BedrockPrincipalVerifierFactory.create(configuration.build());
             return verifier;
-        } catch (IllegalArgumentException ignored) {
+        } catch (RuntimeException ignored) {
             throw new BedrockPrincipalAdmissionException(PrincipalError.TRUST);
         }
     }

@@ -50,6 +50,7 @@ final class PeerRegistrationHandshake {
     private final OfflineMode offlineMode;
     private final EndpointAuthType authType;
     private final List<String> capabilities;
+    private final List<String> framedCapabilities;
     private final Supplier<PeerCapacity> capacitySupplier;
 
     PeerRegistrationHandshake(
@@ -86,9 +87,40 @@ final class PeerRegistrationHandshake {
             List<String> parentEndpoints,
             OfflineMode offlineMode,
             List<String> capabilities,
+            List<String> framedCapabilities,
+            PeerCapacity capacity) {
+        this(identity, endpoint, token, endpointInstanceId, parentEndpoints, offlineMode,
+                EndpointAuthType.ENDPOINT_AUTH_TYPE_UNSPECIFIED, capabilities,
+                framedCapabilities, () -> capacity);
+    }
+
+    PeerRegistrationHandshake(
+            EndpointPeerIdentity identity,
+            String endpoint,
+            String token,
+            String endpointInstanceId,
+            List<String> parentEndpoints,
+            OfflineMode offlineMode,
+            EndpointAuthType authType,
+            List<String> capabilities,
+            List<String> framedCapabilities,
+            PeerCapacity capacity) {
+        this(identity, endpoint, token, endpointInstanceId, parentEndpoints, offlineMode,
+                authType, capabilities, framedCapabilities, () -> capacity);
+    }
+
+    PeerRegistrationHandshake(
+            EndpointPeerIdentity identity,
+            String endpoint,
+            String token,
+            String endpointInstanceId,
+            List<String> parentEndpoints,
+            OfflineMode offlineMode,
+            List<String> capabilities,
             Supplier<PeerCapacity> capacitySupplier) {
         this(identity, endpoint, token, endpointInstanceId, parentEndpoints, offlineMode,
-                EndpointAuthType.ENDPOINT_AUTH_TYPE_UNSPECIFIED, capabilities, capacitySupplier);
+                EndpointAuthType.ENDPOINT_AUTH_TYPE_UNSPECIFIED, capabilities, capabilities,
+                capacitySupplier);
     }
 
     PeerRegistrationHandshake(
@@ -101,6 +133,21 @@ final class PeerRegistrationHandshake {
             EndpointAuthType authType,
             List<String> capabilities,
             Supplier<PeerCapacity> capacitySupplier) {
+        this(identity, endpoint, token, endpointInstanceId, parentEndpoints, offlineMode,
+                authType, capabilities, capabilities, capacitySupplier);
+    }
+
+    PeerRegistrationHandshake(
+            EndpointPeerIdentity identity,
+            String endpoint,
+            String token,
+            String endpointInstanceId,
+            List<String> parentEndpoints,
+            OfflineMode offlineMode,
+            EndpointAuthType authType,
+            List<String> capabilities,
+            List<String> framedCapabilities,
+            Supplier<PeerCapacity> capacitySupplier) {
         this.identity = Objects.requireNonNull(identity, "identity");
         this.endpoint = Objects.requireNonNull(endpoint, "endpoint");
         this.token = Objects.requireNonNull(token, "token");
@@ -109,6 +156,8 @@ final class PeerRegistrationHandshake {
         this.offlineMode = Objects.requireNonNull(offlineMode, "offlineMode");
         this.authType = Objects.requireNonNull(authType, "authType");
         this.capabilities = new ArrayList<>(Objects.requireNonNull(capabilities, "capabilities"));
+        this.framedCapabilities = new ArrayList<>(Objects.requireNonNull(
+                framedCapabilities, "framedCapabilities"));
         this.capacitySupplier = Objects.requireNonNull(capacitySupplier, "capacitySupplier");
     }
 
@@ -132,7 +181,7 @@ final class PeerRegistrationHandshake {
     }
 
     PeerRegisterCommit commit(PeerRegisterChallenge challenge, List<String> addrs, long sequence, long nowUnixMs) {
-        return commit(challenge, addrs, sequence, nowUnixMs, false);
+        return commit(challenge, addrs, sequence, nowUnixMs, false, false);
     }
 
     PeerRegisterCommit commit(
@@ -141,6 +190,16 @@ final class PeerRegistrationHandshake {
             long sequence,
             long nowUnixMs,
             boolean offerKindPrefixedV1) {
+        return commit(challenge, addrs, sequence, nowUnixMs, offerKindPrefixedV1, false);
+    }
+
+    PeerRegisterCommit commit(
+            PeerRegisterChallenge challenge,
+            List<String> addrs,
+            long sequence,
+            long nowUnixMs,
+            boolean offerKindPrefixedV1,
+            boolean useFramedCapabilities) {
         long ttlMs = challenge.getKvTtlMs() > 0 ? challenge.getKvTtlMs() : 45_000;
         List<String> recordAddrs = recordRelayCircuitAddrs(challenge, addrs);
         if (recordAddrs.isEmpty() && challenge.getRelayAddrsList().isEmpty()) {
@@ -158,7 +217,7 @@ final class PeerRegistrationHandshake {
                 .setPublisherPeerId(challenge.getPublisherPeerId())
                 .setRegion(challenge.getRegion())
                 .addAllAddrs(recordAddrs)
-                .addAllCapabilities(capabilities)
+                .addAllCapabilities(useFramedCapabilities ? framedCapabilities : capabilities)
                 .setCapacity(capacity())
                 .setOfflineMode(offlineMode)
                 .setAuthType(authType)

@@ -1,6 +1,8 @@
 package com.minekube.connect.bedrock;
 
 import com.google.protobuf.ByteString;
+import com.minekube.connect.api.player.principal.BedrockPrincipalVerifierFactory;
+import com.minekube.connect.api.player.principal.VerifierConfiguration;
 import com.minekube.connect.config.ConnectConfig;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -48,8 +50,13 @@ public final class BedrockPrincipalReadiness {
     }
 
     public boolean isReady() {
-        return BedrockPrincipalConfiguration.from(config.getBedrockPrincipal()).isCapable()
-                && usablePins(config.getBedrockPrincipal().getPublicKeys());
+        try {
+            ConnectConfig.BedrockPrincipalConfig principal = config.getBedrockPrincipal();
+            return BedrockPrincipalConfiguration.from(principal).isCapable()
+                    && usablePins(principal.getPublicKeys());
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     public byte[] revision() {
@@ -123,15 +130,17 @@ public final class BedrockPrincipalReadiness {
     private static boolean usablePins(Map<String, String> pins) {
         if (pins == null || pins.isEmpty()) return false;
         try {
+            VerifierConfiguration.Builder configuration = VerifierConfiguration.builder();
             for (Map.Entry<String, String> pin : pins.entrySet()) {
-                if (pin.getKey() == null || pin.getKey().isEmpty() || pin.getKey().length() > 128
-                        || pin.getValue() == null) return false;
+                if (pin.getKey() == null || pin.getValue() == null) return false;
                 byte[] decoded = Base64.getUrlDecoder().decode(pin.getValue());
                 if (decoded.length != 32 || !Base64.getUrlEncoder().withoutPadding()
                         .encodeToString(decoded).equals(pin.getValue())) return false;
+                configuration.publicKey(pin.getKey(), decoded);
             }
+            BedrockPrincipalVerifierFactory.create(configuration.build());
             return true;
-        } catch (IllegalArgumentException ignored) {
+        } catch (RuntimeException ignored) {
             return false;
         }
     }

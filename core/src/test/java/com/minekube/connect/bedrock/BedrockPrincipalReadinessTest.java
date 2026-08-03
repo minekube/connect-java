@@ -38,6 +38,20 @@ class BedrockPrincipalReadinessTest {
     }
 
     @Test
+    void doesNotAdvertiseAnUnusableEd25519PublicKey() throws Exception {
+        byte[] invalid = new byte[32];
+        assertFalse(readiness(configured("require", 2, Map.of("kid",
+                Base64.getUrlEncoder().withoutPadding().encodeToString(invalid)))).isReady());
+    }
+
+    @Test
+    void malformedPrincipalConfigFailsClosed() throws Exception {
+        ConnectConfig config = configured("require", 2, validPins());
+        set(config, "bedrockPrincipal", null);
+        assertFalse(readiness(config).isReady());
+    }
+
+    @Test
     void attestationEchoesValidChallengeAndFailsClosedForWrongTransport() throws Exception {
         BedrockPrincipalReadiness readiness = readiness(configured("require", 2, validPins()));
         ReadinessChallenge challenge = challenge(TunnelTransport.Type.TYPE_WEBSOCKET);
@@ -72,7 +86,7 @@ class BedrockPrincipalReadinessTest {
     }
 
     private static Map<String, String> validPins() {
-        return Map.of("kid-1", Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[32]));
+        return Map.of("kid-1", "diQm8c6MI-Zwn1nie8hq4wqf3mYLuI96uJBC6NHCTDg");
     }
 
     private static ConnectConfig configured(String mode, int generation, Map<String, String> pins) throws Exception {

@@ -79,6 +79,18 @@ class BedrockPrincipalGenerationConfigTest {
         assertFalse(BedrockPrincipalConfiguration.from(config).isCapable());
     }
 
+    @Test
+    void malformedOriginIsNotCapable() {
+        ConnectConfig.BedrockPrincipalConfig config = new ConnectConfig().getBedrockPrincipal();
+        TestFields.set(config, "configGeneration", 2);
+        TestFields.set(config, "mode", "require");
+        TestFields.set(config, "issuer", "minekube-connect");
+        TestFields.set(config, "trustDomain", "urn:minekube:connect:production");
+        TestFields.set(config, "audience", "urn:minekube:connect:bedrock-principal:v2");
+        TestFields.set(config, "metadataOrigin", null);
+        assertFalse(BedrockPrincipalConfiguration.from(config).isCapable());
+    }
+
     private <T extends ConnectConfig> T load(Class<T> type, Path directory) throws Exception {
         Files.createDirectories(directory);
         return new ConfigLoader(directory, type,

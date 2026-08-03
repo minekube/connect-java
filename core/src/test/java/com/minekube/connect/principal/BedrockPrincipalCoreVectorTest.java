@@ -18,6 +18,9 @@ import com.minekube.connect.api.player.principal.VerifierConfiguration;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.Signature;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -122,6 +125,39 @@ class BedrockPrincipalCoreVectorTest {
                 PrincipalVerificationException.class,
                 () -> verifier.verifyAndConsume(envelope, vector.trustedContext.toContext()));
         assertEquals(PrincipalError.REPLAY, error.error());
+    }
+
+    @Test
+    void acceptsNineteenDigitUnsignedXuidAndDerivesLow64Uuid() throws Exception {
+        Vector vector = Arrays.stream(vectors())
+                .filter(candidate -> candidate.name.equals("valid-unlinked"))
+                .findFirst().orElseThrow();
+        String[] parts = vector.compactJws.split("\\.");
+        var payload = com.google.gson.JsonParser.parseString(new String(
+                Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8)).getAsJsonObject();
+        payload.addProperty("canonical_xuid", "9223372036854775808");
+        payload.addProperty("canonical_unlinked_uuid", "00000000-0000-0000-8000-000000000000");
+        String encodedPayload = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                new Gson().toJson(payload).getBytes(StandardCharsets.UTF_8));
+
+        KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        Signature signer = Signature.getInstance("Ed25519");
+        signer.initSign(keyPair.getPrivate());
+        String signingInput = parts[0] + "." + encodedPayload;
+        signer.update(signingInput.getBytes(StandardCharsets.US_ASCII));
+        String compact = signingInput + "." + Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(signer.sign());
+        byte[] encodedKey = keyPair.getPublic().getEncoded();
+        byte[] rawKey = Arrays.copyOfRange(encodedKey, encodedKey.length - 32, encodedKey.length);
+
+        var principal = BedrockPrincipalVerifierFactory.create(
+                VerifierConfiguration.builder().publicKey("connect-v2-test", rawKey)
+                        .clock(Clock.fixed(Instant.ofEpochSecond(vector.verificationTimeUnix), ZoneOffset.UTC))
+                        .build())
+                .verifyAndConsume(SignedPrincipalEnvelope.of(compact), vector.trustedContext.toContext());
+        assertEquals("9223372036854775808", principal.xuid().value());
+        assertEquals(UUID.fromString("00000000-0000-0000-8000-000000000000"),
+                principal.canonicalUnlinkedUuid());
     }
 
     @Test

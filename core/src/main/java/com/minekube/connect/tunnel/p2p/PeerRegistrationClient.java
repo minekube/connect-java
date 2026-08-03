@@ -243,6 +243,14 @@ final class PeerRegistrationClient {
             }
             awaitingResult = false;
             cancelAckTimeout();
+            if (msg.hasModeResult()
+                    && msg.getModeResult().getVersion() == 2
+                    && !msg.getModeResult().getAccepted()
+                    && framed) {
+                framed = false;
+                failRegistration(new IllegalStateException("libp2p registration framing rejected"));
+                return;
+            }
             result.complete(msg);
             if (!framed && offerAttempted && msg.hasModeResult()
                     && msg.getModeResult().getVersion() == 2
@@ -267,7 +275,8 @@ final class PeerRegistrationClient {
                                 observedAddrsSupplier.get(),
                                 sequence.incrementAndGet(),
                                 System.currentTimeMillis(),
-                                offer);
+                                offer,
+                                framed);
                         awaitingResult = true;
                         if (framed) {
                             writeKindFrame(stream, P2PFrameCodec.RENEWAL_COMMIT, commit);

@@ -71,6 +71,27 @@ class BedrockPrincipalConsumerTest {
         assertFalse(error.toString().contains(vector.get("compact_jws").getAsString()));
     }
 
+    @Test
+    void requireModeRejectsSessionsMissingV2Principal() throws Exception {
+        JsonObject vector = vector("valid-unlinked");
+        BedrockPrincipalAdmissionException error = assertThrows(
+                BedrockPrincipalAdmissionException.class,
+                () -> consumer(vector).verify(session(vector).toBuilder()
+                        .clearSignedBedrockPrincipalV2().build()));
+        assertEquals(PrincipalError.READINESS, error.error());
+    }
+
+    @Test
+    void oversizedV2EnvelopeIsRejected() throws Exception {
+        JsonObject vector = vector("valid-unlinked");
+        BedrockPrincipalAdmissionException error = assertThrows(
+                BedrockPrincipalAdmissionException.class,
+                () -> consumer(vector).verify(session(vector).toBuilder()
+                        .setSignedBedrockPrincipalV2(ByteString.copyFrom(new byte[16 * 1024 + 1]))
+                        .build()));
+        assertEquals(PrincipalError.MALFORMED, error.error());
+    }
+
     private static BedrockPrincipalConsumer consumer(JsonObject vector) {
         return new BedrockPrincipalConsumer(config(), Clock.fixed(
                 Instant.ofEpochSecond(vector.get("verification_time_unix").getAsLong()), ZoneOffset.UTC));

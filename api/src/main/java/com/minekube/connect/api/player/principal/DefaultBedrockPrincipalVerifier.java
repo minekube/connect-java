@@ -27,6 +27,16 @@ final class DefaultBedrockPrincipalVerifier implements BedrockPrincipalVerifier 
     static final String CAPABILITY = "bedrock-verified-principal-v2";
     private static final int MAX_HEADER_BYTES = 2 * 1024;
     private static final int MAX_PAYLOAD_BYTES = 12 * 1024;
+    private static final BigInteger ED25519_FIELD_PRIME = BigInteger.ONE.shiftLeft(255)
+            .subtract(BigInteger.valueOf(19));
+    private static final BigInteger ED25519_D = BigInteger.valueOf(-121665)
+            .multiply(BigInteger.valueOf(121666).modInverse(ED25519_FIELD_PRIME))
+            .mod(ED25519_FIELD_PRIME);
+    private static final BigInteger ED25519_SQRT_M1 = BigInteger.valueOf(2)
+            .modPow(ED25519_FIELD_PRIME.subtract(BigInteger.ONE).shiftRight(2),
+                    ED25519_FIELD_PRIME);
+    private static final BigInteger ED25519_SQRT_EXP = ED25519_FIELD_PRIME
+            .add(BigInteger.valueOf(3)).shiftRight(3);
     private static final long MAX_UNIX_TIMESTAMP = 253_402_300_799L;
     private static final Set<String> HEADER_FIELDS = Set.of("alg", "typ", "kid");
     private static final Set<String> PAYLOAD_FIELDS = Set.of(
@@ -147,11 +157,12 @@ final class DefaultBedrockPrincipalVerifier implements BedrockPrincipalVerifier 
         }
         long xuid;
         try {
-            xuid = Long.parseLong(claims.canonicalXuid);
+            xuid = Long.parseUnsignedLong(claims.canonicalXuid);
         } catch (NumberFormatException ignored) {
             throw reject(PrincipalError.IDENTITY);
         }
-        if (xuid <= 0 || !Long.toString(xuid).equals(claims.canonicalXuid)) {
+        if (Long.compareUnsigned(xuid, 0L) <= 0
+                || !Long.toUnsignedString(xuid).equals(claims.canonicalXuid)) {
             throw reject(PrincipalError.IDENTITY);
         }
         UUID unlinked = canonicalUuid(claims.canonicalUnlinkedUuid, PrincipalError.IDENTITY);
@@ -310,11 +321,53 @@ final class DefaultBedrockPrincipalVerifier implements BedrockPrincipalVerifier 
                 y[left] = y[right];
                 y[right] = swap;
             }
+            BigInteger yCoordinate = new BigInteger(1, y);
+            if (yCoordinate.compareTo(ED25519_FIELD_PRIME) >= 0
+                    || !validEd25519Point(yCoordinate, xOdd)) {
+                throw new IllegalArgumentException("invalid verifier public key");
+            }
             return KeyFactory.getInstance("Ed25519").generatePublic(new EdECPublicKeySpec(
                     NamedParameterSpec.ED25519, new EdECPoint(xOdd, new BigInteger(1, y))));
         } catch (GeneralSecurityException | RuntimeException ignored) {
             throw new IllegalArgumentException("invalid verifier public key");
         }
+    }
+
+    private static boolean validEd25519Point(BigInteger y, boolean xOdd) {
+        BigInteger ySquared = y.multiply(y).mod(ED25519_FIELD_PRIME);
+        BigInteger denominator = ED25519_D.multiply(ySquared).add(BigInteger.ONE)
+                .mod(ED25519_FIELD_PRIME);
+        if (denominator.signum() == 0) return false;
+        BigInteger xSquared = ySquared.subtract(BigInteger.ONE)
+                .multiply(denominator.modInverse(ED25519_FIELD_PRIME))
+                .mod(ED25519_FIELD_PRIME);
+        BigInteger x = xSquared.modPow(ED25519_SQRT_EXP, ED25519_FIELD_PRIME);
+        if (!x.multiply(x).mod(ED25519_FIELD_PRIME).equals(xSquared)) {
+            x = x.multiply(ED25519_SQRT_M1).mod(ED25519_FIELD_PRIME);
+        }
+        if (!x.multiply(x).mod(ED25519_FIELD_PRIME).equals(xSquared)
+                || x.signum() == 0) {
+            return false;
+        }
+        if (x.testBit(0) != xOdd) x = ED25519_FIELD_PRIME.subtract(x);
+        return !smallOrder(x, y);
+    }
+
+    private static boolean smallOrder(BigInteger x, BigInteger y) {
+        for (int count = 0; count < 3; count++) {
+            BigInteger product = ED25519_D.multiply(x).multiply(x).multiply(y).multiply(y)
+                    .mod(ED25519_FIELD_PRIME);
+            BigInteger nextX = x.multiply(y).shiftLeft(1)
+                    .multiply(BigInteger.ONE.add(product).modInverse(ED25519_FIELD_PRIME))
+                    .mod(ED25519_FIELD_PRIME);
+            BigInteger nextY = y.multiply(y).add(x.multiply(x))
+                    .multiply(BigInteger.ONE.subtract(product).mod(ED25519_FIELD_PRIME)
+                            .modInverse(ED25519_FIELD_PRIME))
+                    .mod(ED25519_FIELD_PRIME);
+            x = nextX;
+            y = nextY;
+        }
+        return x.signum() == 0 && y.equals(BigInteger.ONE);
     }
 
     private static void exact(Map<String, Object> object, Set<String> allowed, Set<String> required) {

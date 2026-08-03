@@ -95,6 +95,28 @@ class PeerRegistrationHandshakeTest {
     }
 
     @Test
+    void onlyAdvertisesNegotiatedCapabilitiesAfterFraming() throws Exception {
+        EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
+        PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
+                identity, "endpoint", "token", "instance", Collections.emptyList(),
+                OfflineMode.OFFLINE_MODE_ALLOWED,
+                Arrays.asList("session", "status"),
+                Arrays.asList("session", "status", "bedrock-verified-principal-v2"),
+                PeerCapacity.newBuilder().setMaxSessions(100).build());
+        PeerRegisterChallenge challenge = PeerRegisterChallenge.newBuilder()
+                .setEndpointId("endpoint-id").setEndpointHash("endpoint-hash")
+                .setPublisherId("publisher").setPublisherPeerId("publisher-peer")
+                .setRegion("local").setKvTtlMs(45_000).setNonce(ByteString.copyFromUtf8("nonce"))
+                .build();
+
+        PeerRegisterCommit offered = handshake.commit(challenge, Collections.emptyList(), 1, 1_000, true);
+        assertFalse(offered.getRecord().getCapabilitiesList().contains("bedrock-verified-principal-v2"));
+        PeerRegisterCommit negotiated = handshake.commit(
+                challenge, Collections.emptyList(), 2, 2_000, false, true);
+        assertTrue(negotiated.getRecord().getCapabilitiesList().contains("bedrock-verified-principal-v2"));
+    }
+
+    @Test
     void doesNotInventBedrockIdentityCapability() throws Exception {
         EndpointPeerIdentity identity = EndpointPeerIdentity.loadOrCreate(tempDir.resolve("libp2p-identity.key"));
         PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
