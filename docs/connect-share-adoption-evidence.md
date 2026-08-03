@@ -23,7 +23,7 @@ Status meanings:
 
 - Original acceptance-audit commit:
   `6073f2f6101d86d38c71e517148725fd2c089c82`.
-- Current source head for product probes:
+- Latest source head with recorded packaged product probes:
   `bd72ea0090a1f4e047ce208d2b73d8fe52b76efd`.
 - Deterministic friend/safety command: the focused `:share:common:test` and
   `:share:fabric-common:test` selectors listed in the adoption-foundation plan.
@@ -65,6 +65,18 @@ Status meanings:
   The exact pre-test `ASK_EVERY_TIME` file was restored byte-for-byte, the guest
   mod was restored at the same artifact digest, and both fresh runtimes were
   verified afterward.
+- Production vanilla-denial run on 2026-08-03: Moxy PR #512 was merged and its
+  candidate completed the guarded production workflow, including disposable
+  Fly E2E, the complete regional rollout, public Java/Bedrock probes, and the
+  production Craftless join smoke (`minekube/moxy` workflow
+  `30844815477`). An ordinary Fabric 26.2 guest with zero active Connect Share
+  JARs then reached the same release-candidate host. With no approval action,
+  the guest received the safe host-approval timeout in about 22 seconds; it did
+  not enter the world, fall back to Browser Hub, or report generic `Timed out`.
+  The guest JAR was restored at its original digest and loaded on a fresh
+  runtime. Moxy PR #517 subsequently made the rollout verifier select the last
+  surviving candidate per region while retaining exact-image, health, and
+  cross-region uniqueness checks.
 - Encrypted-recovery deterministic gate on 2026-08-03: complete
   `:share:common:check` and `:share:fabric-common:check` plus all four Fabric
   adapter test tasks passed in 1 minute 31 seconds. Rebuilt exact artifacts
@@ -149,7 +161,7 @@ Status meanings:
 | Address reveals no local or public IP in the UI | Product proof required | `SecretRedactionTest`, `ShareJoinDiagnosticsTest`, and the ordinary Connect hostname presentation | Inspect copy/status UI and diagnostics on the exact artifact |
 | Host approval and capacity still apply | Product proof required | `AdmissionControllerTest` covers timeout, capacity, one-shot approval, and identity binding; the exact-head vanilla run proved one real pending admission, the normal allow action, and completed gameplay; the earlier live probe proved bounded timeout/denial | Record packaged capacity exhaustion and repeat approval/denial on the final release candidate |
 | Confirmed modded friends retain richer presence and direct-first joining | Product proof required | presence tests plus `TransportSelectorTest` (`same LAN is attempted before internet and Connect`) | Record a modded friend join after restoring the exact artifact |
-| Errors distinguish unavailable host from invalid or expired admission | Product proof required | `RemoteLoginMessage` and `FabricSessionAdmissionGateTest` provide distinct text and reserve ten seconds before vanilla's timeout; a live no-mod probe returned connector `PermissionDenied`, proving delivery, and the connector now sends safe copy in `google.rpc.LocalizedMessage` | Moxy PR #512 must be merged and deployed through its guarded rollout before the rebuilt terminal denial can be observed on vanilla |
+| Errors distinguish unavailable host from invalid or expired admission | Product proof | `RemoteLoginMessage` and `FabricSessionAdmissionGateTest` provide distinct text and reserve time before vanilla's timeout; Moxy PR #512 is deployed, and a production no-mod run rendered its safe localized host-approval timeout in about 22 seconds without Browser Hub fallback or generic timeout | Repeat unavailable, capacity, explicit decline, and timeout cases across the remaining release adapters |
 
 ## #100 — privacy, permissions, and relationship safety
 
@@ -228,7 +240,7 @@ the direct, forced Connect-fallback, and vanilla no-mod Prism joins are proven,
 and the latest review also bound automatic friendship to the signed direct peer
 while making one-shot preapprovals expiring and bounded. The no-mod run proves
 Connect session delivery, host admission, and completed gameplay through the
-ordinary public address. Moxy PR #512 remains intentionally unmerged and its
-terminal-denial behavior therefore remains undeployed; production must not be
-called fixed for that rejection UX until the guarded Moxy rollout and live
-denial smoke test are complete.
+ordinary public address. Moxy PR #512 is now deployed, its guarded production
+workflow is green, and an unmodified guest received the intended actionable
+terminal denial. Moxy PR #517 also prevents repeated replacement history from
+making the final regional-candidate verifier demand a superseded machine.

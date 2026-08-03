@@ -132,6 +132,12 @@ Treat visual QA as a keyboard-only Prism test, not as a source review:
 5. Keep a split vanilla pause-menu row at 100 + 4 + 100 logical pixels and use
    short labels that fit each half. Keep title-menu affordances compact and
    live-update request/readiness counts without covering the panorama.
+6. Exercise Manage → Back → Add from link. The new-request form must be empty
+   and use safe connection defaults; an existing friend's name or advanced
+   route choices must never leak into another relationship draft. The one
+   exception is Add → Connection options → Done, which preserves the active
+   draft. On the pause menu, tab order must reach Share and Friends before Save
+   and Quit even though the vanilla disconnect button was created first.
 
 Screenshot appearance is evidence, not a golden test. Keep deterministic
 layout and presentation decisions in pure Kotlin tests so visual fixes remain

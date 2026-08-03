@@ -37,6 +37,7 @@ abstract class PauseScreenMixin extends Screen {
         int rowX = disconnectButton.getX();
         int rowY = disconnectButton.getY();
         disconnectButton.setY(rowY + 24);
+        removeWidget(disconnectButton);
         if (client.hasSingleplayerServer()) {
             connectShareButton = addRenderableWidget(
                     Button.builder(
@@ -59,6 +60,7 @@ abstract class PauseScreenMixin extends Screen {
                             .bounds(rowX, rowY, 204, 20)
                             .build());
         }
+        addRenderableWidget(disconnectButton);
     }
 
     @Inject(method = "tick", at = @At("TAIL"))

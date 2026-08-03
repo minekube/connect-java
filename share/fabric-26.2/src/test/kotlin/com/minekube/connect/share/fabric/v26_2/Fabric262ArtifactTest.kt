@@ -20,6 +20,21 @@ import kotlin.test.assertTrue
 
 class Fabric262ArtifactTest {
     @Test
+    fun `pause menu keeps Share before the destructive disconnect action`() {
+        JarFile(artifact().toFile()).use { jar ->
+            val mixin = jar.getJarEntry(
+                "com/minekube/connect/share/fabric/v26_2/mixin/" +
+                    "PauseScreenMixin.class",
+            )
+            assertNotNull(mixin)
+            val bytecode = jar.getInputStream(mixin).use {
+                it.readBytes().toString(Charsets.ISO_8859_1)
+            }
+            assertTrue("removeWidget" in bytecode)
+        }
+    }
+
+    @Test
     fun `artifact uses a friends first sharing vocabulary`() {
         JarFile(artifact().toFile()).use { jar ->
             val language = jar.getInputStream(

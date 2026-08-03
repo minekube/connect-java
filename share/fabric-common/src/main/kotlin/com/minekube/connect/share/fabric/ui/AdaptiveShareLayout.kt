@@ -40,6 +40,15 @@ data class FormScreenLayout(
     }
 }
 
+data class ManageFriendFormLayout(
+    val nameLabelY: Int,
+    val nameInputY: Int,
+    val notifyY: Int,
+    val shareWorldsY: Int,
+    val accessPolicyY: Int,
+    val internetDirectY: Int,
+)
+
 object AdaptiveShareLayout {
     const val EDGE_MARGIN: Int = 12
     const val MAX_CONTENT_WIDTH: Int = 360
@@ -83,13 +92,13 @@ object AdaptiveShareLayout {
     fun form(
         screenWidth: Int,
         screenHeight: Int,
-        @Suppress("UNUSED_PARAMETER") fieldCount: Int,
+        fieldCount: Int,
     ): FormScreenLayout {
         val contentWidth = contentWidth(screenWidth)
         val contentX = (screenWidth - contentWidth) / 2
         val footerBottom = screenHeight - EDGE_MARGIN
         val footerTop = footerBottom - BUTTON_HEIGHT * 2 - FOOTER_ROW_GAP
-        val bodyTop = 58
+        val bodyTop = if (fieldCount >= 5) 52 else 58
         return FormScreenLayout(
             contentX = contentX,
             contentWidth = contentWidth,
@@ -101,6 +110,16 @@ object AdaptiveShareLayout {
             footerBottom = footerBottom,
         )
     }
+
+    fun manageFriendForm(bodyTop: Int): ManageFriendFormLayout =
+        ManageFriendFormLayout(
+            nameLabelY = bodyTop,
+            nameInputY = bodyTop + 12,
+            notifyY = bodyTop + 34,
+            shareWorldsY = bodyTop + 56,
+            accessPolicyY = bodyTop + 78,
+            internetDirectY = bodyTop + 100,
+        )
 
     private fun contentWidth(screenWidth: Int): Int =
         (screenWidth - EDGE_MARGIN * 2)

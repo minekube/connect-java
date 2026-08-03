@@ -45,4 +45,21 @@ class AdaptiveShareLayoutTest {
         assertTrue(layout.availableBodyHeight >= 112)
         assertTrue(layout.footerBottom <= 228)
     }
+
+    @Test
+    fun `manage friend form keeps its persistent name label and controls separated`() {
+        val layout = AdaptiveShareLayout.form(
+            screenWidth = 640,
+            screenHeight = 240,
+            fieldCount = 5,
+        )
+        val form = AdaptiveShareLayout.manageFriendForm(layout.bodyTop)
+
+        assertTrue(form.nameLabelY + 11 <= form.nameInputY)
+        assertTrue(form.nameInputY + 20 <= form.notifyY)
+        assertTrue(form.notifyY + 20 <= form.shareWorldsY)
+        assertTrue(form.shareWorldsY + 20 <= form.accessPolicyY)
+        assertTrue(form.accessPolicyY + 20 <= form.internetDirectY)
+        assertTrue(form.internetDirectY + 20 <= layout.footerTop)
+    }
 }

@@ -187,6 +187,13 @@ redesigned for Kotlin.
   persistent label; split pause-menu buttons must keep copy within their
   100-pixel logical width. The repository Prism skill owns the capture and
   focus-order procedure.
+- Treat add-link and manage-friend values as separate form sessions. Entering
+  Add from the Friends list, leaving Manage, or completing/removing/blocking a
+  relationship must clear name, invitation, offline-mode, and internet-direct
+  draft state; only the Add → Connection options → Add round trip preserves it.
+  On the pause screen, visual placement does not change keyboard order: remove
+  and re-add the vanilla disconnect button so Share and Friends are focused
+  before the destructive exit action.
 - Recovery export/import must run only against the fixed Share allowlist and
   while sharing is stopped. A selected backup target must never resolve to a
   live identity, friend, preference, endpoint, or transaction path. Validate

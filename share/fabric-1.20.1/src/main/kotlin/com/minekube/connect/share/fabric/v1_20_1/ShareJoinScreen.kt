@@ -13,6 +13,7 @@ import com.minekube.connect.share.friend.FriendJoinRequest
 import com.minekube.connect.share.friend.FriendActivityKind
 import com.minekube.connect.share.fabric.ui.FriendSummary
 import com.minekube.connect.share.fabric.ui.AdaptiveShareLayout
+import com.minekube.connect.share.fabric.ui.FriendFormDraft
 import com.minekube.connect.share.fabric.ui.FriendPresenceTone
 import com.minekube.connect.share.fabric.ui.FriendPrimaryAction
 import com.minekube.connect.share.fabric.ui.FriendsOverview
@@ -142,11 +143,13 @@ class ShareJoinScreen(
             Mode.CONNECTION_OPTIONS,
             Mode.MANAGE,
             -> {
-                mode = if (mode == Mode.CONNECTION_OPTIONS) {
+                val returningToAdd = mode == Mode.CONNECTION_OPTIONS
+                mode = if (returningToAdd) {
                     Mode.ADD
                 } else {
                     Mode.FRIENDS
                 }
+                if (!returningToAdd) resetFriendFormDraft()
                 selectedPeerId = null
                 safeMessage = null
                 rebuildWidgets()
@@ -296,6 +299,7 @@ class ShareJoinScreen(
             Button.builder(
                 Component.translatable("connect_share.friends.add"),
             ) {
+                resetFriendFormDraft()
                 mode = Mode.ADD
                 safeMessage = null
                 rebuildWidgets()
@@ -491,7 +495,9 @@ class ShareJoinScreen(
                 Component.literal("…"),
             ) {
                 selectedPeerId = friend.peerId
-                nameValue = friend.displayName
+                applyFriendFormDraft(
+                    FriendFormDraft.forManage(friend.displayName),
+                )
                 mode = Mode.MANAGE
                 safeMessage = null
                 rebuildWidgets()
@@ -741,6 +747,7 @@ class ShareJoinScreen(
             return
         }
         val layout = AdaptiveShareLayout.form(width, height, 5)
+        val form = AdaptiveShareLayout.manageFriendForm(layout.bodyTop)
         var internetDirectSelected = friend.internetDirectGuestOptIn
         addRenderableWidget(
             centered(
@@ -762,11 +769,21 @@ class ShareJoinScreen(
                 layout.contentWidth,
             ),
         )
+        addRenderableWidget(
+            StringWidget(
+                layout.contentX,
+                form.nameLabelY,
+                layout.contentWidth,
+                11,
+                Component.translatable("connect_share.friends.name"),
+                font,
+            ),
+        )
         nameBox = addRenderableWidget(
             EditBox(
                 font,
                 layout.contentX,
-                layout.bodyTop,
+                form.nameInputY,
                 layout.contentWidth,
                 20,
                 Component.translatable("connect_share.friends.name"),
@@ -782,7 +799,7 @@ class ShareJoinScreen(
         val notify = addRenderableWidget(
             ObservableCheckbox(
                 layout.contentX,
-                layout.bodyTop + 28,
+                form.notifyY,
                 layout.contentWidth,
                 20,
                 Component.translatable("connect_share.friends.notify"),
@@ -801,7 +818,7 @@ class ShareJoinScreen(
                 .withValues(FriendAccessPolicy.entries)
                 .create(
                     layout.contentX,
-                    layout.bodyTop + 74,
+                    form.accessPolicyY,
                     layout.contentWidth,
                     20,
                     Component.translatable("connect_share.friends.access"),
@@ -810,7 +827,7 @@ class ShareJoinScreen(
         val shareWorlds = addRenderableWidget(
             ObservableCheckbox(
                 layout.contentX,
-                layout.bodyTop + 50,
+                form.shareWorldsY,
                 layout.contentWidth,
                 20,
                 Component.translatable("connect_share.friends.share_worlds"),
@@ -821,7 +838,7 @@ class ShareJoinScreen(
             CycleButton.onOffBuilder(friend.internetDirectGuestOptIn)
                 .create(
                     layout.contentX,
-                    layout.bodyTop + 100,
+                    form.internetDirectY,
                     layout.contentWidth,
                     20,
                     Component.translatable(
@@ -864,6 +881,7 @@ class ShareJoinScreen(
                     requestOperationInProgress = false
                     mode = Mode.FRIENDS
                     selectedPeerId = null
+                    resetFriendFormDraft()
                     rebuildWidgets()
                 }
             }.bounds(
@@ -936,7 +954,7 @@ class ShareJoinScreen(
                     removeConfirmation = false
                     mode = Mode.FRIENDS
                     selectedPeerId = null
-                    nameValue = ""
+                    resetFriendFormDraft()
                     rebuildWidgets()
                 }
             }.bounds(
@@ -961,7 +979,7 @@ class ShareJoinScreen(
                     removeConfirmation = false
                     mode = Mode.FRIENDS
                     selectedPeerId = null
-                    nameValue = ""
+                    resetFriendFormDraft()
                     rebuildWidgets()
                 }
             }.bounds(
@@ -1097,8 +1115,7 @@ class ShareJoinScreen(
                 return@launch
             }
             mode = Mode.FRIENDS
-            invitationValue = ""
-            nameValue = ""
+            resetFriendFormDraft()
             rebuildWidgets()
             deliverOutgoing(peerId)
         }
@@ -1324,6 +1341,25 @@ class ShareJoinScreen(
         secondaryButton?.active = !joining && inputReady
         invitationBox?.setEditable(!joining)
         nameBox?.setEditable(!joining)
+    }
+
+    private fun resetFriendFormDraft() {
+        applyFriendFormDraft(currentFriendFormDraft().newRequest())
+    }
+
+    private fun currentFriendFormDraft(): FriendFormDraft =
+        FriendFormDraft(
+            displayName = nameValue,
+            invitation = invitationValue,
+            offlineMode = offlineSelected,
+            internetDirect = internetSelected,
+        )
+
+    private fun applyFriendFormDraft(draft: FriendFormDraft) {
+        nameValue = draft.displayName
+        invitationValue = draft.invitation
+        offlineSelected = draft.offlineMode
+        internetSelected = draft.internetDirect
     }
 
     private fun friendsSummary(overview: FriendsOverview): Component =
