@@ -118,32 +118,32 @@ Status meanings:
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
-| Direct first and exactly one automatic Connect fallback | Deterministic proof | `TransportSelectorTest` covers LAN → internet → Connect ordering, mutual internet consent, one fallback attempt, and no-route failure | Force a direct failure and complete a real Connect fallback join after the external session-proposal boundary works |
+| Direct first and exactly one automatic Connect fallback | Product proof | `TransportSelectorTest` covers the ordering and exactly-once contract; `PrismFriendJoinE2ETest` then authenticated a confirmed friend, closed the live guest direct node after approval while retaining the discovered LAN route, asserted the Connect target, and completed a fresh Fabric 26.2 host/guest login | Repeat on the final release artifact and remaining loader clients |
 | UI/control work never blocks rendering | Deterministic proof | `FriendPresenceMonitorTest`, `FriendsViewModelTest`, `ShareViewModelTest`, and `RecoveryViewModelTest` use injected IO dispatchers and test off-thread work/cancellation | Profile the final packaged UI during representative slow/unreachable paths on each supported runtime |
 | Requests, cancellation, removal, shutdown, and retry are bounded | Deterministic proof | `FriendRequestClientTest` proves prompt cancellation and acknowledged removal; `AdmissionControllerTest` proves expiry/cancellation/capacity; `ShareCoordinatorTest` proves idempotent exhaustive shutdown; direct/control/login deadlines are explicit | Real suspend/resume and process/network-loss product evidence across OSes |
 | Reconnect after IP, LAN, or world changes needs no relinking | Deterministic proof | `FriendStoreTest` persists signed candidates/consent; discovery retains per-peer refreshed routes; `ShareCoordinatorTest` and identity-store tests preserve identity through world replacement | Two-machine IP/LAN/VPN change and world-switch evidence on exact release artifacts |
 | Concise stage, actionable failure, and secret-safe diagnostics | Product proof required | `ShareUiMessageTest`, `ShareJoinDiagnosticsTest`, `SecretRedactionTest`, and the plain-language stage/failure models reject transport jargon and secret values | Exercise unavailable, denied, timeout, incompatible, fallback-failed, and resumed states in packaged clients |
-| Automated two-client direct, fallback, offline, online, and network-change cases | Gap | Real libp2p proxy E2E and clean-head offline Prism direct join pass; deterministic selector/auth/network refresh cases pass | Real Connect fallback, paid online-auth join, and network-change automation remain blocked by service/matrix environments |
+| Automated two-client direct, fallback, offline, online, and network-change cases | Partial product proof | Real libp2p direct and forced Connect fallback Prism joins pass on Fabric 26.2; deterministic selector/auth/network refresh cases pass | Paid online-auth, two-machine network-change, and remaining loader automation still require the external matrix |
 | Real-client startup/join gate for every supported release target | Gap | Six packaged adapter suites pass and Fabric 26.2 clean-head direct join is proven | Fabric 1.20.1/1.21.1/1.21.11 plus Forge 1.20.1 and NeoForge 1.21.1 startup/join, then OS/architecture breadth |
 
 ## #99 — let friends join without installing the mod
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
-| Host copies a short ordinary Minecraft server address | Product proof required | `docs/connect-share.md` and adapter vocabulary cover the action; an exact-head no-mod client reached Connecting through the ordinary public address | Inspect the copy action, then resolve the external Connect forwarding boundary and complete a vanilla join |
+| Host copies a short ordinary Minecraft server address | Product proof required | `docs/connect-share.md` and adapter vocabulary cover the action; an exact-head no-mod client reached the active connector through the ordinary public address and received the bounded host-admission rejection | Inspect the copy action and record one human-approved vanilla join; Minecraft UI approval is intentionally not automated |
 | Stable Connect endpoint token is reused across worlds | Product proof required | `EndpointIdentityStoreTest` (`one generated identity survives reload and world changes`) and `PersistentConnectIngressTest` (`title startup and world leases share one connector until shutdown`) | Record the same redacted endpoint identity fingerprint across two worlds |
 | World changes do not create endpoint database spam | Product proof required | the persistent ingress and identity tests above make no create call on world replacement | Verify through a two-world packaged session and, where available, redacted endpoint-count telemetry |
 | Address reveals no local or public IP in the UI | Product proof required | `SecretRedactionTest`, `ShareJoinDiagnosticsTest`, and the ordinary Connect hostname presentation | Inspect copy/status UI and diagnostics on the exact artifact |
 | Host approval and capacity still apply | Product proof required | `AdmissionControllerTest` covers timeout, capacity, one-shot approval, and identity binding; `ShareCoordinatorTest` validates the guest range | Record approval, denial/timeout, and capacity behavior for a vanilla guest without automating Minecraft clicks |
 | Confirmed modded friends retain richer presence and direct-first joining | Product proof required | presence tests plus `TransportSelectorTest` (`same LAN is attempted before internet and Connect`) | Record a modded friend join after restoring the exact artifact |
-| Errors distinguish unavailable host from invalid or expired admission | Product proof required | `RemoteLoginMessage` and `FabricSessionAdmissionGateTest` provide distinct text and reserve ten seconds before vanilla's timeout; the first product probe reproduced generic `Timed out` and drove the fix | The Connect edge must deliver a session before the rebuilt denial can be observed on vanilla |
+| Errors distinguish unavailable host from invalid or expired admission | Product proof required | `RemoteLoginMessage` and `FabricSessionAdmissionGateTest` provide distinct text and reserve ten seconds before vanilla's timeout; a live no-mod probe returned connector `PermissionDenied`, proving delivery, and the connector now sends safe copy in `google.rpc.LocalizedMessage` | Moxy PR #512 must be merged and deployed through its guarded rollout before the rebuilt terminal denial can be observed on vanilla |
 
 ## #100 — privacy, permissions, and relationship safety
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
 | Only confirmed friends receive presence or joinable activity | Deterministic proof | `FriendStore.all()` exposes only confirmed relationships; `FriendsViewModelTest` rejects presence for outgoing requests and raw status | None beyond the full regression gate |
-| Display name is never identity | Deterministic proof | `SavedFriend` keys relationships by authenticated peer identity; `AdmissionControllerTest` (`offline reconnect with copied name requires a new approval`) | None beyond the full regression gate |
+| Display name is never identity | Deterministic proof | `SavedFriend` keys relationships by authenticated peer identity; `AdmissionControllerTest` requires a new approval for a copied offline name, bounds/expires one-shot grants, and `ApprovedJoinTrackerTest` requires the signature-verified invitation peer before automatic friendship | None beyond the full regression gate |
 | Requests, reciprocal requests, removals, and blocks converge | Product proof required | `FriendRequestServerTest` covers crossed requests and authenticated idempotent removal; `FriendRemovalSyncTest` covers later acknowledgement; `FriendStoreTest` covers durable blocks | Record reciprocal request, offline removal/reconnect, and block behavior with two clients |
 | Per-friend Ask Every Time, Auto-Accept, and Never Allow policies | Product proof required | `FriendStoreTest` (`never allow is durable and distinct from ask every time`) and `FriendRequestServerTest` (`never allow declines join without notifying the host`) | Inspect all three settings and validate exact packaged behavior |
 | Online, playing, current-server/world, and joinable state can be hidden independently | Product proof required | `SharePreferencesStoreTest` and the privacy cases in `FriendRequestServerTest`/`FriendsViewModelTest` | Exercise each toggle from the packaged privacy UI |
@@ -210,9 +210,11 @@ Status meanings:
 ## Open foundation gaps
 
 The baseline intentionally leaves #95, #96, #99, #100, and #103 open until the
-remaining exact-head product claims are observed. The deterministic gaps found
-in the first audit are fixed in `9397658c`; the direct Prism join is proven and
-the no-mod attempt is now blocked specifically at external Connect session
-forwarding. Minecraft UI clicks are never automated; any irreducible approval
-interaction is recorded as a human checkpoint with all other evidence gathered
-noninteractively.
+remaining exact-head product claims are observed. The first audit fixes remain,
+the direct and forced Connect-fallback Prism joins are proven, and the latest
+review also bound automatic friendship to the signed direct peer while making
+one-shot preapprovals expiring and bounded. The no-mod probe now proves Connect
+session delivery and host admission; only the explicit human acceptance pass
+and the unmerged Moxy terminal-denial rollout remain. Minecraft UI clicks are
+never automated, so that irreducible approval interaction is recorded as a
+human checkpoint while all other evidence is gathered noninteractively.
