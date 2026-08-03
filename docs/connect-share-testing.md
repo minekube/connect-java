@@ -31,7 +31,7 @@ the marketplace dependency metadata.
 
 ## Identity reuse and import
 
-1. Start a singleplayer world and choose **Share with friends**.
+1. Start a singleplayer world, choose **Share world**, and start sharing.
 2. Record the displayed endpoint and a cryptographic digest of
    `config/minekube-connect-share/token.json`. Do not copy the token into test
    notes or logs.
@@ -71,7 +71,7 @@ Connect may remain configured, but temporarily block the guest from reaching
 the host's `*.play.minekube.net` address so a successful join proves the direct
 route works.
 
-1. Start a host world, choose **Share with friends**, and leave
+1. Start a host world, choose **Share world**, start sharing, and leave
    **Allow faster direct internet connections** disabled.
 2. On the guest title screen, choose **Friends**, then **Join Connect Share**.
 3. Confirm the host world appears automatically as a nearby share. The host

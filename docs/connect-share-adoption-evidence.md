@@ -121,7 +121,7 @@ Status meanings:
   Every temporary `AUTO_ACCEPT` permission was restored to `ASK_EVERY_TIME`,
   and all twelve Minecraft processes were stopped by exact instance cwd.
 
-## #95 — one-click presence, request, approval, and join
+## #95 - one-click presence, request, approval, and join
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
@@ -134,7 +134,7 @@ Status meanings:
 | Re-entering or switching worlds requires no new link | Product proof required | `SharePreferencesStoreTest` (`share with friends remains enabled across restarts until disabled`), `ShareViewModelTest` (`enabled friend sharing resumes automatically in a new world`), and `EndpointIdentityStoreTest` (`one generated identity survives reload and world changes`) | Switch worlds and rejoin using the same confirmed relationship on exact-head clients |
 | Every failure gives an understandable next action | Product proof required | typed safe messages in `FriendJoinAttemptFailure`, `ShareUiMessageTest`, and `ShareJoinDiagnosticsTest` | Exercise unavailable, denied, timed-out, incompatible, and transport-failed screens |
 
-## #96 — detect modpack mismatch before joining
+## #96 - detect modpack mismatch before joining
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
@@ -146,19 +146,19 @@ Status meanings:
 | Advanced override supports compatible client-only differences | Product proof required | client-only mods are omitted in `LoadedCompatibilityProfileFactoryTest`; required-mod mismatch uses explicit `allowModMismatch` in `FriendJoinOrchestratorTest` | Exercise the exact packaged Try Anyway flow |
 | Never upload a complete mod inventory without explicit consent | Deterministic proof | `LoadedCompatibilityProfileFactoryTest` proves only universal/server gameplay mods enter the peer-to-peer profile; `docs/connect-share.md` states the exchange is not uploaded | None beyond the full regression gate |
 
-## #97 — broad versions, loaders, and one-click distribution
+## #97 - broad versions, loaders, and one-click distribution
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
 | Maintain latest plus the 1.21.1 and 1.20.1 modpack anchors | Deterministic proof | Fabric adapters cover 26.2, 1.21.11, 1.21.1, and 1.20.1; the six-adapter gate passed from the current head | Define and operate the measured latest-version release target after the first public release |
 | Provide Fabric, Forge, and NeoForge adapters | Product proof | Fabric 1.20.1/1.21.1/1.21.11/26.2, Forge 1.20.1, and NeoForge 1.21.1 all passed clean packaged builds and exact-artifact two-client joins on macOS arm64 | Extend the same matrix to supported Windows/Linux and x86_64 before claiming broad platform proof |
 | Publish verified artifacts on Modrinth, CurseForge, and GitHub Releases | Gap | Artifacts have unambiguous loader/version archive names; `.github/workflows/connect-share-release.yml` fails closed, publishes the six artifacts, creates checksums and GitHub/Sigstore provenance, and verifies release assets/attestations | Marketplace projects, credentials, public metadata, a disposable prerelease proof, and final publication are external release operations and have not occurred from this unmerged PR |
-| Modrinth App and Prism install dependencies automatically | Product proof required | Fabric metadata declares Fabric API and Fabric Language Kotlin dependencies; Forge/NeoForge package KotlinForForge in their distributable artifact | Prove fresh one-click installs through published Modrinth metadata and Prism on all supported loader families |
+| Modrinth App and Prism install dependencies automatically | Product proof required | Fabric metadata declares Fabric API and Fabric Language Kotlin dependencies; Forge/NeoForge declare Kotlin for Forge as a required install dependency and keep Kotlin out of the shaded artifact | Prove fresh one-click installs through published Modrinth metadata and Prism on all supported loader families |
 | Permit modpack inclusion and document dependencies/compatibility | Deterministic proof | `docs/connect-share.md` explicitly permits public/private modpack inclusion under MIT, names every loader/version artifact, and documents automatic and manual Kotlin/loader dependencies | Marketplace copy must reproduce the same contract before publication |
 | CI builds every adapter and proves packaged startup | Deterministic proof | CI adapter tasks exist; all six adapter suites passed locally. Fabric 26.2's exact packaged JAR now starts two isolated libp2p peers and inspects a published world | Extend exact packaged peer startup to the release matrix and retain real Minecraft startup/join gates |
 | Track and safely reduce artifact size | Deterministic proof | Every adapter now has a 63 MiB build gate; current exact artifacts are 61,823,460–62,575,797 bytes. The shared payload removes only unused Bouncy Castle PQC families, and a real packaged-peer test guards reflective runtime behavior | Continue measuring published download size; do not use generic static minimization on jvm-libp2p |
 
-## #98 — reliable joining and actionable recovery
+## #98 - reliable joining and actionable recovery
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
@@ -170,7 +170,7 @@ Status meanings:
 | Automated two-client direct, fallback, offline, online, and network-change cases | Partial product proof | Real libp2p direct, forced Connect fallback, and vanilla no-mod Connect joins pass on Fabric 26.2; deterministic selector/auth/network refresh cases pass | Paid online-auth, two-machine network-change, and remaining loader automation still require the external matrix |
 | Real-client startup/join gate for every supported release target | Product proof | All six clean release-candidate artifacts passed exact-JAR host/guest startup, authenticated approval, real login, and gameplay load on macOS arm64; Forge also proved native FML negotiation | Add Windows/Linux and x86_64 breadth to the release automation |
 
-## #99 — let friends join without installing the mod
+## #99 - let friends join without installing the mod
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
@@ -182,7 +182,7 @@ Status meanings:
 | Confirmed modded friends retain richer presence and direct-first joining | Product proof required | presence tests plus `TransportSelectorTest` (`same LAN is attempted before internet and Connect`) | Record a modded friend join after restoring the exact artifact |
 | Errors distinguish unavailable host from invalid or expired admission | Product proof | `RemoteLoginMessage` and `FabricSessionAdmissionGateTest` provide distinct text and reserve time before vanilla's timeout; Moxy PR #512 is deployed, and a production no-mod run rendered its safe localized host-approval timeout in about 22 seconds without Browser Hub fallback or generic timeout | Repeat unavailable, capacity, explicit decline, and timeout cases across the remaining release adapters |
 
-## #100 — privacy, permissions, and relationship safety
+## #100 - privacy, permissions, and relationship safety
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
@@ -195,7 +195,7 @@ Status meanings:
 | Removal or block revokes later admission and presence | Product proof required | `AdmissionControllerTest` removal-revocation cases, `ApprovedJoinTrackerTest`, and `FriendStoreTest` block behavior | Record revocation after reconnect with two clients |
 | Security and privacy behavior is documented plainly | Deterministic proof | the **Privacy and safety** section of `docs/connect-share.md` | Product-copy review before release |
 
-## #103 — follow a friend into the next joinable world
+## #103 - follow a friend into the next joinable world
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
@@ -207,7 +207,7 @@ Status meanings:
 | Both players receive understandable notifications | Product proof required | follower toasts in each Fabric adapter, normal host admission notifications, and `SocialEventTrackerTest` | Observe both sides on exact packaged clients |
 | TDD covers expiry, cancellation, reconnect, removal, blocks, duplicates, and simultaneous follow | Deterministic proof | `FollowNextSessionControllerTest` explicitly covers every listed case; `ShareScreenPresentationTest` fixes visible automatic-cancellation copy; every Fabric adapter renders it | Verify the packaged cancellation notification during product proof |
 
-## #117 — one-click HTTPS invite/install/resume handoff
+## #117 - one-click HTTPS invite/install/resume handoff
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
@@ -217,7 +217,7 @@ Status meanings:
 | Safe expired, revoked, incompatible, malicious, declined, cancelled, and retry states | Deterministic design | Explicit resolution flow and E2E matrix in the handoff contract | Browser/launcher implementation and cross-OS E2E are external/missing |
 | Preview and measurement reveal no secrets or graph | Deterministic design | Fragment never reaches HTTP; CSP/referrer/storage/analytics rules and aggregate opt-in boundary are explicit | Independent web privacy review plus log/referrer evidence on the deployed origin |
 
-## #118 — staged launch, measurement, modpacks, and creators
+## #118 - staged launch, measurement, modpacks, and creators
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
@@ -228,7 +228,7 @@ Status meanings:
 | Privacy-preserving opt-in success/reliability/retention metrics | Deterministic design | Launch contract defines default-off local aggregation, allowed measures, suppression, and a strict forbidden-field list | Reviewed endpoint, consent UI, retention/deletion policy, privacy review, and staged data-quality proof; no telemetry is silently enabled |
 | Launch/pause/rollback/graduation criteria precede promotion | Deterministic proof | Four guarded stages, exact graduation/pause conditions, required evidence bundle, and independent rollback are documented | Execute the gates with real product and service data before each stage |
 
-## #119 — global Connect fallback operations and security review
+## #119 - global Connect fallback operations and security review
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|
@@ -240,7 +240,7 @@ Status meanings:
 | Cost budgets, chaos/failover, staged rollout, and rollback | Deterministic design | Cost/session evidence and seven chaos gates preserve direct joins and require bounded blast radius/rollback | Regional service deployment, cost data, failure injection, and executed evidence |
 | Signed and verifiable release artifacts | Product proof required | Release workflow now uses `actions/attest@v4`, uploads checksums, and verifies GitHub attestations; workflow syntax passes `actionlint` | Run against a disposable published prerelease and verify every public marketplace digest against the attested files |
 
-## #120 — encrypted identity and friend recovery
+## #120 - encrypted identity and friend recovery
 
 | Acceptance criterion | Status | Evidence | Remaining proof |
 |---|---|---|---|

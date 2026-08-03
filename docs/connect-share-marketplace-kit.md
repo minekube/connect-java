@@ -35,7 +35,7 @@ silently downgrading an authenticated session. A host may offer an ordinary
 Minecraft address to a friend without the mod after the Connect ingress path is
 release-proven.
 
-Connect Share is a focused universal party layer—not a cosmetics, chat, or
+Connect Share is a focused universal party layer - not a cosmetics, chat, or
 server-management suite.
 
 ## Supported release metadata

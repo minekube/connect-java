@@ -35,45 +35,45 @@ This plan is the independently testable singleplayer-through-Connect slice. It e
 
 ### Build and automation
 
-- `gradle/wrapper/gradle-wrapper.properties` — Gradle 9.5.1 wrapper.
-- `settings.gradle.kts` — Fabric repositories/plugins and four Share projects.
-- `build.gradle.kts` — keeps Java-11 plugin conventions away from Fabric projects.
-- `build-logic/src/main/kotlin/Versions.kt` — pins Loom/Fabric/Kotlin/Arrow/libp2p versions.
-- `share/AGENTS.md` — requires appropriate Arrow abstractions throughout the Kotlin mod.
-- `.github/workflows/pullrequest.yml` — plugin matrix plus isolated Java-21/25 mod jobs.
+- `gradle/wrapper/gradle-wrapper.properties` - Gradle 9.5.1 wrapper.
+- `settings.gradle.kts` - Fabric repositories/plugins and four Share projects.
+- `build.gradle.kts` - keeps Java-11 plugin conventions away from Fabric projects.
+- `build-logic/src/main/kotlin/Versions.kt` - pins Loom/Fabric/Kotlin/Arrow/libp2p versions.
+- `share/AGENTS.md` - requires appropriate Arrow abstractions throughout the Kotlin mod.
+- `.github/workflows/pullrequest.yml` - plugin matrix plus isolated Java-21/25 mod jobs.
 
 ### Connect Core extension
 
-- `core/src/main/java/com/minekube/connect/identity/EndpointTokenStore.java` — plugin-compatible token loading, generation, owner-only atomic persistence, and redaction.
-- `core/src/main/java/com/minekube/connect/watch/SessionAdmissionGate.java` — asynchronous pre-tunnel admission port.
-- `core/src/main/java/com/minekube/connect/watch/SessionAdmissionDecision.java` — allow/defer/deny result with safe guest message.
-- `core/src/main/java/com/minekube/connect/watch/AllowAllSessionAdmissionGate.java` — preserves plugin behavior.
-- `core/src/main/java/com/minekube/connect/register/WatcherRegister.java` — invokes the gate before `Tunneler.prepare` or `LocalSession.connect`.
-- `core/src/main/java/com/minekube/connect/ConnectPlatform.java` — accepts a prebuilt `ConnectConfig` for embedded clients.
-- `core/src/main/java/com/minekube/connect/config/ConnectConfig.java` — explicit embedded configuration factory.
-- `core/src/main/java/com/minekube/connect/module/CommonModule.java` — uses `EndpointTokenStore`.
+- `core/src/main/java/com/minekube/connect/identity/EndpointTokenStore.java` - plugin-compatible token loading, generation, owner-only atomic persistence, and redaction.
+- `core/src/main/java/com/minekube/connect/watch/SessionAdmissionGate.java` - asynchronous pre-tunnel admission port.
+- `core/src/main/java/com/minekube/connect/watch/SessionAdmissionDecision.java` - allow/defer/deny result with safe guest message.
+- `core/src/main/java/com/minekube/connect/watch/AllowAllSessionAdmissionGate.java` - preserves plugin behavior.
+- `core/src/main/java/com/minekube/connect/register/WatcherRegister.java` - invokes the gate before `Tunneler.prepare` or `LocalSession.connect`.
+- `core/src/main/java/com/minekube/connect/ConnectPlatform.java` - accepts a prebuilt `ConnectConfig` for embedded clients.
+- `core/src/main/java/com/minekube/connect/config/ConnectConfig.java` - explicit embedded configuration factory.
+- `core/src/main/java/com/minekube/connect/module/CommonModule.java` - uses `EndpointTokenStore`.
 
 ### Loader-neutral Kotlin domain
 
-- `share/common/src/main/kotlin/com/minekube/connect/share/identity/EndpointIdentity.kt` — endpoint/token value and source.
-- `share/common/src/main/kotlin/com/minekube/connect/share/identity/EndpointIdentityStore.kt` — persistent generated/imported/environment identity.
-- `share/common/src/main/kotlin/com/minekube/connect/share/identity/EndpointCredentialValidator.kt` — validation port.
-- `share/fabric-common/src/main/kotlin/com/minekube/connect/share/fabric/RandomEndpointNameSource.kt` — normal Connect random-name service with bounded fallback.
-- `share/common/src/main/kotlin/com/minekube/connect/share/admission/AdmissionIdentity.kt` — Connect-, Mojang-, and locally-unverified identity types.
-- `share/common/src/main/kotlin/com/minekube/connect/share/admission/AdmissionController.kt` — pending/approved decisions and limits.
-- `share/common/src/main/kotlin/com/minekube/connect/share/ShareOptions.kt` — game mode, cheats, and guest capacity.
-- `share/common/src/main/kotlin/com/minekube/connect/share/ShareState.kt` — state model.
-- `share/common/src/main/kotlin/com/minekube/connect/share/ShareCoordinator.kt` — ordered start/stop and cleanup.
-- `share/common/src/main/kotlin/com/minekube/connect/share/MinecraftShareBridge.kt` — local bridge port.
-- `share/common/src/main/kotlin/com/minekube/connect/share/ConnectShareIngress.kt` — Connect ingress port.
+- `share/common/src/main/kotlin/com/minekube/connect/share/identity/EndpointIdentity.kt` - endpoint/token value and source.
+- `share/common/src/main/kotlin/com/minekube/connect/share/identity/EndpointIdentityStore.kt` - persistent generated/imported/environment identity.
+- `share/common/src/main/kotlin/com/minekube/connect/share/identity/EndpointCredentialValidator.kt` - validation port.
+- `share/fabric-common/src/main/kotlin/com/minekube/connect/share/fabric/RandomEndpointNameSource.kt` - normal Connect random-name service with bounded fallback.
+- `share/common/src/main/kotlin/com/minekube/connect/share/admission/AdmissionIdentity.kt` - Connect-, Mojang-, and locally-unverified identity types.
+- `share/common/src/main/kotlin/com/minekube/connect/share/admission/AdmissionController.kt` - pending/approved decisions and limits.
+- `share/common/src/main/kotlin/com/minekube/connect/share/ShareOptions.kt` - game mode, cheats, and guest capacity.
+- `share/common/src/main/kotlin/com/minekube/connect/share/ShareState.kt` - state model.
+- `share/common/src/main/kotlin/com/minekube/connect/share/ShareCoordinator.kt` - ordered start/stop and cleanup.
+- `share/common/src/main/kotlin/com/minekube/connect/share/MinecraftShareBridge.kt` - local bridge port.
+- `share/common/src/main/kotlin/com/minekube/connect/share/ConnectShareIngress.kt` - Connect ingress port.
 
 ### Shared Fabric runtime
 
-- `share/fabric-common/src/main/kotlin/com/minekube/connect/share/fabric/ConnectShareClient.kt` — singleton client lifecycle.
-- `share/fabric-common/src/main/kotlin/com/minekube/connect/share/fabric/ConnectShareRuntime.kt` — constructs Core/Fabric adapters.
-- `share/fabric-common/src/main/kotlin/com/minekube/connect/share/fabric/FabricSessionAdmissionGate.kt` — maps Core proposals to `AdmissionController`.
-- `share/fabric-common/src/main/kotlin/com/minekube/connect/share/fabric/FabricConnectIngress.kt` — starts/stops the embedded Connect graph.
-- `share/fabric-common/src/main/kotlin/com/minekube/connect/share/fabric/ui/ShareViewModel.kt` — screen state and user actions.
+- `share/fabric-common/src/main/kotlin/com/minekube/connect/share/fabric/ConnectShareClient.kt` - singleton client lifecycle.
+- `share/fabric-common/src/main/kotlin/com/minekube/connect/share/fabric/ConnectShareRuntime.kt` - constructs Core/Fabric adapters.
+- `share/fabric-common/src/main/kotlin/com/minekube/connect/share/fabric/FabricSessionAdmissionGate.kt` - maps Core proposals to `AdmissionController`.
+- `share/fabric-common/src/main/kotlin/com/minekube/connect/share/fabric/FabricConnectIngress.kt` - starts/stops the embedded Connect graph.
+- `share/fabric-common/src/main/kotlin/com/minekube/connect/share/fabric/ui/ShareViewModel.kt` - screen state and user actions.
 
 ### Per-version Fabric adapters
 

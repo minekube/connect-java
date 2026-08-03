@@ -83,7 +83,7 @@ Start it after the host world is ready:
 
 ```sh
 LIVE_DATA=<guest-config/minekube-connect-share> \
-LIVE_PORT_FILE=<fresh-temporary-port-file> \
+LIVE_TARGET_FILE=<fresh-temporary-target-file> \
 LIVE_HOST_LOG=<host-minecraft/logs/latest.log> \
 LIVE_GUEST_LOG=<guest-minecraft/logs/latest.log> \
 LIVE_PLAYER_NAME=<guest-name> \
@@ -96,8 +96,9 @@ The harness keeps its pre-launch log snapshot immutable across Prism's
 or replaced log containing an advancement line is post-launch evidence and
 must not be absorbed into a later baseline before the poll observes it.
 
-The test must remain running while the external guest uses the port written to
-`LIVE_PORT_FILE`. It proves, in order:
+The test must remain running while the external guest uses the join target
+written to `LIVE_TARGET_FILE` (`LIVE_PORT_FILE` remains a direct-only
+compatibility alias). It proves, in order:
 
 1. mDNS discovers the saved confirmed friend's peer identity.
 2. Authenticated friend control reports `HOSTING_WORLD`.
@@ -238,5 +239,5 @@ both intended Prism profiles are in a safe state.
 
 When a live run reveals a stable, non-obvious rule, update this skill and the
 appropriate concise invariant in `share/AGENTS.md`. Record commands, gates,
-failure signatures, and authoritative files—not transient PIDs, ports, local
+failure signatures, and authoritative files - not transient PIDs, ports, local
 absolute paths, endpoint secrets, or raw debugging noise.

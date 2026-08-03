@@ -11,11 +11,11 @@ or the exact packaged-client evidence matrix.
 
 | Stage | Cohort | Graduate when | Pause or roll back when |
 |---|---|---|---|
-| 0 — internal | Maintainers and disposable test pairs | Direct, fallback, no-mod, recovery, compatibility, and all adapter startup gates pass | Any secret leak, unbounded hang, corrupt recovery, or reproducible join regression |
-| 1 — closed beta | Diverse invited pairs across regions, offline/online profiles, vanilla-like and major modpacks | ≥95% eligible invite-to-join, p95 request-to-world <10 s, ≥99% crash-free Share sessions, support response <1 business day | Error-budget alert, security finding, generic/unactionable failures >2%, or support backlog >2 business days |
-| 2 — marketplace beta | Guarded percentage of published installs | Two weeks within regional fallback SLOs, successful repeat sessions, verified rollback, no unresolved high-severity issue | SLO burn, cost budget breach, launcher dependency failure, or regression concentrated in a version/loader |
-| 3 — creator/modpack pilot | Small approved packs and creators with forecast traffic | Capacity headroom survives forecast burst and each cohort has an owner/support channel | Forecast exceeds reserved capacity, abuse spike, or cohort join success misses beta baseline |
-| 4 — broad release | Supported marketplaces and packs | Ongoing SLO/error-budget and retention review | Same automated pause gates; rollback client/service independently |
+| 0 - internal | Maintainers and disposable test pairs | Direct, fallback, no-mod, recovery, compatibility, and all adapter startup gates pass | Any secret leak, unbounded hang, corrupt recovery, or reproducible join regression |
+| 1 - closed beta | Diverse invited pairs across regions, offline/online profiles, vanilla-like and major modpacks | ≥95% eligible invite-to-join, p95 request-to-world <10 s, ≥99% crash-free Share sessions, support response <1 business day | Error-budget alert, security finding, generic/unactionable failures >2%, or support backlog >2 business days |
+| 2 - marketplace beta | Guarded percentage of published installs | Two weeks within regional fallback SLOs, successful repeat sessions, verified rollback, no unresolved high-severity issue | SLO burn, cost budget breach, launcher dependency failure, or regression concentrated in a version/loader |
+| 3 - creator/modpack pilot | Small approved packs and creators with forecast traffic | Capacity headroom survives forecast burst and each cohort has an owner/support channel | Forecast exceeds reserved capacity, abuse spike, or cohort join success misses beta baseline |
+| 4 - broad release | Supported marketplaces and packs | Ongoing SLO/error-budget and retention review | Same automated pause gates; rollback client/service independently |
 
 Each release decision links the exact commit/artifact digests, adapter matrix,
 two-client evidence, no-mod result, fallback load/chaos results, current known
@@ -46,8 +46,8 @@ depend on consent.
 
 ## Marketplace and creator kit
 
-Use the promise above as the lead. Show the human flow—friend becomes joinable,
-request, approval, shared world—in under 30 seconds before explaining
+Use the promise above as the lead. Show the human flow - friend becomes joinable,
+request, approval, shared world - in under 30 seconds before explaining
 networking. The source kit must include:
 
 - approved icon/banner/screenshots and a silent-captioned demo source;
