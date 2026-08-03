@@ -10,6 +10,8 @@ import java.util.stream.Collectors;
 public final class BedrockIdentityProfiles {
     /** Private transport property carrying endpoint and organization scope for legacy Watch. */
     public static final String SCOPE_PROPERTY_NAME = "minekube:bedrock_identity_scope";
+    /** Reserved property name: v2 is accepted only from authenticated wire field 12. */
+    public static final String PRINCIPAL_V2_PROPERTY_NAME = "minekube:bedrock_principal_v2";
 
     private BedrockIdentityProfiles() {
     }
@@ -42,6 +44,7 @@ public final class BedrockIdentityProfiles {
      */
     public static boolean isPublic(GameProfile.Property property) {
         return !BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName()) &&
-                !SCOPE_PROPERTY_NAME.equals(property.getName());
+                !SCOPE_PROPERTY_NAME.equals(property.getName()) &&
+                !PRINCIPAL_V2_PROPERTY_NAME.equals(property.getName());
     }
 }

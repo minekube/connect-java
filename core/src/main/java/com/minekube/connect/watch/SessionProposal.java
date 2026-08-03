@@ -49,6 +49,7 @@ public class SessionProposal {
     private final String endpointOrgId;
     @Getter
     private final SessionProtocol protocol;
+    private final boolean bedrockPrincipalV2;
 
     private final java.util.concurrent.atomic.AtomicReference<State> state = new java.util.concurrent.atomic.AtomicReference<>(State.ACCEPTED);
 
@@ -70,12 +71,15 @@ public class SessionProposal {
             String endpointId,
             String endpointOrgId,
             AdmissionToken admissionToken) {
+        this.bedrockPrincipalV2 = session != null && !session.getSignedBedrockPrincipalV2().isEmpty();
         this.session = withoutPrivateIdentity(session);
         this.admissionToken = admissionToken;
         this.reject = reject;
         Scope scope = parseScope(session);
-        this.endpointId = firstNonEmpty(endpointId, scope.endpoint_id);
-        this.endpointOrgId = firstNonEmpty(endpointOrgId, scope.endpoint_org_id);
+        this.endpointId = firstNonEmpty(endpointId,
+                firstNonEmpty(session == null ? "" : session.getEndpointId(), scope.endpoint_id));
+        this.endpointOrgId = firstNonEmpty(endpointOrgId,
+                firstNonEmpty(session == null ? "" : session.getOrganizationId(), scope.endpoint_org_id));
         this.protocol = session == null
                 ? SessionProtocol.SESSION_PROTOCOL_UNSPECIFIED
                 : session.getProtocol();
@@ -96,11 +100,15 @@ public class SessionProposal {
         return state.get();
     }
 
+    /** Whether the private authenticated proposal carried a v2 principal envelope. */
+    public boolean hasBedrockPrincipalV2() {
+        return bedrockPrincipalV2;
+    }
+
     @Override
     public String toString() {
-        return "SessionProposal{" +
-                "session=" + session +
-                '}';
+        return "SessionProposal[sessionId=" + (session == null ? "" : session.getId())
+                + ", protocol=" + protocol + ", bedrockPrincipalV2=" + bedrockPrincipalV2 + ']';
     }
 
     private static Scope parseScope(Session session) {
@@ -126,26 +134,35 @@ public class SessionProposal {
         if (!hasPrivateIdentity(session)) {
             return session;
         }
-        var profile = session.getPlayer().getProfile().toBuilder().clearProperties();
-        for (var property : session.getPlayer().getProfile().getPropertiesList()) {
-            if (!BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName()) &&
-                    !BedrockIdentityProfiles.SCOPE_PROPERTY_NAME.equals(property.getName())) {
-                profile.addProperties(property);
+        var sanitized = session.toBuilder()
+                .clearConnectSessionNonce()
+                .clearSignedBedrockPrincipalV2();
+        if (session.hasPlayer() && session.getPlayer().hasProfile()) {
+            var profile = session.getPlayer().getProfile().toBuilder().clearProperties();
+            for (var property : session.getPlayer().getProfile().getPropertiesList()) {
+                if (!BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName()) &&
+                        !BedrockIdentityProfiles.SCOPE_PROPERTY_NAME.equals(property.getName()) &&
+                        !BedrockIdentityProfiles.PRINCIPAL_V2_PROPERTY_NAME.equals(property.getName())) {
+                    profile.addProperties(property);
+                }
             }
+            sanitized.setPlayer(session.getPlayer().toBuilder().setProfile(profile));
         }
-        return session.toBuilder()
-                .setPlayer(session.getPlayer().toBuilder().setProfile(profile))
-                .build();
+        return sanitized.build();
     }
 
     private static boolean hasPrivateIdentity(Session session) {
-        if (session == null || !session.hasPlayer() || !session.getPlayer().hasProfile()) {
+        if (session == null) {
             return false;
         }
+        if (!session.getConnectSessionNonce().isEmpty()
+                || !session.getSignedBedrockPrincipalV2().isEmpty()) return true;
+        if (!session.hasPlayer() || !session.getPlayer().hasProfile()) return false;
         return session.getPlayer().getProfile().getPropertiesList().stream()
                 .anyMatch(property ->
                         BedrockIdentityVerifier.PROPERTY_NAME.equals(property.getName()) ||
-                                BedrockIdentityProfiles.SCOPE_PROPERTY_NAME.equals(property.getName()));
+                                BedrockIdentityProfiles.SCOPE_PROPERTY_NAME.equals(property.getName()) ||
+                                BedrockIdentityProfiles.PRINCIPAL_V2_PROPERTY_NAME.equals(property.getName()));
     }
 
     private static String firstNonEmpty(String preferred, String fallback) {

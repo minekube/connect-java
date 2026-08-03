@@ -77,6 +77,19 @@ bedrock-identity:
   # Required exact policy: linked_java_only or trusted_bedrock_xuid.
   expected-policy: trusted_bedrock_xuid
 
+# Signed Bedrock principal v2 is additive to the legacy identity path above. New generated
+# configurations require it; files created before this section existed remain generation 0,
+# preserve their legacy behavior, and never advertise v2 until explicitly upgraded.
+bedrock-principal:
+  config-generation: 2
+  mode: require
+  issuer: minekube-connect
+  trust-domain: urn:minekube:connect:production
+  audience: urn:minekube:connect:bedrock-principal:v2
+  metadata-origin: https://connect.minekube.com
+  metadata-path: /.well-known/minekube-connect/bedrock-principal-v2.json
+  public-keys: {}
+
 # bStats is a stat tracker that is entirely anonymous and tracks only basic information
 # about Connect, such as how many people are online, how many servers are using Connect,
 # what OS is being used, etc. You can learn more about bStats here: https://bstats.org/.
@@ -86,5 +99,6 @@ metrics:
   # The unique id that should be consistent for a server/proxy.
   uuid: ${metrics.uuid}
 
-# Do not change this
+# The legacy config file format remains version 1; v2 generation is controlled by
+# bedrock-principal.config-generation above.
 config-version: 1

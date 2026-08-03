@@ -32,6 +32,7 @@ import com.google.common.collect.Maps;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityClaims;
+import com.minekube.connect.api.player.principal.VerifiedBedrockPrincipal;
 import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
 import java.util.Collection;
 import java.util.Map;
@@ -103,6 +104,16 @@ public class SimpleConnectApi implements ConnectApi {
         return verifiedBedrockIdentities == null
                 ? Optional.empty()
                 : verifiedBedrockIdentities.get(player);
+    }
+
+    @Override
+    public Optional<VerifiedBedrockPrincipal> getVerifiedBedrockPrincipal(ConnectPlayer player) {
+        if (player == null || players.get(player.getUniqueId()) != player) {
+            return Optional.empty();
+        }
+        return verifiedBedrockIdentities == null
+                ? Optional.empty()
+                : verifiedBedrockIdentities.getPrincipal(player);
     }
 
     /**

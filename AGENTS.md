@@ -206,6 +206,16 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
   `NmsDiagnostics` helpers so they stay reportable; `spigot/.../util/NmsDiagnosticsTest`
   guards this contract.
 
+## Bedrock signed-principal v2
+
+- Operator behavior and configuration belong in `docs/bedrock-identity.md`. Authoritative Java
+  surfaces are `api/.../player/principal`, `core/.../bedrock/BedrockPrincipalConsumer`, the
+  Watch/libp2p protos and registration framing, and
+  `core/src/test/resources/bedrock-principal-v2/UPSTREAM`.
+- Keep principals verifier-constructed/sealed, consume envelopes only from authenticated wire
+  field 12, preserve generation-1 `warn` files byte-for-byte, and never advertise v2 readiness
+  without exact generation-2 `require`, usable keys, replay, and profile application.
+
 ## Java runtime compatibility
 
 - Java 26 is not a libp2p classloader incompatibility; the isolation has been verified on

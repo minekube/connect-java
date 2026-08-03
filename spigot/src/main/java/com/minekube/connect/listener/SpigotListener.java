@@ -55,10 +55,14 @@ public final class SpigotListener implements Listener {
         if (player != null) {
             //todo we should probably move this log message earlier in the process, so that we know
             // that Connect has done its job
-            logger.translatedInfo(
-                    "connect.ingame.login_name",
-                    player.getUsername(), player.getUniqueId()
-            );
+            if (api.getVerifiedBedrockPrincipal(player).isPresent()) {
+                logger.info("A verified Bedrock principal v2 session joined");
+            } else {
+                logger.translatedInfo(
+                        "connect.ingame.login_name",
+                        player.getUsername(), player.getUniqueId()
+                );
+            }
             languageManager.loadLocale(player.getLanguageTag());
         }
     }

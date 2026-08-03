@@ -7,6 +7,7 @@ import com.minekube.connect.api.player.Auth;
 import com.minekube.connect.api.player.ConnectPlayer;
 import com.minekube.connect.api.player.GameProfile;
 import com.minekube.connect.api.player.bedrock.BedrockIdentityProfiles;
+import com.minekube.connect.api.player.principal.VerifiedBedrockPrincipal;
 import com.minekube.connect.player.ConnectPlayerImpl;
 import com.minekube.connect.watch.SessionProposal;
 import java.util.ArrayList;
@@ -30,6 +31,7 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
     private static final long ADMISSION_TTL_SECONDS = 30;
 
     private final VerifiedBedrockIdentityRegistry identities;
+    private final BedrockPrincipalConsumer principalConsumer;
     private final ScheduledExecutorService cleanupExecutor;
     private final Map<AdmissionToken, Admission> admissions = new HashMap<>();
     private final Map<String, Admission> latestBySession = new HashMap<>();
@@ -38,14 +40,28 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
     private boolean closed;
 
     @Inject
+    public BedrockAdmissionCoordinator(
+            VerifiedBedrockIdentityRegistry identities,
+            BedrockPrincipalConsumer principalConsumer) {
+        this(identities, principalConsumer, newCleanupExecutor());
+    }
+
     public BedrockAdmissionCoordinator(VerifiedBedrockIdentityRegistry identities) {
-        this(identities, newCleanupExecutor());
+        this(identities, null, newCleanupExecutor());
     }
 
     BedrockAdmissionCoordinator(
             VerifiedBedrockIdentityRegistry identities,
             ScheduledExecutorService cleanupExecutor) {
+        this(identities, null, cleanupExecutor);
+    }
+
+    private BedrockAdmissionCoordinator(
+            VerifiedBedrockIdentityRegistry identities,
+            BedrockPrincipalConsumer principalConsumer,
+            ScheduledExecutorService cleanupExecutor) {
         this.identities = Objects.requireNonNull(identities, "identities");
+        this.principalConsumer = principalConsumer;
         this.cleanupExecutor = Objects.requireNonNull(cleanupExecutor, "cleanupExecutor");
     }
 
@@ -85,7 +101,12 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
                 admission.state != AdmissionState.PENDING) {
             throw new IllegalStateException("Bedrock admission has expired or been superseded");
         }
-        ConnectPlayer publicPlayer = publicPlayer(playerFor(admission.raw));
+        if (principalConsumer != null) {
+            admission.principal = principalConsumer.verify(admission.raw).orElse(null);
+        }
+        ConnectPlayer publicPlayer = admission.principal == null
+                ? publicPlayer(playerFor(admission.raw))
+                : playerFor(admission.raw, admission.principal);
         admission.player = publicPlayer;
         players.put(publicPlayer, token);
         return publicPlayer;
@@ -116,8 +137,10 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
         }
         BedrockIdentityEnforcer.Decision decision;
         try {
-            decision = enforcer.verifyAdmissionSnapshot(
-                    player, rawProfile, endpointId, endpointOrgId, protocol);
+            decision = admission.principal == null
+                    ? enforcer.verifyAdmissionSnapshot(
+                            player, rawProfile, endpointId, endpointOrgId, protocol)
+                    : BedrockIdentityEnforcer.Decision.allowed(null);
         } catch (RuntimeException | Error e) {
             synchronized (this) {
                 removeAdmission(admission);
@@ -137,6 +160,9 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
             admission.state = AdmissionState.CONSUMED;
             if (decision.verifiedClaims() != null) {
                 identities.record(player, token.generation, decision.verifiedClaims());
+            }
+            if (admission.principal != null) {
+                identities.recordPrincipal(player, token.generation, admission.principal);
             }
             return decision;
         }
@@ -191,6 +217,16 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
                 profile(player),
                 new Auth(session.getAuth().getPassthrough()),
                 "");
+    }
+
+    private static ConnectPlayer playerFor(Session session, VerifiedBedrockPrincipal principal) {
+        Player player = session.getPlayer();
+        var effective = principal.effectiveGameProfile();
+        GameProfile original = profile(player);
+        GameProfile selected = new GameProfile(
+                effective.name(), effective.uuid(), BedrockIdentityProfiles.withoutEnvelope(original).getProperties());
+        return new ConnectPlayerImpl(
+                session.getId(), selected, new Auth(session.getAuth().getPassthrough()), "");
     }
 
     private static GameProfile profile(Player player) {
@@ -273,6 +309,7 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
         private final AdmissionToken token;
         private final String sessionId;
         private ConnectPlayer player;
+        private VerifiedBedrockPrincipal principal;
         private ScheduledFuture<?> cleanup;
         private AdmissionState state = AdmissionState.PENDING;
 

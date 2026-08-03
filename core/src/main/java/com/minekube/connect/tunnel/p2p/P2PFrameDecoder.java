@@ -37,6 +37,9 @@ final class P2PFrameDecoder<T extends MessageLite> extends ByteToMessageDecoder 
     P2PFrameDecoder(Parser<T> parser, int maxFrameSize) {
         this.parser = parser;
         this.maxFrameSize = maxFrameSize;
+        // Negotiation may put the final naked result and first kind-prefixed frame in one read.
+        // Deliver one frame before decoding the remainder so the handler can switch codecs.
+        setSingleDecode(true);
     }
 
     @Override

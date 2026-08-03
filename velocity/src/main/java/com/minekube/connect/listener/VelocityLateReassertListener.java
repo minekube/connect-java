@@ -183,7 +183,7 @@ public final class VelocityLateReassertListener {
             return;
         }
         event.setGameProfile(wanted);
-        logger.debug("Re-asserted the game profile of Connect session {}", player.getUsername());
+        logger.debug("Re-asserted the game profile of a Connect session");
     }
 
     private boolean enabled() {

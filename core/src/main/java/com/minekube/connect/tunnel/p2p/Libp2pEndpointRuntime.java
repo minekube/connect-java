@@ -29,6 +29,7 @@ import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness;
+import com.minekube.connect.bedrock.BedrockPrincipalReadiness;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness.Transport;
 import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.config.ConnectConfig;
@@ -80,6 +81,7 @@ final class Libp2pEndpointRuntime {
     private final PlatformInjector platformInjector;
     private final SimpleConnectApi api;
     private final BedrockIdentityReadiness bedrockIdentityReadiness;
+    private final BedrockPrincipalReadiness bedrockPrincipalReadiness;
     private final BedrockAdmissionCoordinator admissionCoordinator;
     private final String endpointInstanceId = newEndpointInstanceId();
     private final AtomicLong sequence = new AtomicLong();
@@ -104,6 +106,7 @@ final class Libp2pEndpointRuntime {
             PlatformInjector platformInjector,
             SimpleConnectApi api,
             BedrockIdentityReadiness bedrockIdentityReadiness,
+            BedrockPrincipalReadiness bedrockPrincipalReadiness,
             BedrockAdmissionCoordinator admissionCoordinator) {
         this.dataDirectory = dataDirectory;
         this.connectConfig = connectConfig;
@@ -113,6 +116,7 @@ final class Libp2pEndpointRuntime {
         this.platformInjector = platformInjector;
         this.api = api;
         this.bedrockIdentityReadiness = bedrockIdentityReadiness;
+        this.bedrockPrincipalReadiness = bedrockPrincipalReadiness;
         this.admissionCoordinator = admissionCoordinator;
     }
 
@@ -126,7 +130,7 @@ final class Libp2pEndpointRuntime {
             SimpleConnectApi api,
             BedrockIdentityReadiness bedrockIdentityReadiness) {
         this(dataDirectory, connectConfig, connectToken, platformUtils, logger, platformInjector, api,
-                bedrockIdentityReadiness, null);
+                bedrockIdentityReadiness, null, null);
     }
 
     @Inject
@@ -279,6 +283,7 @@ final class Libp2pEndpointRuntime {
             PeerRegistrationClient client = null;
             try {
                 Stream stream = openRegisterStream(address);
+                List<String> capabilities = principalCapabilities();
                 PeerRegistrationHandshake handshake = new PeerRegistrationHandshake(
                         identity,
                         connectConfig.getEndpoint(),
@@ -289,11 +294,10 @@ final class Libp2pEndpointRuntime {
                                 : connectConfig.getSuperEndpoints(),
                         offlineMode,
                         authType,
-                        bedrockIdentityReadiness.capabilities(
-                                libp2pConfig.capabilities(),
-                                Transport.LIBP2P),
+                        capabilities,
+                        framedPrincipalCapabilities(capabilities),
                         this::currentCapacity);
-                client = new PeerRegistrationClient(handshake);
+                client = new PeerRegistrationClient(handshake, bedrockPrincipalReadiness);
                 PeerRegisterResult result = await(client.install(
                                 stream,
                                 this::refreshObservedAddrs,
@@ -313,6 +317,22 @@ final class Libp2pEndpointRuntime {
         throw lastError == null
                 ? new IllegalStateException("no libp2p Connect edge register addresses configured")
                 : lastError;
+    }
+
+    private List<String> principalCapabilities() {
+        List<String> legacy = bedrockIdentityReadiness.capabilities(
+                libp2pConfig.capabilities(), Transport.LIBP2P);
+        legacy.removeIf(BedrockPrincipalReadiness.CAPABILITY::equals);
+        return List.copyOf(legacy);
+    }
+
+    private List<String> framedPrincipalCapabilities(List<String> legacy) {
+        if (bedrockPrincipalReadiness == null || !bedrockPrincipalReadiness.isReady()) {
+            return legacy;
+        }
+        List<String> framed = new ArrayList<>(legacy);
+        framed.add(BedrockPrincipalReadiness.CAPABILITY);
+        return List.copyOf(framed);
     }
 
     static List<String> registerAttemptAddresses(List<String> registerAddrs, int attemptsPerAddress) {

@@ -201,7 +201,7 @@ public final class LocalSession {
         }
 
         logger.debug("Connecting {} to local downstream server {}",
-                context.player.getUsername(), targetAddress);
+                logPlayer(context), targetAddress);
         bootstrap
                 .remoteAddress(targetAddress)
                 .connect()
@@ -221,11 +221,17 @@ public final class LocalSession {
                 });
     }
 
+    private static String logPlayer(Context context) {
+        return context.sessionProposal.hasBedrockPrincipalV2()
+                ? "<bedrock-principal-v2>"
+                : context.player.getUsername();
+    }
+
     private void exceptionCaught(Throwable cause, ConnectPlayer player) {
         if (admissionCoordinator != null) {
             admissionCoordinator.discard(player);
         }
-        cause.printStackTrace();
+        logger.warn("Connect local session failed (category={})", cause.getClass().getSimpleName());
         // Reject session proposal in case we are still able to.
         sessionProposal.reject(StatusProto.fromThrowable(cause));
     }
