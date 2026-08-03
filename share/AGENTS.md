@@ -73,6 +73,11 @@ redesigned for Kotlin.
   `prismlauncher --launch <instance> --offline <name> --server <host:port>`.
   `--offline <name>` is authoritative; editing `InstanceAccountId` while Prism
   runs is not, because Prism rewrites it.
+- A matching Prism JVM PID does not prove a fresh launch. Snapshot
+  `minecraft/logs/latest.log` before launch, require a newer mtime plus the
+  expected world/runtime markers, and treat an old JVM with an unchanged log as
+  an occupied stale instance. Before terminating one, resolve exactly one PID
+  by its instance working directory; never kill a broad Java process set.
 - Prove the flow in layers: mDNS discovery, authenticated friend activity,
   Minecraft status when host privacy permits it, then follow [the testing
   guide](../docs/connect-share-testing.md) for the real two-client login
@@ -119,6 +124,14 @@ redesigned for Kotlin.
   the confirmed test friend, send the real libp2p join request, and restore the
   permission afterwards. Keep machine-specific instance paths and credentials
   in environment variables, never in committed tests or scripts.
+- A vanilla no-mod Connect join has no signed direct-peer proof. Its Connect
+  profile may therefore require an ordinary pending admission even when a
+  same-named offline friend is set to auto-accept; do not weaken UUID/peer
+  matching to make a test pass. An unattended local proof may attach a
+  temporary, uncommitted driver that resolves the existing `ShareViewModel`,
+  asserts exactly one pending admission, and invokes its normal `allow` action.
+  Emit only stage/result booleans, remove the driver afterwards, and never ship
+  a production bypass or log the pending identity/request ID.
 - Connect's no-mod session admission must finish before vanilla's own
   connection timeout. Preserve a deadline buffer, cancel the pending host
   request when it expires, and test the guest-visible actionable denial;

@@ -64,6 +64,12 @@ friend gateway is ready`. The integrated server object exists before the local
 client connection is ready; the mod must publish only when both exist and must
 advertise `HOSTING_WORLD` only from an actual `ShareState.Sharing`.
 
+Do not treat a matching JVM PID as launch success. Snapshot `latest.log` before
+launch and require both a newer mtime and the expected world/runtime markers.
+Prism can otherwise leave an old JVM occupying the instance while its log no
+longer advances. Resolve exactly one process by the instance's working
+directory before stopping it; never terminate Java processes by name alone.
+
 ## Run the opt-in live harness
 
 The executable harness is
@@ -135,6 +141,16 @@ For no-click automation, temporarily enable automatic joining only for the
 already confirmed test friend. Restore `canJoinAutomatically` to `false` and
 restart the host after the run. A deterministic test must separately cover the
 normal pending request, host approval, and one-shot admission path.
+
+A vanilla no-mod Connect client does not carry the signed direct peer proof
+used by the friend-control path. If its authenticated Connect UUID does not
+match the stored offline friend UUID, auto-accept must fail closed and create a
+normal pending admission. Do not relax that security boundary for automation.
+For an unattended local proof, a temporary uncommitted attach driver may call
+the installed `ShareViewModel` only after asserting exactly one pending request,
+then invoke the existing `allow` action. Report only boolean/stage results;
+never print the identity or request ID, never add a production test bypass, and
+delete the driver after restoring the original policy.
 
 ## Diagnose by gate
 
