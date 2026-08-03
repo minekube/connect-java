@@ -32,6 +32,7 @@ import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ThreadFactory
 import java.util.UUID
 import java.nio.file.Path
 import java.util.logging.Level
@@ -129,6 +130,7 @@ class ConnectShare1201Runtime(
                     friendActivity = activitySnapshot::get,
                     compatibilityProfile = { compatibilityProfile },
                     friendJoinTarget = joinTargetSnapshot::get,
+                    minecraftThreadFactory = platform.gatewayThreadFactory,
                     bridgeFactory = {
                             admission,
                             admissionScope,
@@ -480,6 +482,8 @@ interface ConnectShare1201Platform {
     val loader: ModLoader
     val loadedMods: List<LoadedMod>
     val configDirectory: Path
+    val gatewayThreadFactory: ThreadFactory?
+        get() = null
 
     fun onEndClientTick(callback: (Minecraft) -> Unit)
 

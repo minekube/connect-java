@@ -20,6 +20,12 @@ import net.minecraft.server.MinecraftServer
 import net.minecraft.core.UUIDUtil
 
 object Minecraft1201LoginBridge {
+    private val IMMEDIATE_LOGIN_CONTINUATION =
+        Minecraft1201LoginContinuation { _, accept -> accept.run() }
+
+    @Volatile
+    private var loginContinuation = IMMEDIATE_LOGIN_CONTINUATION
+
     @JvmStatic
     fun hasConnectIdentity(connection: Connection): Boolean =
         channel(connection).attr(ConnectAttributes.CONNECT_PLAYER).get() != null
@@ -64,6 +70,20 @@ object Minecraft1201LoginBridge {
     fun offlineProfile(requestedName: String): GameProfile? =
         requestedName.takeIf(String::isValidPlayerName)
             ?.let { GameProfile(UUIDUtil.createOfflinePlayerUUID(it), it) }
+
+    @JvmStatic
+    fun installLoginContinuation(continuation: Minecraft1201LoginContinuation) {
+        loginContinuation = continuation
+    }
+
+    @JvmStatic
+    fun continueApprovedLogin(listener: Any, accept: Runnable) {
+        loginContinuation.continueLogin(listener, accept)
+    }
+
+    internal fun resetLoginContinuationForTests() {
+        loginContinuation = IMMEDIATE_LOGIN_CONTINUATION
+    }
 
     @JvmStatic
     fun requestPassthroughAdmission(
@@ -171,4 +191,9 @@ object Minecraft1201LoginBridge {
 
     private fun denialReason(answer: AdmissionAnswer?): Component =
         Component.literal(ShareLoginMessages.denial(answer).fallback)
+
+}
+
+fun interface Minecraft1201LoginContinuation {
+    fun continueLogin(listener: Any, accept: Runnable)
 }

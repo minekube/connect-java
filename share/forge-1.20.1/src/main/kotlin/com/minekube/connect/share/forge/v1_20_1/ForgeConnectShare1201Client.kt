@@ -7,6 +7,7 @@ import com.minekube.connect.share.fabric.LoadedMod
 import com.minekube.connect.share.fabric.ModSide
 import com.minekube.connect.share.fabric.v1_20_1.ConnectShare1201Platform
 import com.minekube.connect.share.fabric.v1_20_1.ConnectShare1201Runtime
+import com.minekube.connect.share.fabric.v1_20_1.Minecraft1201LoginBridge
 import com.minekube.connect.share.friend.ModLoader
 import java.nio.file.Path
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +25,9 @@ class ForgeConnectShare1201Client {
     private val platform = ForgePlatform()
 
     init {
+        Minecraft1201LoginBridge.installLoginContinuation(
+            ForgeLoginNegotiation::continueApprovedLogin,
+        )
         ConnectShare1201Runtime(platform).initialize()
         MinecraftForge.EVENT_BUS.register(platform)
     }
@@ -46,6 +50,7 @@ class ForgeConnectShare1201Client {
             )
         }
         override val configDirectory: Path = FMLPaths.CONFIGDIR.get()
+        override val gatewayThreadFactory = ForgeGatewayThreadFactory
 
         override fun onEndClientTick(callback: (Minecraft) -> Unit) {
             tickCallbacks += callback

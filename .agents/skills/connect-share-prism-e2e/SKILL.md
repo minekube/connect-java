@@ -198,6 +198,14 @@ Recognize these established failure signatures:
   has crossed every control-plane gate but failed gameplay transport. Preserve
   the multi-window `DirectP2pNodeTest` regression and use jvm-libp2p's tested
   Mplex default; do not retry or hide the post-login disconnect.
+- A Forge guest that reaches login and receives `Unexpected custom data from
+  client` or `Illegal packet received, terminating connection` without muxer
+  errors has failed loader negotiation or thread-side classification. The
+  always-on Share gateway must run Minecraft handlers on a Forge
+  logical-server thread group, and approved offline admission must enter
+  Forge's native `NEGOTIATING` state instead of calling accepted-login early.
+  A passing proof logs the guest's modded-server handshake, server join, and
+  guest advancements with none of those rejection lines.
 - A host `lost connection: Disconnected` line alone is incomplete evidence.
   Inspect the guest log or screen and whether the owner of the one-shot proxy
   closed it.

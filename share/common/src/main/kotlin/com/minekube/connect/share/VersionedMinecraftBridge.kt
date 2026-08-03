@@ -9,10 +9,8 @@ import io.netty.bootstrap.ServerBootstrap
 import io.netty.channel.Channel
 import io.netty.channel.ChannelFuture
 import io.netty.channel.ChannelInitializer
-import io.netty.channel.DefaultEventLoopGroup
 import io.netty.channel.EventLoopGroup
 import io.netty.channel.local.LocalAddress
-import io.netty.util.concurrent.DefaultThreadFactory
 import java.net.InetSocketAddress
 import java.net.SocketAddress
 
@@ -76,7 +74,10 @@ open class VersionedMinecraftBridge private constructor(
                 )
             } else {
                 local = checkNotNull(localBinder)
-                    .bind(published.childInitializer)
+                    .bind(
+                        published.childInitializer,
+                        published.eventLoopGroup,
+                    )
                 validateLocal(local).fold(
                     ifLeft = {
                         throw IllegalStateException(it.safeMessage)
@@ -260,6 +261,7 @@ fun interface MinecraftVersionTransport {
 interface PublishedMinecraftTransport {
     val address: InetSocketAddress
     val childInitializer: ChannelInitializer<Channel>
+    val eventLoopGroup: EventLoopGroup
 
     fun addLocalListener(listener: LocalShareChannel)
 
@@ -269,7 +271,10 @@ interface PublishedMinecraftTransport {
 }
 
 fun interface LocalShareChannelBinder {
-    fun bind(childInitializer: ChannelInitializer<Channel>): LocalShareChannel
+    fun bind(
+        childInitializer: ChannelInitializer<Channel>,
+        eventLoopGroup: EventLoopGroup,
+    ): LocalShareChannel
 }
 
 interface LocalShareChannel {
@@ -283,25 +288,18 @@ interface LocalShareChannel {
 class NettyLocalShareChannelBinder : LocalShareChannelBinder {
     override fun bind(
         childInitializer: ChannelInitializer<Channel>,
+        eventLoopGroup: EventLoopGroup,
     ): LocalShareChannel {
-        val eventLoop = DefaultEventLoopGroup(
-            0,
-            DefaultThreadFactory(
-                "Connect Share local",
-                Thread.MAX_PRIORITY,
-            ),
-        )
         try {
             val future = ServerBootstrap()
                 .channel(LocalServerChannelWrapper::class.java)
                 .childHandler(childInitializer)
-                .group(eventLoop)
+                .group(eventLoopGroup)
                 .localAddress(LocalAddress.ANY)
                 .bind()
                 .syncUninterruptibly()
-            return NettyLocalShareChannel(future, eventLoop)
+            return NettyLocalShareChannel(future)
         } catch (failure: Throwable) {
-            eventLoop.shutdownGracefully().syncUninterruptibly()
             throw failure
         }
     }
@@ -309,13 +307,11 @@ class NettyLocalShareChannelBinder : LocalShareChannelBinder {
 
 private class NettyLocalShareChannel(
     override val future: ChannelFuture,
-    private val eventLoop: EventLoopGroup,
 ) : LocalShareChannel {
     override val address = future.channel().localAddress()
 
     override fun close() {
         future.closeChannel()
-        eventLoop.shutdownGracefully().syncUninterruptibly()
     }
 }
 

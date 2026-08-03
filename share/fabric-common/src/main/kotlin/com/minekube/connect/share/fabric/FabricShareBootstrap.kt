@@ -30,6 +30,7 @@ import com.minekube.connect.tunnel.p2p.DirectP2pAuthMode
 import com.minekube.connect.util.MessageFormatter
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ThreadFactory
 import java.util.UUID
 import java.util.logging.Level
 import java.util.logging.Logger
@@ -73,6 +74,7 @@ object FabricShareBootstrap {
         environment: Map<String, String> = System.getenv(),
         logger: ConnectLogger = FabricConnectLogger(),
         httpClient: OkHttpClient = OkHttpClient(),
+        minecraftThreadFactory: ThreadFactory? = null,
     ): ConnectShareInstallation {
         val viewModelReference = AtomicReference<ShareViewModel?>()
         val diagnostics = ShareJoinDiagnostics()
@@ -161,7 +163,10 @@ object FabricShareBootstrap {
             presencePrivacy = { preferences.get().presence },
             joinTarget = friendJoinTarget,
         )
-        val gateway = ShareConnectionGateway.bind(friendRequestServer)
+        val gateway = ShareConnectionGateway.bind(
+            minecraftThreadFactory = minecraftThreadFactory,
+            friendServer = friendRequestServer,
+        )
         var browser: FabricShareBrowser? = null
         var controlPlane: ConnectControlPlane? = null
         var directControlPlane: DirectControlPlane? = null

@@ -4,6 +4,8 @@ import com.minekube.connect.share.ShareGameMode
 import com.minekube.connect.share.ShareOptions
 import io.netty.channel.Channel
 import io.netty.channel.ChannelInitializer
+import io.netty.channel.DefaultEventLoopGroup
+import io.netty.channel.EventLoopGroup
 import io.netty.channel.local.LocalAddress
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -58,7 +60,7 @@ class Minecraft12111BridgeTest {
         val transport = FakeMinecraftTransport()
         val bridge = Minecraft12111Bridge(
             transport,
-            LocalShareChannelBinder {
+            LocalShareChannelBinder { _, _ ->
                 throw IllegalStateException("local bind failed")
             },
         )
@@ -75,6 +77,7 @@ class Minecraft12111BridgeTest {
         var publishedPort = -1
         var listenerCount = 0
         lateinit var boundAddress: InetSocketAddress
+        val eventLoopGroup: EventLoopGroup = DefaultEventLoopGroup(1)
 
         override fun publish(options: ShareOptions): PublishedMinecraftTransport {
             check(publishedPort == -1)
@@ -84,6 +87,7 @@ class Minecraft12111BridgeTest {
             return object : PublishedMinecraftTransport {
                 override val address: InetSocketAddress = boundAddress
                 override val childInitializer: ChannelInitializer<Channel> = NoopInitializer
+                override val eventLoopGroup = this@FakeMinecraftTransport.eventLoopGroup
 
                 override fun addLocalListener(listener: LocalShareChannel) {
                     listenerCount++
@@ -106,6 +110,7 @@ class Minecraft12111BridgeTest {
     private class FakeLocalChannelBinder : LocalShareChannelBinder {
         override fun bind(
             childInitializer: ChannelInitializer<Channel>,
+            eventLoopGroup: EventLoopGroup,
         ): LocalShareChannel = object : LocalShareChannel {
             override val address: SocketAddress = LocalAddress("connect-share-test")
             override fun close() = Unit

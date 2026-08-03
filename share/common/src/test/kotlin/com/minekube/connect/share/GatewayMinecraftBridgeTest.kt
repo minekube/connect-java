@@ -7,6 +7,8 @@ import io.netty.channel.Channel
 import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.ChannelInboundHandlerAdapter
 import io.netty.channel.ChannelInitializer
+import io.netty.channel.DefaultEventLoopGroup
+import io.netty.channel.EventLoopGroup
 import io.netty.channel.local.LocalAddress
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -131,6 +133,7 @@ class GatewayMinecraftBridgeTest {
                     )
                 }
             }
+        override val eventLoopGroup: EventLoopGroup = DefaultEventLoopGroup(1)
         var onAdd: () -> Unit = {}
         var onRemove: () -> Unit = {}
         var closed = false
@@ -145,6 +148,7 @@ class GatewayMinecraftBridgeTest {
 
         override fun close() {
             closed = true
+            eventLoopGroup.shutdownGracefully().syncUninterruptibly()
         }
     }
 

@@ -187,6 +187,18 @@ redesigned for Kotlin.
   adapter. Yamux on Netty 4.2 can double-release its buffered window data on
   Java 17 after server login, disconnecting the player while flooding the host
   with `IllegalReferenceCountException`.
+- Run every gateway path that installs Minecraft's captured initializer on the
+  loader's logical-server thread group; thread affinity is part of the loader
+  contract, not an interchangeable executor. Forge derives packet side from
+  the thread group, so a generic always-on gateway can reject login/play custom
+  payloads as client-side. A directly bound local listener borrows Minecraft's
+  captured `EventLoopGroup` and closes only its channel. The always-on Forge
+  gateway instead owns loader-classified event loops supplied by the adapter.
+- Admission must resume through a loader continuation. Fabric can call
+  `handleAcceptedLogin` immediately, but Forge must enter its native
+  `NEGOTIATING` state so FML login queries finish before play. Skipping that
+  state makes two Forge clients misclassify each other as vanilla and later
+  disconnect on registry custom payloads.
 - Legacy Forge's final reobfuscated JAR must contain its generated Mixin refmap
   and name it from the loader-specific mixin config. Forge and NeoForge client
   resources need a compatible `pack.mcmeta`, otherwise startup can stop at a

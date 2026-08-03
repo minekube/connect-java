@@ -9,6 +9,7 @@ import com.minekube.connect.share.fabric.v26_2.mixin.ServerConnectionListenerAcc
 import io.netty.channel.Channel
 import io.netty.channel.ChannelFuture
 import io.netty.channel.ChannelInitializer
+import io.netty.channel.EventLoopGroup
 import java.net.InetSocketAddress
 import net.minecraft.client.Minecraft
 import net.minecraft.client.server.IntegratedServer
@@ -71,6 +72,7 @@ internal class VanillaMinecraft262Transport(
                 loopback = loopback,
                 address = address,
                 childInitializer = captured.childInitializer,
+                eventLoopGroup = captured.eventLoopGroup,
             )
         } catch (failure: Throwable) {
             captureLease.close()
@@ -119,6 +121,7 @@ private class PublishedVanillaTransport(
     private val loopback: ChannelFuture,
     override val address: InetSocketAddress,
     override val childInitializer: ChannelInitializer<Channel>,
+    override val eventLoopGroup: EventLoopGroup,
 ) : PublishedMinecraftTransport {
     override fun addLocalListener(listener: LocalShareChannel) {
         val future = checkNotNull(listener.future) {

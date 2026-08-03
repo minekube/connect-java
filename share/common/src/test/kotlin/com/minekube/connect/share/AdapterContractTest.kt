@@ -2,6 +2,8 @@ package com.minekube.connect.share
 
 import io.netty.channel.Channel
 import io.netty.channel.ChannelInitializer
+import io.netty.channel.DefaultEventLoopGroup
+import io.netty.channel.EventLoopGroup
 import io.netty.channel.local.LocalAddress
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -17,7 +19,8 @@ class AdapterContractTest {
     @Test
     fun `every version bridge is loopback local repeatable and exactly released`() = runBlocking {
         val harness = FakeVersionTransport()
-        val bridge = VersionedMinecraftBridge(harness, FakeLocalBinder())
+        val binder = FakeLocalBinder()
+        val bridge = VersionedMinecraftBridge(harness, binder)
 
         val first = bridge.open(options)
         assertTrue(harness.boundAddress.address.isLoopbackAddress)
@@ -35,6 +38,8 @@ class AdapterContractTest {
         assertEquals(-1, harness.publishedPort)
         assertEquals(0, harness.listenerCount)
         assertEquals(2, harness.publishCount)
+        assertEquals(listOf(harness.eventLoopGroup, harness.eventLoopGroup), binder.eventLoopGroups)
+        harness.eventLoopGroup.shutdownGracefully().syncUninterruptibly()
     }
 
     @Test
@@ -68,6 +73,7 @@ class AdapterContractTest {
         var listenerCount = 0
         var publishCount = 0
         var publishedCloseCount = 0
+        val eventLoopGroup: EventLoopGroup = DefaultEventLoopGroup(1)
         lateinit var boundAddress: InetSocketAddress
 
         override fun publish(options: ShareOptions): PublishedMinecraftTransport {
@@ -79,6 +85,7 @@ class AdapterContractTest {
             return object : PublishedMinecraftTransport {
                 override val address = boundAddress
                 override val childInitializer = NoopInitializer
+                override val eventLoopGroup = this@FakeVersionTransport.eventLoopGroup
 
                 override fun addLocalListener(listener: LocalShareChannel) {
                     listenerCount++
@@ -104,6 +111,7 @@ class AdapterContractTest {
 
         override fun bind(
             childInitializer: ChannelInitializer<Channel>,
+            eventLoopGroup: EventLoopGroup,
         ): LocalShareChannel = object : LocalShareChannel {
             override val address: SocketAddress = LocalAddress("failing-local")
 
@@ -115,11 +123,17 @@ class AdapterContractTest {
     }
 
     private class FakeLocalBinder : LocalShareChannelBinder {
+        val eventLoopGroups = mutableListOf<EventLoopGroup>()
+
         override fun bind(
             childInitializer: ChannelInitializer<Channel>,
-        ): LocalShareChannel = object : LocalShareChannel {
-            override val address: SocketAddress = LocalAddress("adapter-contract")
-            override fun close() = Unit
+            eventLoopGroup: EventLoopGroup,
+        ): LocalShareChannel {
+            eventLoopGroups += eventLoopGroup
+            return object : LocalShareChannel {
+                override val address: SocketAddress = LocalAddress("adapter-contract")
+                override fun close() = Unit
+            }
         }
     }
 

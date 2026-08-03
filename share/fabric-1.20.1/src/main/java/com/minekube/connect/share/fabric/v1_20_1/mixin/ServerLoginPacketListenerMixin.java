@@ -60,7 +60,9 @@ public abstract class ServerLoginPacketListenerMixin {
             connectShare$beginAdmission(profile);
         } else {
             connectShare$admissionAllowed = true;
-            handleAcceptedLogin();
+            Minecraft1201LoginBridge.continueApprovedLogin(
+                    this,
+                    this::handleAcceptedLogin);
         }
         callback.cancel();
     }
@@ -86,7 +88,9 @@ public abstract class ServerLoginPacketListenerMixin {
         connectShare$admissionStarted = true;
         Runnable allow = () -> {
             connectShare$admissionAllowed = true;
-            handleAcceptedLogin();
+            Minecraft1201LoginBridge.continueApprovedLogin(
+                    this,
+                    this::handleAcceptedLogin);
         };
         if (Minecraft1201LoginBridge.hasDirectSession(connection)) {
             Minecraft1201LoginBridge.requestDirectAdmission(

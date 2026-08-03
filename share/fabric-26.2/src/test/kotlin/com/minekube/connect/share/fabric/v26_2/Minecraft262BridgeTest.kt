@@ -4,6 +4,8 @@ import com.minekube.connect.share.ShareGameMode
 import com.minekube.connect.share.ShareOptions
 import io.netty.channel.Channel
 import io.netty.channel.ChannelInitializer
+import io.netty.channel.DefaultEventLoopGroup
+import io.netty.channel.EventLoopGroup
 import io.netty.channel.local.LocalAddress
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -44,6 +46,7 @@ class Minecraft262BridgeTest {
         var listenerCount = 0
         var publishCount = 0
         lateinit var boundAddress: InetSocketAddress
+        val eventLoopGroup: EventLoopGroup = DefaultEventLoopGroup(1)
 
         override fun publish(options: ShareOptions): PublishedMinecraftTransport {
             check(publishedPort == -1)
@@ -54,6 +57,7 @@ class Minecraft262BridgeTest {
             return object : PublishedMinecraftTransport {
                 override val address = boundAddress
                 override val childInitializer = NoopInitializer
+                override val eventLoopGroup = this@FakeMinecraftTransport.eventLoopGroup
 
                 override fun addLocalListener(listener: LocalShareChannel) {
                     listenerCount++
@@ -76,6 +80,7 @@ class Minecraft262BridgeTest {
     private class FakeLocalChannelBinder : LocalShareChannelBinder {
         override fun bind(
             childInitializer: ChannelInitializer<Channel>,
+            eventLoopGroup: EventLoopGroup,
         ): LocalShareChannel = object : LocalShareChannel {
             override val address: SocketAddress = LocalAddress("connect-share-26-2")
             override fun close() = Unit

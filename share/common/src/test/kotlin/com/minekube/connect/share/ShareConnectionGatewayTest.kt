@@ -17,19 +17,72 @@ import io.netty.channel.ChannelInitializer
 import io.netty.channel.DefaultEventLoopGroup
 import io.netty.channel.SimpleChannelInboundHandler
 import io.netty.channel.local.LocalAddress
+import io.netty.util.ReferenceCountUtil
 import java.io.ByteArrayOutputStream
 import java.net.Socket
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
+import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class ShareConnectionGatewayTest {
+    @Test
+    fun `Minecraft packets run on the supplied loader thread group`() {
+        val loaderThreadGroup = ThreadGroup("test-loader-server")
+        val threadFactory = ThreadFactory { task ->
+            Thread(loaderThreadGroup, task)
+        }
+        ShareConnectionGateway.bind(
+            friendServer = { _, _ ->
+                CompletableFuture.completedFuture(
+                    FriendControlResponse.Invalid,
+                )
+            },
+            minecraftThreadFactory = threadFactory,
+        ).use { gateway ->
+            val observed = CompletableFuture<ThreadGroup>()
+            gateway.activateMinecraft(
+                object : ChannelInitializer<Channel>() {
+                    override fun initChannel(channel: Channel) {
+                        channel.pipeline().addLast(
+                            object : ChannelInboundHandlerAdapter() {
+                                override fun channelRead(
+                                    context: ChannelHandlerContext,
+                                    message: Any,
+                                ) {
+                                    ReferenceCountUtil.release(message)
+                                    observed.complete(
+                                        Thread.currentThread().threadGroup,
+                                    )
+                                    context.close()
+                                }
+                            },
+                        )
+                    }
+                },
+            ).use {
+                Socket().use { socket ->
+                    socket.connect(gateway.directAddress)
+                    socket.getOutputStream().apply {
+                        write(MINECRAFT_LOGIN_HANDSHAKE)
+                        flush()
+                    }
+                }
+                assertSame(
+                    loaderThreadGroup,
+                    observed.get(2, TimeUnit.SECONDS),
+                )
+            }
+        }
+    }
+
     @Test
     fun `host privacy rejects Minecraft status without blocking login`() {
         val server = object : FriendControlServer {

@@ -27,20 +27,24 @@ import java.net.InetSocketAddress
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ThreadFactory
 
 class ShareConnectionGateway private constructor(
     private val friendServer: FriendControlServer,
+    minecraftThreadFactory: ThreadFactory?,
 ) : CommonPlatformInjector(), AutoCloseable {
     private val activeMinecraft =
         AtomicReference<ChannelInitializer<Channel>?>(null)
     private val closed = AtomicBoolean()
     private val localEventLoop: EventLoopGroup = DefaultEventLoopGroup(
         1,
-        DefaultThreadFactory("Connect Share gateway local"),
+        minecraftThreadFactory
+            ?: DefaultThreadFactory("Connect Share gateway local"),
     )
     private val directEventLoop: EventLoopGroup = NioEventLoopGroup(
         1,
-        DefaultThreadFactory("Connect Share gateway direct"),
+        minecraftThreadFactory
+            ?: DefaultThreadFactory("Connect Share gateway direct"),
     )
     private val directChannel: ChannelFuture
 
@@ -302,9 +306,15 @@ class ShareConnectionGateway private constructor(
     }
 
     companion object {
-        fun bind(friendServer: FriendControlServer):
+        fun bind(friendServer: FriendControlServer): ShareConnectionGateway =
+            ShareConnectionGateway(friendServer, null)
+
+        fun bind(
+            minecraftThreadFactory: ThreadFactory?,
+            friendServer: FriendControlServer,
+        ):
             ShareConnectionGateway =
-            ShareConnectionGateway(friendServer)
+            ShareConnectionGateway(friendServer, minecraftThreadFactory)
 
         private fun closeChannel(future: ChannelFuture?) {
             val channel = future?.channel() ?: return
