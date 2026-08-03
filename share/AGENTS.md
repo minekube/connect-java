@@ -122,7 +122,22 @@ redesigned for Kotlin.
 - Connect's no-mod session admission must finish before vanilla's own
   connection timeout. Preserve a deadline buffer, cancel the pending host
   request when it expires, and test the guest-visible actionable denial;
-  generic `Timed out` is a failed UX result.
+  generic `Timed out` is a failed UX result. Encode an intentional denial as
+  `PermissionDenied` with the safe copy repeated in a
+  `google.rpc.LocalizedMessage` detail: Moxy intentionally never shows a
+  connector-controlled raw status message. A bounded `PermissionDenied`
+  response proves the proposal reached this connector, so diagnose host
+  admission rather than session delivery.
+- An approved gameplay join may enable automatic friend-card exchange only
+  when its proof carries a direct peer ID and the subsequently supplied,
+  signature-verified invitation names that same peer. Name and Minecraft UUID
+  are not sufficient for offline or Connect-only sessions; fail closed rather
+  than turning an unbound admission into `AUTO_ACCEPT` friendship.
+- `approveNextJoin` grants are one-shot admission capabilities, not durable
+  friend state. Expire them within the admission timeout, deduplicate them,
+  and bound the queue by `maxPending`; when full, evict the oldest grant so a
+  requester cannot accumulate arbitrary UUID grants or grow memory without
+  bound.
 - `PrismFriendJoinE2ETest` is the opt-in live harness. Start the host first,
   then follow [the testing guide](../docs/connect-share-testing.md) for the
   complete two-client launch and evidence gates. Keep machine-specific paths

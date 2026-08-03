@@ -102,10 +102,9 @@ class FabricSessionAdmissionGateTest {
         admission.answer(pending.requestId, allow = true)
         runCurrent()
         assertTrue(result.getNow(null).isAllowed)
-        assertEquals(
-            PLAYER_UUID,
-            approvedJoins.consume("Alex", PLAYER_UUID)
-                ?.authenticatedMinecraftUuid,
+        assertFalse(
+            approvedJoins.hasProof("Alex", PLAYER_UUID),
+            "a Connect-only identity cannot authorize automatic friendship",
         )
     }
 
@@ -235,11 +234,7 @@ class FabricSessionAdmissionGateTest {
         )
         admission.answer(admission.pending.value.single().requestId, allow = true)
         assertEquals(AdmissionAnswer.ALLOW, authenticated.await())
-        assertEquals(
-            PLAYER_UUID,
-            approvedJoins.consume("Alex", PLAYER_UUID)
-                ?.authenticatedMinecraftUuid,
-        )
+        assertTrue(approvedJoins.hasProof("Alex", PLAYER_UUID))
 
         val offline = async {
             local.request(

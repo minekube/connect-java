@@ -29,6 +29,7 @@ object FriendCardNetworking {
                 val proof = approvedJoins.consume(
                     player.gameProfile.name,
                     player.uuid,
+                    payload.invitation,
                 ) ?: return@execute
                 receiver.receive(
                     invitation = payload.invitation,
