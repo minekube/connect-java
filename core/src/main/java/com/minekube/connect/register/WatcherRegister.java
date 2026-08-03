@@ -26,7 +26,9 @@
 package com.minekube.connect.register;
 
 import com.google.inject.Inject;
+import com.google.protobuf.Any;
 import com.google.rpc.Code;
+import com.google.rpc.LocalizedMessage;
 import com.google.rpc.Status;
 import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
@@ -438,9 +440,14 @@ public class WatcherRegister {
                     return;
                 }
                 if (!decision.isAllowed() && !decision.isDeferredToLocalLogin()) {
+                    String safeMessage = decision.getSafeMessage();
                     reject(proposal, Status.newBuilder()
                             .setCode(Code.PERMISSION_DENIED_VALUE)
-                            .setMessage(decision.getSafeMessage())
+                            .setMessage(safeMessage)
+                            .addDetails(Any.pack(LocalizedMessage.newBuilder()
+                                    .setLocale("en-US")
+                                    .setMessage(safeMessage)
+                                    .build()))
                             .build());
                     return;
                 }
