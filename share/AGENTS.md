@@ -67,164 +67,91 @@ redesigned for Kotlin.
 
 ## Prism Two-Client E2E
 
-- Prism can drive the live flow without UI automation. Launch the host with
-  `prismlauncher --launch <instance> --profile <account> --world <world>` and a
-  distinct offline guest with
-  `prismlauncher --launch <instance> --offline <name> --server <host:port>`.
-  `--offline <name>` is authoritative; editing `InstanceAccountId` while Prism
-  runs is not, because Prism rewrites it.
-- A matching Prism JVM PID does not prove a fresh launch. Snapshot
-  `minecraft/logs/latest.log` before launch, require a newer mtime plus the
-  expected world/runtime markers, and treat an old JVM with an unchanged log as
-  an occupied stale instance. Before terminating one, resolve exactly one PID
-  by its instance working directory; never kill a broad Java process set.
-- Prove the flow in layers: mDNS discovery, authenticated friend activity,
-  Minecraft status when host privacy permits it, then follow [the testing
-  guide](../docs/connect-share-testing.md) for the real two-client login
-  evidence gates. Control-plane reachability or a status response does not
-  prove that the world is joinable. `dns-sd -B
-  _minekube-connect-share._tcp local` and `jcmd <pid> GC.class_histogram` are
-  useful diagnostics for discovery and live `ShareState`/transport objects.
-- Run only one Gradle invocation at a time in a worktree. Concurrent test tasks
-  share `build/test-results` and can delete one another's in-progress binary
-  results, producing a false infrastructure failure.
-- A `DirectP2pProxy` target is currently one-shot. A status probe consumes it;
-  open a separate target for gameplay and keep that target alive until the
-  Minecraft connection finishes. Never reuse the friend-control target for a
-  status probe or login.
-- Authenticated friend activity is the authority for visible online, playing,
-  world-name, and joinable state. Never promote raw Minecraft status into UI
-  presence without a matching privacy-filtered activity response. The gateway
-  rejects status whenever online, playing, or the current server/world name is
-  hidden. A capability route may answer status only when all three are visible;
-  this must never promote an unknown or pending identity into social presence.
-  Login remains independently admissible so a privacy-safe join request can
-  still succeed.
-- An integrated server object exists before its local player connection is
-  ready. Publish only after both exist, and advertise `HOSTING_WORLD` only from
-  an actual `ShareState.Sharing`; otherwise friends see a world that cannot yet
-  accept them.
+The E2E procedure has two owners; do not retell it here:
+
+- The [connect-share-prism-e2e skill](../.agents/skills/connect-share-prism-e2e/SKILL.md)
+  owns launching Prism identities, installing artifacts, running the opt-in
+  `PrismFriendJoinE2ETest` harness (including its `LIVE_*` environment
+  variables), keyboard-only visual QA and focus-order capture, and gate-by-gate
+  failure diagnosis.
+- [The testing guide](../docs/connect-share-testing.md) owns the acceptance
+  matrix, evidence gates, `--rerun-tasks` rationale, identity-key cloning
+  hazard, and manual Prism loader-component setup.
+
+When a live run reveals a new stable rule, update the skill or guide and keep
+only the operative invariant below.
+
+## Share Invariants (pinned)
+
 - `ShareConnectionGateway` installs Minecraft's captured Netty initializer
-  after its accepted channel is already active. Any change to that dispatch
-  must preserve a focused test proving newly installed handlers receive the
-  required active lifecycle before the first Minecraft bytes.
+  after its accepted channel is already active; newly installed handlers must
+  receive the active lifecycle before the first Minecraft bytes. Every path
+  that installs the captured initializer runs on the loader's logical-server
+  thread group - Forge derives packet side from the thread group, so a generic
+  executor rejects login/play custom payloads as client-side. A directly bound
+  local listener borrows Minecraft's captured `EventLoopGroup` and closes only
+  its channel; the always-on Forge gateway owns loader-classified event loops
+  supplied by the adapter. Pinned by
+  `share/common/.../ShareConnectionGatewayTest`.
+- Authenticated friend activity is the authority for visible online, playing,
+  world-name, and joinable state. The gateway rejects raw Minecraft status
+  whenever online, playing, or the current server/world name is hidden, and a
+  capability route answering status must never promote an unknown or pending
+  identity into social presence. Login remains independently admissible.
+  Pinned by `ShareConnectionGatewayTest`.
+- An integrated server object exists before its local player connection is
+  ready. Publish only after both exist, and advertise `HOSTING_WORLD` only
+  from an actual `ShareState.Sharing`.
+- Admission resumes through a loader continuation: Fabric can call
+  `handleAcceptedLogin` immediately, but Forge must enter its native
+  `NEGOTIATING` state so FML login queries finish before play; skipping it
+  makes Forge clients misclassify each other as vanilla.
 - A direct session negotiated as `OFFLINE` must create Minecraft's standard
   offline profile in `handleHello`, before vanilla starts Mojang session
-  authentication. Otherwise an offline Prism friend is rejected as "Invalid
-  session" before admission runs. `ONLINE` direct sessions must never silently
-  downgrade.
-- Persistent friend cards must retain signed direct candidates and friend
-  control must try those candidates after mDNS, without ever using Connect as a
-  social relay. Copying a friend link is the disclosure boundary for those
-  routes; removal must revoke both admission grants and reciprocal-card proofs.
-- Invitation renewal is not complete when only mDNS receives a fresh token.
-  Every copy action must resolve the current handle invitation so a long-running
-  share never copies the original expired token.
-- For no-click friend-request E2E, temporarily enable automatic joins only for
-  the confirmed test friend, send the real libp2p join request, and restore the
-  permission afterwards. Keep machine-specific instance paths and credentials
-  in environment variables, never in committed tests or scripts.
-- A vanilla no-mod Connect join has no signed direct-peer proof. Its Connect
-  profile may therefore require an ordinary pending admission even when a
-  same-named offline friend is set to auto-accept; do not weaken UUID/peer
-  matching to make a test pass. An unattended local proof may attach a
-  temporary, uncommitted driver that resolves the existing `ShareViewModel`,
-  asserts exactly one pending admission, and invokes its normal `allow` action.
-  Emit only stage/result booleans, remove the driver afterwards, and never ship
-  a production bypass or log the pending identity/request ID.
-- Connect's no-mod session admission must finish before vanilla's own
-  connection timeout. Preserve a deadline buffer, cancel the pending host
-  request when it expires, and test the guest-visible actionable denial;
-  generic `Timed out` is a failed UX result. Encode an intentional denial as
-  `PermissionDenied` with the safe copy repeated in a
-  `google.rpc.LocalizedMessage` detail: Moxy intentionally never shows a
-  connector-controlled raw status message. A bounded `PermissionDenied`
-  response proves the proposal reached this connector, so diagnose host
-  admission rather than session delivery.
-- An approved gameplay join may enable automatic friend-card exchange only
-  when its proof carries a direct peer ID and the subsequently supplied,
-  signature-verified invitation names that same peer. Name and Minecraft UUID
-  are not sufficient for offline or Connect-only sessions; fail closed rather
-  than turning an unbound admission into `AUTO_ACCEPT` friendship.
-- `approveNextJoin` grants are one-shot admission capabilities, not durable
-  friend state. Expire them within the admission timeout, deduplicate them,
-  and bound the queue by `maxPending`; when full, evict the oldest grant so a
-  requester cannot accumulate arbitrary UUID grants or grow memory without
-  bound.
-- `PrismFriendJoinE2ETest` is the opt-in live harness. Start the host first,
-  then follow [the testing guide](../docs/connect-share-testing.md) for the
-  complete two-client launch and evidence gates. Keep machine-specific paths
-  in `LIVE_DATA`, `LIVE_TARGET_FILE`, `LIVE_HOST_LOG`, and `LIVE_GUEST_LOG`
-  environment variables (`LIVE_PORT_FILE` remains a direct-only compatibility
-  alias). Set `LIVE_FORCE_CONNECT_FALLBACK=true` to close the guest's direct
-  node after authenticated approval while retaining the discovered LAN route;
-  the real direct attempt must then fail, the harness must assert a Connect
-  target, and the client must complete a real login rather than merely emit a
-  selector message.
-- Invoke the live harness with `--rerun-tasks`. Its environment variables are
-  intentionally not task inputs, so an up-to-date result is not live evidence.
-- Keep only one host and one guest identity active during a live run. Cloning a
-  Prism instance copies `share-libp2p-identity.key`; simultaneously advertising
-  that same peer identity from several processes makes mDNS routing ambiguous
-  and can produce misleading libp2p stream failures.
+  authentication; `ONLINE` direct sessions must never silently downgrade.
+- A `DirectP2pProxy` target is one-shot: a status probe consumes it, so open a
+  separate target for gameplay and keep it alive until login finishes. Never
+  reuse the friend-control target for a status probe or login.
+- Keep the direct runtime on jvm-libp2p's tested Mplex default until another
+  muxer passes both the Java 17 multi-window regression
+  (`core/.../tunnel/p2p/DirectP2pNodeTest.java17PeersTransferAcrossManyMuxerWindows`)
+  and every real-client adapter; Yamux on Netty 4.2 double-releases buffered
+  window data on Java 17 after server login.
 - The persistent social control peer and the active-world peer intentionally
   advertise the same stable share ID with different peer IDs. Discovery must
-  retain one entry per `(shareId, peerId)` and refresh that entry when the same
-  peer advertises a changed address; deduplicating by share ID alone or
-  suppressing same-invitation address changes can evict the saved friend's
-  control route immediately after authenticated activity and make status/join
-  readiness appear flaky.
-- Manually constructed Prism Forge/NeoForge components need correct
-  `cachedRequires` metadata and usually one online first launch to download
-  loader libraries. Kotlin for Forge must be installed from its `-all.jar`;
-  the smaller Maven compile artifact is not a discoverable loader mod.
-- Replace Prism mods by matching the JAR basename at the immediate `mods/`
-  level. Do not apply a `connect-share-*.jar` regex to the full absolute path:
-  E2E instance directory names also contain `connect-share`, so that pattern
-  can move Fabric API, Fabric Language Kotlin, or Kotlin for Forge by mistake.
-- Keep the direct runtime on jvm-libp2p's tested Mplex default until another
-  muxer passes both the Java 17 multi-window regression and every real-client
-  adapter. Yamux on Netty 4.2 can double-release its buffered window data on
-  Java 17 after server login, disconnecting the player while flooding the host
-  with `IllegalReferenceCountException`.
-- Run every gateway path that installs Minecraft's captured initializer on the
-  loader's logical-server thread group; thread affinity is part of the loader
-  contract, not an interchangeable executor. Forge derives packet side from
-  the thread group, so a generic always-on gateway can reject login/play custom
-  payloads as client-side. A directly bound local listener borrows Minecraft's
-  captured `EventLoopGroup` and closes only its channel. The always-on Forge
-  gateway instead owns loader-classified event loops supplied by the adapter.
-- Admission must resume through a loader continuation. Fabric can call
-  `handleAcceptedLogin` immediately, but Forge must enter its native
-  `NEGOTIATING` state so FML login queries finish before play. Skipping that
-  state makes two Forge clients misclassify each other as vanilla and later
-  disconnect on registry custom payloads.
-- Legacy Forge's final reobfuscated JAR must contain its generated Mixin refmap
-  and name it from the loader-specific mixin config. Forge and NeoForge client
-  resources need a compatible `pack.mcmeta`, otherwise startup can stop at a
-  resource-pack warning before quick-play E2E begins.
-- Visual QA is keyboard-only at both the normal Prism window size and 640x400.
-  A focused Minecraft `EditBox` hides its hint, so every input needs a
-  persistent label; split pause-menu buttons must keep copy within their
-  100-pixel logical width. The repository Prism skill owns the capture and
-  focus-order procedure.
-- Treat add-link and manage-friend values as separate form sessions. Entering
-  Add from the Friends list, leaving Manage, or completing/removing/blocking a
-  relationship must clear name, invitation, offline-mode, and internet-direct
-  draft state; only the Add → Connection options → Add round trip preserves it.
-  On the pause screen, visual placement does not change keyboard order: remove
-  and re-add the vanilla disconnect button so Share and Friends are focused
-  before the destructive exit action.
-- Recovery export/import must run only against the fixed Share allowlist and
-  while sharing is stopped. A selected backup target must never resolve to a
-  live identity, friend, preference, endpoint, or transaction path. Validate
-  and decrypt the entire archive before replacement, keep rollback material
-  until a committed marker is durable, and test simulated interruption. Never
-  print archive paths, contents, passwords, identities, or tokens as evidence.
-- Do not apply Shadow's generic `minimize()` to the isolated libp2p payload.
+  retain one entry per `(shareId, peerId)` and refresh it when the same peer
+  advertises a changed address; deduplicating by share ID alone can evict the
+  saved friend's control route right after authenticated activity.
+- Persistent friend cards retain signed direct candidates, tried after mDNS,
+  never via Connect as a social relay. Copying a friend link is the disclosure
+  boundary for those routes; removal revokes both admission grants and
+  reciprocal-card proofs. Every copy action resolves the current handle
+  invitation - renewing only the mDNS token leaves copies stale.
+- `approveNextJoin` grants are one-shot admission capabilities, not durable
+  friend state: expire within the admission timeout, deduplicate, bound by
+  `maxPending`, and evict the oldest when full. A vanilla no-mod Connect join
+  carries no signed direct-peer proof and may require ordinary pending
+  admission even against a same-named auto-accept friend; never weaken
+  UUID/peer matching. Automatic friend-card exchange requires a proof carrying
+  a direct peer ID plus a signature-verified invitation naming that same peer;
+  fail closed otherwise. Pinned by
+  `share/common/.../admission/AdmissionControllerTest`.
+- No-mod session admission must finish before vanilla's own connection
+  timeout: keep a deadline buffer, cancel the pending host request on expiry,
+  and encode an intentional denial as `PermissionDenied` with the safe copy
+  repeated in a `google.rpc.LocalizedMessage` detail - Moxy never shows a
+  connector-controlled raw status message, and a generic `Timed out` is a
+  failed UX result.
+- Recovery export/import runs only against the fixed Share allowlist and only
+  while sharing is stopped; a backup target must never resolve to a live
+  identity, friend, preference, endpoint, or transaction path. Validate and
+  decrypt the entire archive before replacement, keep rollback material until
+  a committed marker is durable, and never print archive paths, contents,
+  passwords, identities, or tokens as evidence.
+- Do not apply Shadow's generic `minimize()` to the isolated libp2p payload:
   jvm-libp2p reaches Kotlin, cryptography, protobuf, Noise, Guava, and Netty
-  classes through reflection and DSL entry points that static minimization does
-  not see. Any payload-size reduction must keep cross-platform natives and be
-  proved by constructing, starting, publishing, and inspecting between two
-  peers loaded from the exact packaged artifact. A constructor-only classloader
-  test is insufficient.
+  classes reflectively. Any payload-size reduction must keep cross-platform
+  natives and be proved between two peers loaded from the exact packaged
+  artifact. Legacy Forge's final reobfuscated JAR must contain its generated
+  Mixin refmap named from the loader-specific mixin config, and Forge/NeoForge
+  client resources need a compatible `pack.mcmeta`.

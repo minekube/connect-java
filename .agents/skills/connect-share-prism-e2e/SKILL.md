@@ -98,7 +98,11 @@ must not be absorbed into a later baseline before the poll observes it.
 
 The test must remain running while the external guest uses the join target
 written to `LIVE_TARGET_FILE` (`LIVE_PORT_FILE` remains a direct-only
-compatibility alias). It proves, in order:
+compatibility alias). Set `LIVE_FORCE_CONNECT_FALLBACK=true` to close the
+guest's direct node after authenticated approval while retaining the
+discovered LAN route; the real direct attempt must then fail, the harness must
+assert a Connect target, and the client must complete a real login rather than
+merely emit a selector message. It proves, in order:
 
 1. mDNS discovers the saved confirmed friend's peer identity.
 2. Authenticated friend control reports `HOSTING_WORLD`.
