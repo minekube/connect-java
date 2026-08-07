@@ -299,7 +299,12 @@ public class WatcherRegister {
                         proposal,
                         admissionCoordinator
                 ).connect();
-            } catch (RuntimeException | Error e) {
+            } catch (RuntimeException e) {
+                reject(proposal, StatusProto.fromThrowable(e));
+                logger.warn("Rejected one Connect session proposal (category={}); " +
+                                "keeping WatchService active",
+                        e.getClass().getSimpleName());
+            } catch (Error e) {
                 reject(proposal, StatusProto.fromThrowable(e));
                 throw e;
             }
