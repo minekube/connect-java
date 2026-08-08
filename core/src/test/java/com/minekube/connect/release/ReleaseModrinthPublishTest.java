@@ -25,7 +25,6 @@
 
 package com.minekube.connect.release;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -53,15 +52,6 @@ import org.yaml.snakeyaml.Yaml;
 class ReleaseModrinthPublishTest {
 
     private static final String MODRINTH_STEP = "Publish to Modrinth";
-
-    /**
-     * The steps that already publish only on a real release. The Modrinth step must carry their
-     * condition exactly - not an equivalent-looking one - so there is a single event gate in this
-     * workflow rather than two that can drift apart.
-     */
-    private static final List<String> RELEASE_ONLY_STEPS = Arrays.asList(
-            "Upload Release Artifacts",
-            "Update Latest Release");
 
     private static final Path WORKFLOW_PATH =
             Paths.get("..", ".github", "workflows", "release.yml");
@@ -130,12 +120,15 @@ class ReleaseModrinthPublishTest {
                 "\"" + MODRINTH_STEP + "\" has no event condition; every push to main would "
                         + "publish a development build to the public Modrinth listing");
 
-        for (String releaseOnly : RELEASE_ONLY_STEPS) {
-            int at = stepIndex(steps, releaseOnly);
-            assertTrue(at >= 0, "expected release-only step \"" + releaseOnly + "\"");
-            assertEquals(steps.get(at).get("if"), condition,
-                    "\"" + MODRINTH_STEP + "\" does not carry the same event condition as \""
-                            + releaseOnly + "\"; the two gates can drift apart");
+        String conditionText = (String) condition;
+        List<String> required = Arrays.asList(
+                "always()",
+                "github.event_name == 'release'",
+                "github.event_name == 'workflow_dispatch'",
+                "steps.verify_release_assets.outcome == 'success'");
+        for (String fragment : required) {
+            assertTrue(conditionText.contains(fragment),
+                    "\"" + MODRINTH_STEP + "\" condition is missing \"" + fragment + "\"");
         }
     }
 

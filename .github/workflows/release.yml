@@ -68,6 +68,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release-tag.outputs.tag }}
+          # Versioned assets are immutable. A retry verifies/reuses them instead of silently
+          # replacing bytes already referenced by Hangar or Modrinth.
+          overwrite_files: false
           files: |
             spigot/build/libs/connect-spigot.jar
             velocity/build/libs/connect-velocity.jar
@@ -82,6 +85,7 @@ jobs:
           tag_name: latest
           name: "Latest Release (${{ steps.release-tag.outputs.tag }})"
           prerelease: false
+          overwrite_files: true
           files: |
             spigot/build/libs/connect-spigot.jar
             velocity/build/libs/connect-velocity.jar
@@ -113,6 +117,7 @@ jobs:
           tag_name: latest-prerelease
           name: "Latest Pre-Release (${{ steps.version.outputs.version }})"
           prerelease: true
+          overwrite_files: true
           files: |
             prerelease/*.jar
             LICENSE
@@ -137,6 +142,7 @@ jobs:
       # action can skip files, partially fail, or be silently gated off, and
       # only the landed release tells the truth. Assert on the fact.
       - name: Verify published release assets
+        id: verify_release_assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
@@ -652,21 +658,20 @@ jobs:
 
       # Publish the same jars this run just built to the Modrinth listing.
       #
-      # THE EVENT GATE IS THIS STEP'S SAFETY PROPERTY. It carries the identical
-      # condition as "Upload Release Artifacts" and "Update Latest Release"
-      # above. Without it every push to main would publish a development build
-      # to a public listing, and that would not fail loudly: the run stays
-      # green, the listing quietly fills with pre-release versions, and the
-      # first report comes from a user. ReleaseModrinthPublishTest pins the
-      # condition to be byte-identical to the two upload steps' condition, so
-      # deleting or weakening it fails the build instead of failing silently.
+      # THE EVENT GATE IS THIS STEP'S SAFETY PROPERTY. Without it every push to
+      # main would publish a development build to a public listing. always()
+      # lets Modrinth run when Hangar alone fails, but the verified GitHub
+      # release outcome remains a hard prerequisite.
       #
       # The jars come from the RUNNER's build output, never from the release.
       # Reading them back from the release would couple Modrinth publishing to
       # the release having landed correctly - the exact failure the step above
       # exists to catch - so the two stay independent.
       - name: Publish to Modrinth
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        if: >-
+          always() &&
+          (github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
+          steps.verify_release_assets.outcome == 'success'
         env:
           # Passed as an environment variable, never interpolated into the
           # script body: a ${{ secrets.* }} expression inside run: is expanded
