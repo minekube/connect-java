@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.mockito.ArgumentCaptor;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfile;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfileProperty;
@@ -433,6 +434,43 @@ class WatcherRegisterTest {
             Field admissions = BedrockAdmissionCoordinator.class.getDeclaredField("admissions");
             admissions.setAccessible(true);
             assertTrue(((Map<?, ?>) admissions.get(coordinator)).isEmpty());
+        } finally {
+            coordinator.close();
+        }
+    }
+
+    @Test
+    void supersededProposalIsRejectedWithoutClosingTheWatchStream() throws Exception {
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(
+                new VerifiedBedrockIdentityRegistry());
+        try {
+            Fixture fixture = newFixture(coordinator);
+            register = fixture.register;
+            register.start();
+            ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+            verify(fixture.watchClient).watch(watcher.capture());
+            Session session = Session.newBuilder()
+                    .setId("duplicate-session")
+                    .setTunnelServiceAddr("wss://tunnel.example")
+                    .setPlayer(Player.newBuilder()
+                            .setAddr("127.0.0.1")
+                            .setProfile(GameProfile.newBuilder()
+                                    .setId("00000000-0000-0000-0000-000000000001")
+                                    .setName("Player")))
+                    .build();
+            AtomicReference<com.google.rpc.Status> rejection = new AtomicReference<>();
+            SessionProposal superseded = coordinator.proposal(
+                    session, rejection::set, "endpoint-1", "org-1");
+            SessionProposal current = coordinator.proposal(
+                    session, reason -> {}, "endpoint-1", "org-1");
+
+            assertDoesNotThrow(() -> watcher.getValue().onProposal(superseded));
+
+            assertNotNull(rejection.get());
+            assertTrue(rejection.get().getMessage()
+                    .contains("expired or been superseded"));
+            verify(fixture.watchClient, times(1)).watch(any(Watcher.class));
+            coordinator.discard(current);
         } finally {
             coordinator.close();
         }
