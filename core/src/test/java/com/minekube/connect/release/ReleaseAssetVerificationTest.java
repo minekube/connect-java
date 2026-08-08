@@ -308,4 +308,24 @@ class ReleaseAssetVerificationTest {
         assertTrue(build.contains("isReproducibleFileOrder = true"),
                 "archive entry order is not deterministic");
     }
+
+    /** Tagged builds must not compile workflow-run identity into otherwise reproducible JARs. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void taggedBuildIdentityIsStableAcrossReleaseRetries() throws Exception {
+        List<Map<String, Object>> steps = readBuildJobSteps();
+        int buildAt = stepIndex(steps, "Build");
+        assertTrue(buildAt >= 0, "build job is missing the Build step");
+
+        Map<String, Object> env = (Map<String, Object>) steps.get(buildAt).get("env");
+        assertTrue(env != null, "Build step has no stable release environment");
+        assertEquals(
+                "${{ inputs.release_tag || github.event.release.tag_name || github.ref_name }}",
+                String.valueOf(env.get("GIT_BRANCH")),
+                "tagged builds depend on the workflow ref that happened to launch them");
+        assertEquals(
+                "${{ github.event_name == 'push' && github.run_number || 0 }}",
+                String.valueOf(env.get("BUILD_NUMBER")),
+                "tagged builds compile GitHub's changing run number into Constants.class");
+    }
 }

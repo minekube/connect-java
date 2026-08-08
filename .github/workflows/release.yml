@@ -39,6 +39,11 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Build
+        env:
+          # These values are compiled into Constants.class. Keep tagged builds independent of
+          # which workflow ref launched a retry and of GitHub's ever-increasing run number.
+          GIT_BRANCH: ${{ inputs.release_tag || github.event.release.tag_name || github.ref_name }}
+          BUILD_NUMBER: ${{ github.event_name == 'push' && github.run_number || 0 }}
         run: ./gradlew build
 
       - name: Get version
