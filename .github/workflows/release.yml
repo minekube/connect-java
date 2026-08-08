@@ -514,25 +514,34 @@ jobs:
 
           # Read the public version back. The upload response only confirms the
           # request; the listing and its downloads are the release contract.
+          # Hangar can expose a new version as public/unreviewed briefly before
+          # its automatic review completes, so readiness includes both states.
           VERSION_CODE=000
+          VERSION_READY=false
           for attempt in $(seq 1 12); do
             VERSION_CODE="$(curl -sS -A "$UA" -o "$TMP/stored.json" \
               -w '%{http_code}' "$VERSION_URL")"
-            if [ "$VERSION_CODE" = "200" ]; then
+            if [ "$VERSION_CODE" = "200" ] &&
+              jq -e '.visibility == "public" and .reviewState == "reviewed"' \
+                "$TMP/stored.json" >/dev/null; then
+              VERSION_READY=true
               break
             fi
-            echo "Hangar version is not public yet (HTTP $VERSION_CODE, attempt $attempt); waiting..."
+            if [ "$VERSION_CODE" = "200" ]; then
+              STATE="$(jq -c '{visibility, reviewState}' "$TMP/stored.json")"
+              echo "Hangar version is not ready yet ($STATE, attempt $attempt); waiting..."
+            else
+              echo "Hangar version is not public yet (HTTP $VERSION_CODE, attempt $attempt); waiting..."
+            fi
             sleep 10
           done
-          if [ "$VERSION_CODE" != "200" ]; then
-            echo "::error::Hangar version $RELEASE_TAG is not publicly readable (HTTP $VERSION_CODE)."
-            exit 1
-          fi
-
-          if ! jq -e '.visibility == "public" and .reviewState == "reviewed"' \
-            "$TMP/stored.json" >/dev/null; then
-            echo "::error::Hangar version is not both public and reviewed."
-            jq '{visibility, reviewState}' "$TMP/stored.json"
+          if [ "$VERSION_READY" != "true" ]; then
+            echo "::error::Hangar version $RELEASE_TAG did not become public and reviewed."
+            if [ "$VERSION_CODE" = "200" ]; then
+              jq '{visibility, reviewState}' "$TMP/stored.json"
+            else
+              echo "::error::Last public read returned HTTP $VERSION_CODE."
+            fi
             exit 1
           fi
           if ! jq -e '.downloads | keys | sort == ["PAPER", "VELOCITY", "WATERFALL"]' \
