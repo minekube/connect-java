@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.3](https://github.com/minekube/connect-java/compare/0.15.2...0.15.3) (2026-08-08)
+
+
+### Bug Fixes
+
+* **build:** stabilize tagged build identity ([#136](https://github.com/minekube/connect-java/issues/136)) ([55bdaf3](https://github.com/minekube/connect-java/commit/55bdaf3b376eb34dbb7b01e2e355ea9430e24810))
+
 ## [0.15.2](https://github.com/minekube/connect-java/compare/0.15.1...0.15.2) (2026-08-08)
 
 
