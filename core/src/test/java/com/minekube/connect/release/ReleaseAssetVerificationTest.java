@@ -63,6 +63,7 @@ class ReleaseAssetVerificationTest {
 
     private static final Path WORKFLOW_PATH =
             Paths.get("..", ".github", "workflows", "release.yml");
+    private static final Path BUILD_GRADLE_PATH = Paths.get("..", "build.gradle.kts");
     private static final Path REPOSITORY_GIT_PATH = Paths.get("..", ".git");
 
     @SuppressWarnings("unchecked")
@@ -269,5 +270,42 @@ class ReleaseAssetVerificationTest {
         assertTrue(Pattern.compile("(?m)^\\s*for target in \\$TARGETS; do\\s*$")
                         .matcher(script).find(),
                 "guard does not iterate over its assigned release targets");
+    }
+
+    /**
+     * A retry may refresh moving pointers, but it must never replace a versioned artifact after a
+     * marketplace has recorded that artifact's digest.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void versionedReleaseAssetsAreImmutableButPointersAdvance() throws Exception {
+        List<Map<String, Object>> steps = readBuildJobSteps();
+
+        Map<String, Object> versioned = (Map<String, Object>)
+                steps.get(stepIndex(steps, "Upload Release Artifacts")).get("with");
+        Map<String, Object> latest = (Map<String, Object>)
+                steps.get(stepIndex(steps, "Update Latest Release")).get("with");
+        Map<String, Object> prerelease = (Map<String, Object>)
+                steps.get(stepIndex(steps, "Update Pre-Release")).get("with");
+
+        assertEquals("false", String.valueOf(versioned.get("overwrite_files")),
+                "a retry can overwrite immutable versioned release assets");
+        assertEquals("true", String.valueOf(latest.get("overwrite_files")),
+                "the latest pointer cannot advance to a new release");
+        assertEquals("true", String.valueOf(prerelease.get("overwrite_files")),
+                "the latest-prerelease pointer cannot advance to a new build");
+    }
+
+    /** A rebuild of the same tag must produce byte-identical archives. */
+    @Test
+    void gradleArchivesAreConfiguredForReproducibleBytes() throws Exception {
+        String build = Files.readString(BUILD_GRADLE_PATH);
+
+        assertTrue(build.contains("tasks.withType<AbstractArchiveTask>().configureEach"),
+                "archive reproducibility is not applied to every project");
+        assertTrue(build.contains("isPreserveFileTimestamps = false"),
+                "archive entries still preserve volatile build timestamps");
+        assertTrue(build.contains("isReproducibleFileOrder = true"),
+                "archive entry order is not deterministic");
     }
 }

@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.bundling.AbstractArchiveTask
+
 plugins {
     `java-library`
     id("connect.build-logic")
@@ -9,6 +11,13 @@ allprojects {
     version = gitVersion()
     description =
         "Connects the server/proxy to the global Connect network to reach more players while also supporting online mode server, bungee or velocity mode. Visit https://minekube.com/connect"
+
+    // A release retry must rebuild the exact same bytes. Otherwise an already-published
+    // marketplace version can no longer be verified against the GitHub release it references.
+    tasks.withType<AbstractArchiveTask>().configureEach {
+        isPreserveFileTimestamps = false
+        isReproducibleFileOrder = true
+    }
 }
 
 val deployProjects = setOf(
