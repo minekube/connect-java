@@ -235,6 +235,20 @@ public class WatcherRegister {
         }
     }
 
+    private static Status rejectionStatus(Throwable failure) {
+        Status status = StatusProto.fromThrowable(failure);
+        if (status != null) {
+            return status;
+        }
+        String message = failure.getMessage();
+        return Status.newBuilder()
+                .setCode(Code.INTERNAL_VALUE)
+                .setMessage(message == null || message.isBlank()
+                        ? failure.getClass().getSimpleName()
+                        : message)
+                .build();
+    }
+
     private class WatcherImpl implements Watcher {
         private volatile boolean ignoreTerminalEvents;
 
@@ -300,12 +314,12 @@ public class WatcherRegister {
                         admissionCoordinator
                 ).connect();
             } catch (RuntimeException e) {
-                reject(proposal, StatusProto.fromThrowable(e));
+                reject(proposal, rejectionStatus(e));
                 logger.warn("Rejected one Connect session proposal (category={}); " +
                                 "keeping WatchService active",
                         e.getClass().getSimpleName());
             } catch (Error e) {
-                reject(proposal, StatusProto.fromThrowable(e));
+                reject(proposal, rejectionStatus(e));
                 throw e;
             }
         }
