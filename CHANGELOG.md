@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.2](https://github.com/minekube/connect-java/compare/0.15.1...0.15.2) (2026-08-08)
+
+
+### Bug Fixes
+
+* **build:** make release publishing repeatable ([#134](https://github.com/minekube/connect-java/issues/134)) ([a4b6934](https://github.com/minekube/connect-java/commit/a4b69341535963169a9378381158ea73c699dfa9))
+
 ## [0.15.1](https://github.com/minekube/connect-java/compare/0.15.0...0.15.1) (2026-08-08)
 
 
