@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/minekube/connect-java/compare/0.15.0...0.15.1) (2026-08-08)
+
+
+### Bug Fixes
+
+* **core:** isolate stale proposals from WatchService ([#131](https://github.com/minekube/connect-java/issues/131)) ([a4cb39d](https://github.com/minekube/connect-java/commit/a4cb39dbe6ed2cb00ff3691b4e8a18fcb1c190c2))
+
 ## [0.15.0](https://github.com/minekube/connect-java/compare/0.14.0...0.15.0) (2026-08-03)
 
 
