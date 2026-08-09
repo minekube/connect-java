@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.4](https://github.com/minekube/connect-java/compare/0.15.3...0.15.4) (2026-08-09)
+
+
+### Bug Fixes
+
+* **core:** scope Bedrock principal admission to Bedrock ([#138](https://github.com/minekube/connect-java/issues/138)) ([890ec18](https://github.com/minekube/connect-java/commit/890ec181d06814418a54a483a8d38de510f3a6f2))
+
 ## [0.15.3](https://github.com/minekube/connect-java/compare/0.15.2...0.15.3) (2026-08-08)
 
 
