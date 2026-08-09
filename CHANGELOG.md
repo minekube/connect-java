@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.5](https://github.com/minekube/connect-java/compare/0.15.4...0.15.5) (2026-08-09)
+
+
+### Bug Fixes
+
+* **connect:** preserve tunnel delivery and late wrappers ([#142](https://github.com/minekube/connect-java/issues/142)) ([b539e53](https://github.com/minekube/connect-java/commit/b539e53dd9e65691e19884d9f455879ce76dfa28))
+
 ## [0.15.4](https://github.com/minekube/connect-java/compare/0.15.3...0.15.4) (2026-08-09)
 
 
