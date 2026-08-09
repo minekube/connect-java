@@ -54,6 +54,12 @@ public final class BedrockPrincipalConsumer {
         if (hasInjectedProperty(session)) {
             throw new BedrockPrincipalAdmissionException(PrincipalError.BINDING_MISMATCH);
         }
+        // Bedrock v2 enforcement is protocol-scoped. Java and legacy unmarked sessions do not
+        // carry a Bedrock principal envelope and must continue through ordinary admission.
+        if (session.getProtocol() != SessionProtocol.SESSION_PROTOCOL_BEDROCK
+                && session.getSignedBedrockPrincipalV2().isEmpty()) {
+            return Optional.empty();
+        }
         ConnectConfig currentConfig;
         BedrockPrincipalConfiguration principalConfiguration;
         try {
