@@ -35,7 +35,6 @@ import io.netty.channel.Channel;
 import io.netty.channel.EventLoop;
 import java.util.Arrays;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.RequiredArgsConstructor;
 
@@ -48,13 +47,6 @@ class TunnelHandler implements Handler {
     private final AtomicLong tunnelToBackendPackets = new AtomicLong();
     private final AtomicLong tunnelToBackendBytes = new AtomicLong();
 
-    // Coalesces flushes across an EventLoop tick: one flush() per batch of
-    // onReceive calls instead of one per packet. The CAS lives inside the
-    // write task so the flush is always enqueued after the write that needs
-    // it — scheduling the CAS outside the EventLoop races, because a later
-    // write can be enqueued behind an already-scheduled flush.
-    private final AtomicBoolean flushScheduled = new AtomicBoolean(false);
-
     @Override
     public void onReceive(byte[] data) {
         tunnelToBackendPackets.incrementAndGet();
@@ -66,19 +58,11 @@ class TunnelHandler implements Handler {
         Channel ch = downstreamServerConn;
         EventLoop el = ch.eventLoop();
         try {
-            el.execute(() -> {
-                ch.write(Unpooled.wrappedBuffer(payload), ch.voidPromise());
-                if (flushScheduled.compareAndSet(false, true)) {
-                    try {
-                        el.execute(() -> {
-                            flushScheduled.set(false);
-                            ch.flush();
-                        });
-                    } catch (RejectedExecutionException ignored) {
-                        flushScheduled.set(false);
-                    }
-                }
-            });
+            // Keep acceptance and delivery in one FIFO event-loop task. Scheduling flush as a
+            // second task allows unrelated channel work to observe the packet before it is
+            // delivered, which can stall time-sensitive protocol responses such as keepalives.
+            el.execute(() -> ch.writeAndFlush(
+                    Unpooled.wrappedBuffer(payload), ch.voidPromise()));
         } catch (RejectedExecutionException ignored) {
             // Event loop is shutting down; the channel is going away anyway.
         }
@@ -105,10 +89,8 @@ class TunnelHandler implements Handler {
                     playerName, sessionId, downstreamServerConn.localAddress(), downstreamServerConn.remoteAddress(),
                     tunnelToBackendPackets.get(), tunnelToBackendBytes.get());
         }
-        // Flush before closing: deferred writes from onReceive() may still be
-        // sitting in the channel's outbound buffer with the flush scheduled as
-        // a separate EventLoop task, so closing without a final flush can drop
-        // the last payload.
+        // Flush before closing as a final safeguard for any outbound data written by another
+        // channel handler. Accepted onReceive tasks are FIFO-ordered ahead of this close task.
         Channel ch = downstreamServerConn;
         try {
             ch.eventLoop().execute(() -> {

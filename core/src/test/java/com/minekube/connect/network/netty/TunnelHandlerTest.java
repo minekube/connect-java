@@ -49,7 +49,22 @@ class TunnelHandlerTest {
     }
 
     @Test
-    void burstOfReceivesCoalescesIntoOneFlush() throws Exception {
+    void onReceiveFlushesBeforeTheNextEventLoopTaskCanObserveDelivery() throws Exception {
+        TunnelHandler handler = newHandler();
+        byte[] payload = new byte[] {4, 5, 6};
+
+        runWithEventLoopBlocked(() -> {
+            handler.onReceive(payload);
+            eventLoop.execute(() -> events.add(new RecordedEvent(Event.OBSERVE)));
+        });
+        awaitEventLoop();
+
+        assertEventTypes(Event.WRITE, Event.FLUSH, Event.OBSERVE);
+        assertArrayEquals(payload, events.get(0).payload);
+    }
+
+    @Test
+    void burstOfReceivesFlushesEveryPayloadInOrder() throws Exception {
         TunnelHandler handler = newHandler();
         List<byte[]> payloads = new ArrayList<>();
 
@@ -63,7 +78,7 @@ class TunnelHandlerTest {
         awaitEventLoop();
 
         assertEquals(50, count(Event.WRITE));
-        assertEquals(1, count(Event.FLUSH));
+        assertEquals(50, count(Event.FLUSH));
         List<byte[]> actualPayloads = writePayloads();
         assertEquals(50, actualPayloads.size());
         for (int i = 0; i < payloads.size(); i++) {
@@ -115,6 +130,19 @@ class TunnelHandlerTest {
                 buf.release();
             }
         }).when(channel).write(any(ByteBuf.class), any(ChannelPromise.class));
+
+        doAnswer(invocation -> {
+            ByteBuf buf = invocation.getArgument(0);
+            try {
+                byte[] payload = new byte[buf.readableBytes()];
+                buf.getBytes(buf.readerIndex(), payload);
+                events.add(new RecordedEvent(Event.WRITE, payload));
+                events.add(new RecordedEvent(Event.FLUSH));
+                return invocation.getArgument(1);
+            } finally {
+                buf.release();
+            }
+        }).when(channel).writeAndFlush(any(ByteBuf.class), any(ChannelPromise.class));
 
         doAnswer(invocation -> {
             events.add(new RecordedEvent(Event.FLUSH));
@@ -186,7 +214,7 @@ class TunnelHandlerTest {
         return count;
     }
 
-    private enum Event { WRITE, FLUSH, CLOSE }
+    private enum Event { WRITE, FLUSH, CLOSE, OBSERVE }
 
     private static final class RecordedEvent {
         private final Event type;
