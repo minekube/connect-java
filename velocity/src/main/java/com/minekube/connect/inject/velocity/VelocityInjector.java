@@ -50,12 +50,12 @@ import io.netty.channel.WriteBufferWaterMark;
 import io.netty.channel.local.LocalAddress;
 import io.netty.channel.local.LocalIoHandler;
 import io.netty.channel.nio.NioIoHandler;
-import io.netty.util.concurrent.ThreadAwareExecutor;
 import io.netty.util.concurrent.DefaultThreadFactory;
-import java.util.concurrent.Executor;
-import java.util.function.Supplier;
-import java.util.concurrent.ThreadFactory;
+import io.netty.util.concurrent.ThreadAwareExecutor;
 import java.lang.reflect.Method;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadFactory;
+import java.util.function.Supplier;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
@@ -80,8 +80,11 @@ public final class VelocityInjector extends CommonPlatformInjector {
         ChannelInitializer serverInitializer = castedInvoke(serverInitializerHolder, "get");
 
         Method serverSetter = getMethod(serverInitializerHolder, "set", ChannelInitializer.class);
-        invoke(serverInitializerHolder, serverSetter,
-                new VelocityChannelInitializer(this, serverInitializer, false, false));
+        VelocityChannelInitializer connectServerInitializer =
+                new VelocityChannelInitializer(this, serverInitializer, false, false);
+        invoke(serverInitializerHolder, serverSetter, connectServerInitializer);
+        Supplier<ChannelInitializer<Channel>> currentServerInitializer =
+                () -> castedInvoke(serverInitializerHolder, "get");
 
         // Proxy <-> Server
 //        Object backendInitializerHolder = getValue(connectionManager, "backendChannelInitializer");
@@ -132,7 +135,10 @@ public final class VelocityInjector extends CommonPlatformInjector {
 
         ChannelFuture channelFuture = (new ServerBootstrap()
                 .channel(LocalServerChannelWrapper.class)
-                .childHandler(new VelocityChannelInitializer(this, serverInitializer, false, true))
+                // Resolve Velocity's current frontend initializer for every tunnel connection.
+                // PacketEvents, ViaVersion, and auth plugins can wrap the holder after Connect
+                // starts; keeping the startup snapshot here silently omits those later handlers.
+                .childHandler(new CurrentVelocityChannelInitializer(currentServerInitializer))
                 .group(localBossGroup, localWorkerGroup)
                 .childOption(ChannelOption.WRITE_BUFFER_WATER_MARK,
                         serverWriteMark) // Required or else rare network freezes can occur
@@ -185,6 +191,28 @@ public final class VelocityInjector extends CommonPlatformInjector {
             VelocityChatSessionPacketFilter.inject(channel, connectTunnel);
             injector.injectAddonsCall(channel, proxyToServer);
             injector.addInjectedClient(channel);
+        }
+    }
+
+    static final class CurrentVelocityChannelInitializer extends ChannelInitializer<Channel> {
+        private static final Method INIT_CHANNEL =
+                getMethod(ChannelInitializer.class, "initChannel", Channel.class);
+
+        private final Supplier<ChannelInitializer<Channel>> currentInitializer;
+
+        CurrentVelocityChannelInitializer(
+                Supplier<ChannelInitializer<Channel>> currentInitializer) {
+            this.currentInitializer = currentInitializer;
+        }
+
+        @Override
+        protected void initChannel(Channel channel) {
+            ChannelInitializer<Channel> initializer = currentInitializer.get();
+            if (initializer == null) {
+                throw new IllegalStateException("Velocity server channel initializer is unavailable");
+            }
+            invoke(initializer, INIT_CHANNEL, channel);
+            VelocityChatSessionPacketFilter.inject(channel, true);
         }
     }
 }
