@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.protobuf.ByteString;
+import com.minekube.connect.api.player.bedrock.BedrockIdentityProfiles;
 import com.minekube.connect.api.player.principal.PrincipalError;
 import com.minekube.connect.config.ConnectConfig;
 import java.io.InputStreamReader;
@@ -21,6 +22,7 @@ import java.util.Objects;
 import java.util.UUID;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Authentication;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfile;
+import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfileProperty;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Player;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Session;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionProtocol;
@@ -72,13 +74,68 @@ class BedrockPrincipalConsumerTest {
     }
 
     @Test
-    void requireModeRejectsSessionsMissingV2Principal() throws Exception {
+    void requireModeRejectsBedrockSessionsMissingV2Principal() throws Exception {
         JsonObject vector = vector("valid-unlinked");
         BedrockPrincipalAdmissionException error = assertThrows(
                 BedrockPrincipalAdmissionException.class,
                 () -> consumer(vector).verify(session(vector).toBuilder()
                         .clearSignedBedrockPrincipalV2().build()));
         assertEquals(PrincipalError.READINESS, error.error());
+    }
+
+    @Test
+    void requireModeAllowsJavaSessionsWithoutV2Principal() throws Exception {
+        JsonObject vector = vector("valid-unlinked");
+        Session javaSession = session(vector).toBuilder()
+                .setProtocol(SessionProtocol.SESSION_PROTOCOL_JAVA)
+                .clearSignedBedrockPrincipalV2()
+                .build();
+
+        assertTrue(consumer(vector).verify(javaSession).isEmpty());
+    }
+
+    @Test
+    void requireModeAllowsLegacyUnmarkedSessionsWithoutV2Principal() throws Exception {
+        JsonObject vector = vector("valid-unlinked");
+        Session legacySession = session(vector).toBuilder()
+                .setProtocol(SessionProtocol.SESSION_PROTOCOL_UNSPECIFIED)
+                .clearSignedBedrockPrincipalV2()
+                .build();
+
+        assertTrue(consumer(vector).verify(legacySession).isEmpty());
+    }
+
+    @Test
+    void javaSessionsCannotCarryV2PrincipalEnvelopes() throws Exception {
+        JsonObject vector = vector("valid-unlinked");
+        Session javaSession = session(vector).toBuilder()
+                .setProtocol(SessionProtocol.SESSION_PROTOCOL_JAVA)
+                .build();
+
+        BedrockPrincipalAdmissionException error = assertThrows(
+                BedrockPrincipalAdmissionException.class,
+                () -> consumer(vector).verify(javaSession));
+        assertEquals(PrincipalError.BINDING_MISMATCH, error.error());
+    }
+
+    @Test
+    void javaSessionsCannotInjectReservedV2PrincipalProperties() throws Exception {
+        JsonObject vector = vector("valid-unlinked");
+        Session source = session(vector);
+        Session javaSession = source.toBuilder()
+                .setProtocol(SessionProtocol.SESSION_PROTOCOL_JAVA)
+                .clearSignedBedrockPrincipalV2()
+                .setPlayer(source.getPlayer().toBuilder()
+                        .setProfile(source.getPlayer().getProfile().toBuilder()
+                                .addProperties(GameProfileProperty.newBuilder()
+                                        .setName(BedrockIdentityProfiles.PRINCIPAL_V2_PROPERTY_NAME)
+                                        .setValue("forged"))))
+                .build();
+
+        BedrockPrincipalAdmissionException error = assertThrows(
+                BedrockPrincipalAdmissionException.class,
+                () -> consumer(vector).verify(javaSession));
+        assertEquals(PrincipalError.BINDING_MISMATCH, error.error());
     }
 
     @Test
