@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.6](https://github.com/minekube/connect-java/compare/0.15.5...0.15.6) (2026-08-19)
+
+
+### Bug Fixes
+
+* **connect:** recover closed admission coordinator on plugin reload ([#146](https://github.com/minekube/connect-java/issues/146)) ([18cc70d](https://github.com/minekube/connect-java/commit/18cc70d22ab0c315238bc264a0166247cc2e63dd))
+
 ## [0.15.5](https://github.com/minekube/connect-java/compare/0.15.4...0.15.5) (2026-08-09)
 
 
