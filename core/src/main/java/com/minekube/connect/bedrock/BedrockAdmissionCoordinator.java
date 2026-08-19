@@ -32,7 +32,7 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
 
     private final VerifiedBedrockIdentityRegistry identities;
     private final BedrockPrincipalConsumer principalConsumer;
-    private final ScheduledExecutorService cleanupExecutor;
+    private ScheduledExecutorService cleanupExecutor;
     private final Map<AdmissionToken, Admission> admissions = new HashMap<>();
     private final Map<String, Admission> latestBySession = new HashMap<>();
     private final Map<ConnectPlayer, AdmissionToken> players = new IdentityHashMap<>();
@@ -202,6 +202,28 @@ public final class BedrockAdmissionCoordinator implements AutoCloseable {
         players.clear();
         identities.close();
         cleanupExecutor.shutdownNow();
+    }
+
+    /**
+     * Reopens the coordinator for a fresh enable() cycle after {@link #close()}.
+     *
+     * <p>The coordinator is a parent-scoped singleton shared by every enable() cycle, so a plugin
+     * reload (disable → enable without platform reconstruction) must not leave it permanently
+     * closed: the next cycle's watcher would route every session proposal into the closed
+     * coordinator, throwing {@code IllegalStateException: ... coordinator is closed} and killing
+     * the watch. Clears all pending admissions, reopens the identity registry, and recreates the
+     * cleanup executor that {@link #close()} shut down.
+     */
+    public synchronized void reset() {
+        new ArrayList<>(admissions.values()).forEach(this::removeAdmission);
+        admissions.clear();
+        latestBySession.clear();
+        players.clear();
+        closed = false;
+        identities.reset();
+        if (cleanupExecutor.isShutdown()) {
+            cleanupExecutor = newCleanupExecutor();
+        }
     }
 
     private synchronized void expire(AdmissionToken token, Admission expected) {

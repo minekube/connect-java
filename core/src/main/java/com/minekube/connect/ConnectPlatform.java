@@ -128,6 +128,13 @@ public class ConnectPlatform {
             return false;
         }
 
+        // The admission coordinator is a parent-scoped singleton shared by every enable() cycle.
+        // A previous disable() (plugin reload) closed it; reopen it with fresh state before the new
+        // cycle's watcher binds, otherwise every session proposal throws ISE and kills the watch.
+        if (admissionCoordinator != null) {
+            admissionCoordinator.reset();
+        }
+
         try {
             if (!injector.inject()) { // TODO && !bootstrap.getGeyserConfig().isUseDirectConnection()
                 logger.error("Failed to inject the packet listener!");

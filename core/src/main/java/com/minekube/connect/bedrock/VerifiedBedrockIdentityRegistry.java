@@ -84,6 +84,18 @@ public final class VerifiedBedrockIdentityRegistry implements AutoCloseable {
         identities.clear();
     }
 
+    /**
+     * Clears recorded identities and reopens the registry after {@link #close()}.
+     *
+     * <p>The registry is a parent-scoped singleton shared by every enable() cycle, so a plugin
+     * reload (disable → enable on the same platform) must be able to reuse it. Entries from a
+     * previous cycle can never match a new session's players, so clearing is safe.
+     */
+    public synchronized void reset() {
+        closed = false;
+        identities.clear();
+    }
+
     private void ensureOpen() {
         if (closed) {
             throw new IllegalStateException("Bedrock identity registry is closed");
