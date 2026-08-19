@@ -239,7 +239,10 @@ public final class BedrockIdentityEnforcer {
             return Decision.allowed(null);
         }
 
-        if (hasEnvelope && (!hasScopeValue(endpointId) || !hasScopeValue(endpointOrgId))) {
+        // The endpoint itself is the identity binding; the org dimension is
+        // optional (an org-less endpoint is a first-class endpoint-scoped
+        // scope). Only a missing endpoint id makes the scope incomplete.
+        if (hasEnvelope && !hasScopeValue(endpointId)) {
             return rejectOrWarn(player, mode, "authenticated endpoint scope is incomplete");
         }
         if (!identityConfiguration.isUsable()) {

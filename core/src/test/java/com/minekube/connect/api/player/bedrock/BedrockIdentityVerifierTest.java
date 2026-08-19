@@ -50,6 +50,30 @@ class BedrockIdentityVerifierTest {
     }
 
     @Test
+    void verifiesEndpointScopedBedrockXuidEnvelopeWithoutOrg() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", "endpoint-id", "endpoint", "");
+        GameProfile profile = profileWithEnvelope(envelope);
+
+        BedrockIdentityVerifier verifier = BedrockIdentityVerifier.builder()
+                .publicKey(rawEd25519PublicKey(keyPair))
+                .now(NOW)
+                .endpointId("endpoint-id")
+                .endpointName("endpoint")
+                .orgId("")
+                .sessionId("session-1")
+                .protocol("bedrock")
+                .replayCache(new BedrockIdentityReplayCache())
+                .build();
+
+        BedrockIdentityClaims claims = verifier.verify(profile);
+
+        assertEquals("bedrock_xuid", claims.getPrincipalType());
+        assertEquals("endpoint-id", claims.getEndpointId());
+        assertEquals("", claims.getOrgId());
+    }
+
+    @Test
     void rejectsSignedEnvelopeWithQuotedVersion() throws Exception {
         KeyPair keyPair = ed25519KeyPair();
         String envelope = signedEnvelope(keyPair, "nonce-a", "session-1", "endpoint-id", "endpoint", "org-id")

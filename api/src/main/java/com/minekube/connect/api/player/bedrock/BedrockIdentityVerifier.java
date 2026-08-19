@@ -65,7 +65,7 @@ public final class BedrockIdentityVerifier {
         this.now = builder.now;
         this.endpointId = optionalNonEmpty(builder.endpointId, "endpointId");
         this.endpointName = requireNonEmpty(builder.endpointName, "endpointName");
-        this.orgId = optionalNonEmpty(builder.orgId, "orgId");
+        this.orgId = optionalNullOrEmpty(builder.orgId);
         this.sessionId = requireNonEmpty(builder.sessionId, "sessionId");
         this.protocol = requireNonEmpty(builder.protocol, "protocol");
         this.bedrockAuthPolicy = builder.bedrockAuthPolicy;
@@ -277,8 +277,7 @@ public final class BedrockIdentityVerifier {
         }
         if (isEmpty(envelope.issuer) || envelope.endpoint == null ||
                 isEmpty(envelope.endpoint.id) ||
-                isEmpty(envelope.endpoint.name) ||
-                isEmpty(envelope.endpoint.org_id)) {
+                isEmpty(envelope.endpoint.name)) {
             throw new BedrockIdentityVerificationException("identity envelope endpoint scope is incomplete");
         }
         if (envelope.session == null ||
@@ -400,6 +399,10 @@ public final class BedrockIdentityVerifier {
             return null;
         }
         return requireNonEmpty(value, name);
+    }
+
+    private static String optionalNullOrEmpty(String value) {
+        return value == null || value.isEmpty() ? null : value;
     }
 
     private static boolean isEmpty(String value) {
