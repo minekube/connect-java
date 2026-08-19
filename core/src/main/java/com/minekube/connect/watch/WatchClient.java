@@ -28,6 +28,8 @@ package com.minekube.connect.watch;
 import com.google.inject.Inject;
 import com.google.inject.name.Named;
 import com.google.protobuf.InvalidProtocolBufferException;
+import com.google.rpc.Code;
+import com.google.rpc.Status;
 import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness.Transport;
@@ -186,9 +188,22 @@ public class WatchClient {
                                     .toByteArray()
                             ));
                         };
-                SessionProposal prop = admissionCoordinator == null
-                        ? new SessionProposal(res.getSession(), rejectProposal)
-                        : admissionCoordinator.proposal(res.getSession(), rejectProposal, "", "");
+                SessionProposal prop;
+                try {
+                    prop = admissionCoordinator == null
+                            ? new SessionProposal(res.getSession(), rejectProposal)
+                            : admissionCoordinator.proposal(res.getSession(), rejectProposal, "", "");
+                } catch (IllegalStateException e) {
+                    // The coordinator is only closed when a disable() is tearing the plugin down or
+                    // a reload failed to recover it. Reject the proposal over the wire instead of
+                    // letting the exception escape and fail the WebSocket, which would put the watch
+                    // into an endless reconnect loop; the next enable() recovers the coordinator.
+                    rejectProposal.accept(Status.newBuilder()
+                            .setCode(Code.INTERNAL_VALUE)
+                            .setMessage("Bedrock admission coordinator is closed")
+                            .build());
+                    return;
+                }
                 watcher.onProposal(prop);
             }
 

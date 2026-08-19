@@ -1,7 +1,10 @@
 package com.minekube.connect.watch;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -85,6 +88,64 @@ class WatchClientTest {
             assertFalse(player.getGameProfile().toString().contains("signed-envelope-replay-nonce-a"));
             System.out.println("WATCH admission: session=" + proposal.getSession().getId() + ", token=opaque, "
                     + "proposalPrivateEnvelope=false, stagedPlayerPrivateEnvelope=false");
+        } finally {
+            coordinator.close();
+        }
+    }
+
+    @Test
+    void closedCoordinatorRejectsProposalInsteadOfFailingTheWatch() throws Exception {
+        ConnectConfig config = new ConnectConfig();
+        OkHttpClient httpClient = mock(OkHttpClient.class);
+        VerifiedBedrockIdentityRegistry registry = new VerifiedBedrockIdentityRegistry();
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(registry);
+        WatchClient client = new WatchClient(
+                httpClient,
+                config,
+                new BedrockIdentityReadiness(
+                        config,
+                        new BedrockIdentityKeyProvider(config, new OkHttpClient())),
+                coordinator);
+        java.util.concurrent.atomic.AtomicReference<SessionProposal> proposalRef =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<Throwable> errorRef =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        Watcher watcher = new Watcher() {
+            @Override public void onOpen(WatchBootstrap bootstrap) { }
+            @Override public void onProposal(SessionProposal proposal) { proposalRef.set(proposal); }
+            @Override public void onCompleted() { }
+            @Override public void onError(Throwable throwable) { errorRef.set(throwable); }
+        };
+
+        try {
+            coordinator.close(); // disable() closed the shared coordinator
+            client.watch(watcher);
+            ArgumentCaptor<WebSocketListener> listener =
+                    ArgumentCaptor.forClass(WebSocketListener.class);
+            verify(httpClient).newWebSocket(any(Request.class), listener.capture());
+            WebSocket socket = mock(WebSocket.class);
+            Session raw = Session.newBuilder()
+                    .setId("session-closed-coordinator")
+                    .setPlayer(Player.newBuilder()
+                            .setAddr("127.0.0.1")
+                            .setProfile(GameProfile.newBuilder()
+                                    .setId("f912bf90-8349-565f-9dc0-9891923c0cc3")
+                                    .setName("Player")))
+                    .build();
+
+            // A proposal into a closed coordinator must be rejected over the wire, not allowed to
+            // escape and fail the WebSocket (which would put the watch into a reconnect loop).
+            assertDoesNotThrow(() -> listener.getValue().onMessage(
+                    socket, ByteString.of(WatchResponse.newBuilder()
+                            .setSession(raw).build().toByteArray())));
+
+            assertNull(proposalRef.get(), "a closed coordinator must not accept the proposal");
+            assertNull(errorRef.get(), "a closed coordinator must not fail the watch stream");
+            ArgumentCaptor<ByteString> sent = ArgumentCaptor.forClass(ByteString.class);
+            verify(socket).send(sent.capture());
+            WatchRequest request = WatchRequest.parseFrom(sent.getValue().toByteArray());
+            assertTrue(request.hasSessionRejection());
+            assertEquals("session-closed-coordinator", request.getSessionRejection().getId());
         } finally {
             coordinator.close();
         }
