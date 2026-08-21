@@ -19,6 +19,15 @@ the normal plugin setup does not require a backend Geyser installation.
 For more routing features and the connector that receives the most frequent
 updates, consider the [Gate connector](https://connect.minekube.com/guide/connectors/).
 
+## Requirements
+
+- **Minecraft 1.13+** on Paper/Spigot (and supported proxy versions on Velocity and
+  BungeeCord) — the declared `api-version` floor and the first version whose servers
+  ship the Netty 4.1+ the plugin's bundled Netty (4.2.x, unrelocated) requires.
+  Servers 1.8–1.11 ship Netty 4.0.x, where the packet listener injection fails with
+  `AbstractMethodError` (missing `newChild` implementation).
+- **Java 17+** to run the plugin.
+
 ## Quick start
 
 1. Download the jar for your platform and place it in the server or proxy
