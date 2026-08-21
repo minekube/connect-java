@@ -618,6 +618,27 @@ class BedrockIdentityEnforcerTest {
         assertTrue(replay.message().contains("Bedrock identity verification failed"));
     }
 
+    @Test
+    void requireModeAllowsOrglessEndpointScope() throws Exception {
+        KeyPair keyPair = ed25519KeyPair();
+        ConnectConfig config = config(
+                "require",
+                base64(keyPair.getPublic().getEncoded()),
+                "trusted_bedrock_xuid");
+        String envelope = signedEnvelope(keyPair, VALID_NONCE, "session-1", config.getEndpoint(), "minekube-connect-test", "");
+        BedrockIdentityEnforcer enforcer = new BedrockIdentityEnforcer(config, mock(ConnectLogger.class), () -> NOW);
+        ConnectPlayer player = player("session-1", profileWithEnvelope(envelope));
+
+        // An org-less endpoint is a first-class endpoint-scoped identity scope:
+        // the default trusted_bedrock_xuid policy admits the player even under
+        // strict require-mode enforcement (support case: gurtville).
+        BedrockIdentityEnforcer.Decision decision = enforcer.verify(player, "endpoint-id", "");
+
+        assertTrue(decision.allowed());
+        assertNotNull(decision.verifiedClaims());
+        assertEquals("", decision.verifiedClaims().getOrgId());
+    }
+
     private static ConnectPlayer player(String sessionId, GameProfile profile) {
         return new ConnectPlayerImpl(sessionId, profile, new Auth(false), "");
     }
@@ -701,13 +722,34 @@ class BedrockIdentityEnforcerTest {
             String endpointName,
             String issuer,
             Instant issuedAt) throws Exception {
+        return signedEnvelope(keyPair, nonce, sessionId, endpointName, issuer, issuedAt, "org-id");
+    }
+
+    private static String signedEnvelope(
+            KeyPair keyPair,
+            String nonce,
+            String sessionId,
+            String endpointName,
+            String issuer,
+            String orgId) throws Exception {
+        return signedEnvelope(keyPair, nonce, sessionId, endpointName, issuer, NOW, orgId);
+    }
+
+    private static String signedEnvelope(
+            KeyPair keyPair,
+            String nonce,
+            String sessionId,
+            String endpointName,
+            String issuer,
+            Instant issuedAt,
+            String orgId) throws Exception {
         Envelope envelope = new Envelope();
         envelope.version = 1;
         envelope.issuer = issuer;
         envelope.endpoint = new Endpoint();
         envelope.endpoint.id = "endpoint-id";
         envelope.endpoint.name = endpointName;
-        envelope.endpoint.org_id = "org-id";
+        envelope.endpoint.org_id = orgId;
         envelope.session = new Session();
         envelope.session.id = sessionId;
         envelope.session.protocol = "bedrock";
