@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.15.7](https://github.com/minekube/connect-java/compare/0.15.6...0.15.7) (2026-08-21)
+
+
+### Bug Fixes
+
+* **connect:** log exception message when rejecting session proposals ([#148](https://github.com/minekube/connect-java/issues/148)) ([8e52409](https://github.com/minekube/connect-java/commit/8e52409de12de34d9e9039a51f1cd6857fdac51d))
+* **core:** admit org-less endpoints under Bedrock identity enforcement ([#145](https://github.com/minekube/connect-java/issues/145)) ([493aa1c](https://github.com/minekube/connect-java/commit/493aa1caee9a6158f5917141090809bb455fd004))
+
 ## [0.15.6](https://github.com/minekube/connect-java/compare/0.15.5...0.15.6) (2026-08-19)
 
 
