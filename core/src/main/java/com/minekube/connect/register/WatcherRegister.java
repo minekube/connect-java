@@ -315,9 +315,14 @@ public class WatcherRegister {
                 ).connect();
             } catch (RuntimeException e) {
                 reject(proposal, rejectionStatus(e));
-                logger.warn("Rejected one Connect session proposal (category={}); " +
+                logger.warn("Rejected one Connect session proposal (category={}, message={}); " +
                                 "keeping WatchService active",
-                        e.getClass().getSimpleName());
+                        e.getClass().getSimpleName(), e.getMessage());
+                if (logger.isDebug()) {
+                    logger.debug("Rejected one Connect session proposal (category={}, " +
+                                    "message={}); keeping WatchService active",
+                            e.getClass().getSimpleName(), e.getMessage(), e);
+                }
             } catch (Error e) {
                 reject(proposal, rejectionStatus(e));
                 throw e;

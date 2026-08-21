@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -27,6 +28,7 @@ import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
 import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 import com.minekube.connect.tunnel.Tunneler;
+import com.minekube.connect.util.MessageFormatter;
 import com.minekube.connect.watch.SessionProposal;
 import com.minekube.connect.watch.WatchBootstrap;
 import com.minekube.connect.watch.WatchClient;
@@ -34,6 +36,7 @@ import com.minekube.connect.watch.Watcher;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -434,6 +437,50 @@ class WatcherRegisterTest {
             Field admissions = BedrockAdmissionCoordinator.class.getDeclaredField("admissions");
             admissions.setAccessible(true);
             assertTrue(((Map<?, ?>) admissions.get(coordinator)).isEmpty());
+        } finally {
+            coordinator.close();
+        }
+    }
+
+    @Test
+    void rejectedProposalWarnCarriesTheExceptionMessage() throws Exception {
+        BedrockAdmissionCoordinator coordinator = new BedrockAdmissionCoordinator(
+                new VerifiedBedrockIdentityRegistry());
+        try {
+            Fixture fixture = newFixture(coordinator);
+            ConnectLogger logger = (ConnectLogger) getField(fixture.register, "logger");
+            List<String> warns = new ArrayList<>();
+            doAnswer(invocation -> {
+                Object[] raw = invocation.getRawArguments();
+                warns.add(MessageFormatter.format((String) raw[0], (Object[]) raw[1]));
+                return null;
+            }).when(logger).warn(anyString(), any(Object[].class));
+
+            register = fixture.register;
+            register.start();
+            ArgumentCaptor<Watcher> watcher = ArgumentCaptor.forClass(Watcher.class);
+            verify(fixture.watchClient).watch(watcher.capture());
+            Session session = Session.newBuilder()
+                    .setId("session-warn-message")
+                    .setTunnelServiceAddr("wss://tunnel.example")
+                    .setPlayer(Player.newBuilder()
+                            .setAddr("127.0.0.1")
+                            .setProfile(GameProfile.newBuilder()
+                                    .setId("00000000-0000-0000-0000-000000000001")
+                                    .setName("Player")))
+                    .build();
+            SessionProposal superseded = coordinator.proposal(
+                    session, reason -> {}, "endpoint-1", "org-1");
+            SessionProposal current = coordinator.proposal(
+                    session, reason -> {}, "endpoint-1", "org-1");
+
+            watcher.getValue().onProposal(superseded);
+
+            assertFalse(warns.isEmpty(), "expected a proposal-rejection WARN");
+            assertTrue(warns.stream().anyMatch(w -> w.contains("IllegalStateException")
+                            && w.contains("expired or been superseded")),
+                    "WARN must carry the exception message, got: " + warns);
+            coordinator.discard(current);
         } finally {
             coordinator.close();
         }
