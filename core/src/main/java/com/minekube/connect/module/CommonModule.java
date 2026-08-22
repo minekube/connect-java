@@ -39,6 +39,7 @@ import com.minekube.connect.api.SimpleConnectApi;
 import com.minekube.connect.api.inject.PlatformInjector;
 import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.api.packet.PacketHandlers;
+import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.bedrock.BedrockIdentityKeyProvider;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness;
 import com.minekube.connect.bedrock.BedrockPrincipalReadiness;
@@ -81,6 +82,13 @@ public class CommonModule extends AbstractModule {
 
         bind(PacketHandlers.class).to(PacketHandlersImpl.class);
         bind(PacketHandlersImpl.class).asEagerSingleton();
+
+        // This binding must be explicit on the common parent injector. A just-in-time singleton
+        // requested from later config/post-initialize children is scoped to that child, which can
+        // make WatchClient mint an admission on one coordinator while WatcherRegister stages it on
+        // another. Explicit parent bindings are inherited by every child injector.
+        bind(BedrockAdmissionCoordinator.class).in(Singleton.class);
+
         Multibinder<TunnelClientTransport> transports =
                 Multibinder.newSetBinder(binder(), TunnelClientTransport.class);
         transports.addBinding().to(WebSocketTunnelTransport.class);
