@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.8](https://github.com/minekube/connect-java/compare/0.15.7...0.15.8) (2026-08-22)
+
+
+### Bug Fixes
+
+* **core:** share Bedrock admission coordinator across injectors ([#151](https://github.com/minekube/connect-java/issues/151)) ([9cccb94](https://github.com/minekube/connect-java/commit/9cccb94c96c814e9846b0af53d6a262797d21e46))
+
 ## [0.15.7](https://github.com/minekube/connect-java/compare/0.15.6...0.15.7) (2026-08-21)
 
 
