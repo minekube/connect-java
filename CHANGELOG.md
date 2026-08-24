@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.9](https://github.com/minekube/connect-java/compare/0.15.8...0.15.9) (2026-08-24)
+
+
+### Bug Fixes
+
+* **bedrock:** interim default gen-0/warn until v2 producer ships ([#153](https://github.com/minekube/connect-java/issues/153)) ([7dcf9c7](https://github.com/minekube/connect-java/commit/7dcf9c767714d01a1e69f1c8e13fdeb58d4deefe))
+
 ## [0.15.8](https://github.com/minekube/connect-java/compare/0.15.7...0.15.8) (2026-08-22)
 
 
