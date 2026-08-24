@@ -19,16 +19,21 @@ class BedrockPrincipalGenerationConfigTest {
     @TempDir Path tempDir;
 
     @Test
-    void newlyGeneratedServerAndProxyConfigsDefaultV2ToRequire() throws Exception {
+    void newlyGeneratedServerAndProxyConfigsDefaultToV2WarnUntilProducerShips() throws Exception {
         ConnectConfig server = load(ConnectConfig.class, tempDir.resolve("server"));
         ProxyConnectConfig proxy = load(ProxyConnectConfig.class, tempDir.resolve("proxy"));
         for (ConnectConfig config : new ConnectConfig[] {server, proxy}) {
-            assertEquals(2, config.getBedrockPrincipal().getConfigGeneration());
-            assertEquals("require", config.getBedrockPrincipal().getMode());
+            // Interim default (Track B): generation 0 + warn keeps fresh installs on the
+            // working v1 identity path until the v2 producer (metadata + signed envelopes)
+            // ships. Generation 2 + require rejects every Bedrock join with READINESS when
+            // the producer is absent (see moxy kanban t_87f2966f).
+            assertEquals(0, config.getBedrockPrincipal().getConfigGeneration());
+            assertEquals("warn", config.getBedrockPrincipal().getMode());
             assertEquals("minekube-connect", config.getBedrockPrincipal().getIssuer());
             assertEquals("urn:minekube:connect:production", config.getBedrockPrincipal().getTrustDomain());
             assertEquals("urn:minekube:connect:bedrock-principal:v2",
                     config.getBedrockPrincipal().getAudience());
+            assertFalse(BedrockPrincipalConfiguration.from(config.getBedrockPrincipal()).isCapable());
         }
     }
 

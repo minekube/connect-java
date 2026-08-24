@@ -81,8 +81,8 @@ bedrock-identity:
 # configurations require it; files created before this section existed remain generation 0,
 # preserve their legacy behavior, and never advertise v2 until explicitly upgraded.
 bedrock-principal:
-  config-generation: 2
-  mode: require
+  config-generation: 0
+  mode: warn
   issuer: minekube-connect
   trust-domain: urn:minekube:connect:production
   audience: urn:minekube:connect:bedrock-principal:v2
