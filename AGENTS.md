@@ -21,7 +21,7 @@ plugin release, hub image rebuild, and production rollout as separate steps.
   tag/release, then dispatches `release.yml` on that tag so the JAR artifacts
   are uploaded. Do not manually bump versions or create release tags unless
   repairing automation.
-- Release-PR audit, asset verification, Modrinth/Hangar contracts, release repair: `.claude/skills/release/SKILL.md`.
+- Release-PR audit, asset verification, Modrinth/Hangar contracts, release repair: `.agents/skills/release/SKILL.md`.
 
 ## Public integration contract for login/auth plugins
 
