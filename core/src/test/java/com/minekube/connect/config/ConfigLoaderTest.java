@@ -74,6 +74,56 @@ class ConfigLoaderTest {
         assertEquals("trusted_bedrock_xuid", config.getBedrockIdentity().getExpectedPolicy());
     }
 
+    @Test
+    void preservesExplicitQuotedBedrockIdentitySection() throws Exception {
+        Files.writeString(tempDir.resolve("config.yml"), String.join("\n",
+                "endpoint: codexp2p3",
+                "allow-offline-mode-players: false",
+                "\"bedrock-identity\":",
+                "  enforcement: require",
+                "  metadata-url: https://operator.example/bedrock-identity-keys.json",
+                "metrics:",
+                "  disabled: true",
+                "  uuid: 00000000-0000-0000-0000-000000000000",
+                "config-version: 1",
+                ""));
+
+        ConnectConfig config = load(ConnectConfig.class);
+
+        assertEquals("require", config.getBedrockIdentity().getEnforcement());
+        assertEquals(
+                "https://operator.example/bedrock-identity-keys.json",
+                config.getBedrockIdentity().getMetadataUrl());
+    }
+
+    @Test
+    void legacyConfigWithoutBedrockSectionUsesSafeMinekubeIdentityDefaults() throws Exception {
+        Files.writeString(tempDir.resolve("config.yml"), String.join("\n",
+                "endpoint: codexp2p3",
+                "allow-offline-mode-players: false",
+                "metrics:",
+                "  disabled: true",
+                "  uuid: 00000000-0000-0000-0000-000000000000",
+                "config-version: 1",
+                ""));
+
+        ConnectConfig config = load(ConnectConfig.class);
+
+        assertEquals("warn", config.getBedrockIdentity().getEnforcement());
+        assertEquals(
+                "https://watch-connect.minekube.net/.well-known/minekube-connect/bedrock-identity-keys.json",
+                config.getBedrockIdentity().getMetadataUrl());
+        assertEquals("minekube-connect", config.getBedrockIdentity().getExpectedIssuer());
+        assertEquals("trusted_bedrock_xuid", config.getBedrockIdentity().getExpectedPolicy());
+
+        ConnectConfig reloaded = load(ConnectConfig.class);
+        assertEquals("warn", reloaded.getBedrockIdentity().getEnforcement(),
+                "an automatically rewritten legacy config must keep the safe default after restart");
+        assertEquals(
+                "https://watch-connect.minekube.net/.well-known/minekube-connect/bedrock-identity-keys.json",
+                reloaded.getBedrockIdentity().getMetadataUrl());
+    }
+
     /**
      * The login re-assert is on by default and its full-profile half is off by default, including
      * for a proxy config written before either key existed.

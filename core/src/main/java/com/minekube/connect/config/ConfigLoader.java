@@ -31,11 +31,13 @@ import com.minekube.connect.api.logger.ConnectLogger;
 import com.minekube.connect.util.Utils;
 import java.io.File;
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Map;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +50,8 @@ import org.geysermc.configutils.ConfigUtilities;
 import org.geysermc.configutils.file.codec.PathFileCodec;
 import org.geysermc.configutils.file.template.ResourceTemplateReader;
 import org.geysermc.configutils.updater.change.Changes;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 @Getter
 @RequiredArgsConstructor
@@ -63,6 +67,13 @@ public final class ConfigLoader {
         String content = new String(Files.readAllBytes(path), charset)
                 .replace("${metrics.uuid}", UUID.randomUUID().toString());
         Files.write(path, content.getBytes(charset));
+    }
+
+    private static boolean hasBedrockIdentitySection(Path path) throws IOException {
+        try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            Object document = new Yaml(new SafeConstructor()).load(reader);
+            return document instanceof Map<?, ?> map && map.containsKey("bedrock-identity");
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -96,6 +107,8 @@ public final class ConfigLoader {
         try {
             // temporary placeholder fix
             File config = new File(dataFolder.toFile(), "config.yml");
+            boolean useMinekubeBedrockIdentityDefaults = config.exists()
+                    && !hasBedrockIdentitySection(config.toPath());
             if (config.exists()) {
                 fixPlaceholderIssue(config.toPath());
             } else {
@@ -104,7 +117,11 @@ public final class ConfigLoader {
 
             fixPlaceholderIssue(config.toPath()); // apply fix
 
-            return (T) utilities.executeOn(configClass);
+            T loaded = (T) utilities.executeOn(configClass);
+            if (useMinekubeBedrockIdentityDefaults) {
+                loaded.getBedrockIdentity().useMinekubeDefaults();
+            }
+            return loaded;
         } catch (Throwable throwable) {
             throw new RuntimeException(
                     "Failed to load the config! Try to delete the config file if this error persists",
