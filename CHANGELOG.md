@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.10](https://github.com/minekube/connect-java/compare/0.15.9...0.15.10) (2026-09-02)
+
+
+### Bug Fixes
+
+* **config:** default legacy bedrock identity safely ([#157](https://github.com/minekube/connect-java/issues/157)) ([4932eb4](https://github.com/minekube/connect-java/commit/4932eb4931f38683b45fd6fdcafb68912fa15243))
+
 ## [0.15.9](https://github.com/minekube/connect-java/compare/0.15.8...0.15.9) (2026-08-24)
 
 
