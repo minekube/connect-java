@@ -100,6 +100,9 @@ public class ConnectConfig {
 
     @Getter
     public static class BedrockIdentityConfig {
+        private static final String MINEKUBE_METADATA_URL =
+                "https://watch-connect.minekube.net/.well-known/minekube-connect/bedrock-identity-keys.json";
+
         /**
          * Exact enforcement mode: disabled, warn, or require. Any other value is invalid.
          */
@@ -133,6 +136,11 @@ public class ConnectConfig {
          * Required exact policy: linked_java_only or trusted_bedrock_xuid.
          */
         private String expectedPolicy = "trusted_bedrock_xuid";
+
+        void useMinekubeDefaults() {
+            enforcement = "warn";
+            metadataUrl = MINEKUBE_METADATA_URL;
+        }
     }
 
     @Getter
