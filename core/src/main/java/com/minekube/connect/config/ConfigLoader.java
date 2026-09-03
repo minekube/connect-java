@@ -51,7 +51,6 @@ import org.geysermc.configutils.file.codec.PathFileCodec;
 import org.geysermc.configutils.file.template.ResourceTemplateReader;
 import org.geysermc.configutils.updater.change.Changes;
 import org.yaml.snakeyaml.Yaml;
-import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 @Getter
 @RequiredArgsConstructor
@@ -71,7 +70,9 @@ public final class ConfigLoader {
 
     private static boolean hasBedrockIdentitySection(Path path) throws IOException {
         try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-            Object document = new Yaml(new SafeConstructor()).load(reader);
+            // Default ctor: delegates to SafeConstructor in both SnakeYAML 1.x and 2.x (the
+            // no-arg SafeConstructor ctor was removed in 2.0, which Velocity provides at runtime).
+            Object document = new Yaml().load(reader);
             return document instanceof Map<?, ?> map && map.containsKey("bedrock-identity");
         }
     }

@@ -147,6 +147,33 @@ class ConfigLoaderTest {
                 "restoring the UUID needs an operator-side prerequisite, so it must be opt-in");
     }
 
+    /**
+     * Velocity 4.x provides SnakeYAML 2.x at runtime (through Configurate), where the no-arg
+     * {@code SafeConstructor()} constructor was removed. 0.15.10 (PR #157) loaded an existing
+     * config.yml with {@code new Yaml(new SafeConstructor())}, so every existing-config load on
+     * Velocity crashed with NoSuchMethodError. The core test dependency pins SnakeYAML 2.x to
+     * reproduce that platform classpath; loading a legacy config must apply the safe Minekube
+     * defaults instead of crashing.
+     */
+    @Test
+    void legacyConfigLoadsOnSnakeYaml2xRuntimeClasspath() throws Exception {
+        Files.writeString(tempDir.resolve("config.yml"), String.join("\n",
+                "endpoint: codexp2p3",
+                "allow-offline-mode-players: false",
+                "metrics:",
+                "  disabled: true",
+                "  uuid: 00000000-0000-0000-0000-000000000000",
+                "config-version: 1",
+                ""));
+
+        ConnectConfig config = load(ConnectConfig.class);
+
+        assertEquals("warn", config.getBedrockIdentity().getEnforcement());
+        assertEquals(
+                "https://watch-connect.minekube.net/.well-known/minekube-connect/bedrock-identity-keys.json",
+                config.getBedrockIdentity().getMetadataUrl());
+    }
+
     /** Both halves are operator-controllable from the config file. */
     @Test
     void loadsLoginReassertOverrides() throws Exception {
