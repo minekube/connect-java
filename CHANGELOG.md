@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.11](https://github.com/minekube/connect-java/compare/0.15.10...0.15.11) (2026-09-03)
+
+
+### Bug Fixes
+
+* **config:** use SnakeYAML default ctor (2.x compatible) for existing-config load ([#159](https://github.com/minekube/connect-java/issues/159)) ([c0f7840](https://github.com/minekube/connect-java/commit/c0f7840ed4f768ad0cb805a186f6753c2ead85bd))
+
 ## [0.15.10](https://github.com/minekube/connect-java/compare/0.15.9...0.15.10) (2026-09-02)
 
 
