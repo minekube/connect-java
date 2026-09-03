@@ -33,8 +33,11 @@ dependencies {
     testImplementation("io.netty", "netty-transport", Versions.nettyVersion)
     testImplementation("io.netty", "netty-codec", Versions.nettyVersion)
     testImplementation("com.squareup.okhttp3:mockwebserver:4.9.3")
-    // Parses the release workflows in the release verification tests.
-    testImplementation("org.yaml:snakeyaml:1.27")
+    // Parses the release workflows in the release verification tests. 2.x on purpose: Velocity
+    // 4.x supplies SnakeYAML 2.x at runtime (via Configurate), where the no-arg SafeConstructor
+    // constructor no longer exists - ConfigLoaderTest's regression guard for the 0.15.10
+    // NoSuchMethodError must run against the 2.x API the platform actually provides.
+    testImplementation("org.yaml:snakeyaml:2.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
