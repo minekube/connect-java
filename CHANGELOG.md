@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.12](https://github.com/minekube/connect-java/compare/0.15.11...0.15.12) (2026-09-13)
+
+
+### Bug Fixes
+
+* **connect:** report token mismatch, not org switching, for org-owned endpoint auth failures ([#162](https://github.com/minekube/connect-java/issues/162)) ([bfffb20](https://github.com/minekube/connect-java/commit/bfffb20e31c3f2c11119b18bdcc43ae7d9306cbd))
+
 ## [0.15.11](https://github.com/minekube/connect-java/compare/0.15.10...0.15.11) (2026-09-03)
 
 
