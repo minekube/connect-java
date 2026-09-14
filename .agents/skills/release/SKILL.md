@@ -32,11 +32,22 @@ curl -I -L --fail https://github.com/minekube/connect-java/releases/download/<ve
   platform because Modrinth runs every validator whose loaders intersect the
   declared loaders against every file in a version. It uploads the runner's
   build output, never the release assets, and confirms each upload by reading
-  the stored version back and comparing sha1 and sha512. Its event condition is
-  the safety property: without it every push to `main` would publish a
-  development build to a public listing without anything going red. Pinned by
-  `core/.../release/ReleaseModrinthPublishTest`; keep that test's step names in
-  sync when editing `release.yml`. Dispatching `release.yml` at an OLD tag
+  the stored version back and comparing sha1 and sha512. The read-back is
+  retried a bounded number of times (`local read_attempts` / `local
+  read_retry_seconds`) because a version created a moment ago is not always
+  readable yet: on 0.15.12 two platforms read back HTTP 404 immediately after a
+  create that had in fact stored the jar, and the step red-ed twice on a tag
+  that had published correctly, needing manual job reruns. Only HTTP 404 is
+  retryable - a 401/403 refusal and a digest mismatch are final on the first
+  read and are never retried, downgraded or reported as published. The create
+  itself is never retried; a duplicate version number (400/409 "already
+  exists") is treated as inventory, resolved from the version list, and still
+  has to pass the same read-back. Its event condition is the safety property:
+  without it every push to `main` would publish a development build to a public
+  listing without anything going red. Pinned by
+  `core/.../release/ReleaseModrinthPublishTest`, which executes the step's own
+  `publish_platform` against a stubbed API; keep that test's step names in sync
+  when editing `release.yml`. Dispatching `release.yml` at an OLD tag
   publishes that tag to Modrinth - the listing is not a backfill target.
 - `release.yml`'s "Publish to Hangar" step publishes to `minekube/Connect` and
   syncs `.github/hangar-description.md`. `HANGAR_API_TOKEN` needs

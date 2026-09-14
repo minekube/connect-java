@@ -780,6 +780,18 @@ jobs:
             local platform="$1" jar="$2" loaders="$3" label="$4"
             local number="$RELEASE_TAG+$platform"
             local code version_id want_sha1 want_sha512 got_sha1 got_sha512 filename
+            local attempt=0
+            # Bounded read-back retry. The read-back is what confirms an upload,
+            # but a version created a moment ago is not always readable yet: on
+            # 0.15.12 two platforms read back HTTP 404 immediately after a create
+            # that had in fact stored the jar, and the step went red twice on a
+            # release that had published correctly (both platforms were listed
+            # afterwards; manual job reruns were needed). Retrying the READ-BACK
+            # is safe and is the only thing retried here - a create that fails
+            # with a duplicate version number is a different failure and is
+            # handled below, not retried.
+            local read_attempts=4
+            local read_retry_seconds=8
 
             if [ ! -f "$jar" ]; then
               echo "::error::$jar was not produced by this build; nothing to publish."
@@ -833,12 +845,43 @@ jobs:
               exit 1
             fi
             if [ "$code" != "200" ]; then
-              echo "::error::Modrinth rejected version $number (HTTP $code)."
-              cat "$TMP/created.json" || true
-              exit 1
+              # A duplicate version number is the listing telling us it already
+              # holds this version - inventory to confirm, not a create to retry
+              # (creating again cannot succeed, and re-uploading is not a thing).
+              # Resolve the existing version id and let the same read-back below
+              # decide whether the stored bytes are ours; nothing is called
+              # published on the strength of this response.
+              if { [ "$code" = "400" ] || [ "$code" = "409" ]; } \
+                && jq -e '((.error // .description // "") | test("already exists|duplicate"; "i"))' \
+                     "$TMP/created.json" >/dev/null 2>&1; then
+                echo "Modrinth already holds version $number (HTTP $code); confirming it by read-back."
+                code="$(api "$TMP/existing.json" "$API/project/$MODRINTH_PROJECT_ID/version")"
+                if [ "$code" != "200" ]; then
+                  echo "::error::Modrinth rejected version $number as a duplicate and the existing"
+                  echo "::error::versions could not be listed to confirm it (HTTP $code)."
+                  exit 1
+                fi
+                version_id="$(jq -r --arg n "$number" \
+                  'first(.[] | select(.version_number == $n) | .id) // ""' "$TMP/existing.json")"
+                if [ -z "$version_id" ]; then
+                  echo "::error::Modrinth rejected version $number as a duplicate but does not list"
+                  echo "::error::that version number; the create response and the listing disagree."
+                  exit 1
+                fi
+              else
+                echo "::error::Modrinth rejected version $number (HTTP $code)."
+                cat "$TMP/created.json" || true
+                exit 1
+              fi
+            else
+              version_id="$(jq -r '.id' "$TMP/created.json")"
             fi
 
-            version_id="$(jq -r '.id' "$TMP/created.json")"
+            if [ -z "$version_id" ]; then
+              echo "::error::Modrinth accepted version $number but named no version id; there is"
+              echo "::error::nothing to read back, so the upload cannot be confirmed."
+              exit 1
+            fi
 
             # The create response is the API describing its own request, which
             # is the same "trust the run, not the artifact" mistake the release
@@ -846,17 +889,34 @@ jobs:
             # and assert on the digests Modrinth computed from the bytes it
             # actually holds. Size is not enough: two different jars can share
             # a size and cannot share a digest.
-            code="$(api "$TMP/stored.json" "$API/version/$version_id")"
-            if [ "$code" = "401" ] || [ "$code" = "403" ]; then
-              echo "::error::MODRINTH_TOKEN was refused (HTTP $code) reading version $number back."
-              echo "::error::Reading a version back requires the VERSION_READ scope."
-              exit 1
-            fi
-            if [ "$code" != "200" ]; then
-              echo "::error::Could not read version $number back from Modrinth (HTTP $code);"
-              echo "::error::the upload cannot be confirmed to have stored our jar."
-              exit 1
-            fi
+            #
+            # Only that read-back is retried, and only the one answer that means
+            # "not visible yet" (HTTP 404) is retryable: a refusal (401/403) and
+            # a digest that does not match are final on the first read, because
+            # neither becomes true by waiting. A mismatch is never retried, never
+            # downgraded, and never reported as published. The step still fails
+            # closed once the attempts are spent.
+            while :; do
+              attempt=$((attempt + 1))
+              code="$(api "$TMP/stored.json" "$API/version/$version_id")"
+
+              if [ "$code" = "200" ]; then
+                break
+              fi
+              if [ "$code" = "401" ] || [ "$code" = "403" ]; then
+                echo "::error::MODRINTH_TOKEN was refused (HTTP $code) reading version $number back."
+                echo "::error::Reading a version back requires the VERSION_READ scope."
+                exit 1
+              fi
+              if [ "$code" != "404" ] || [ "$attempt" -ge "$read_attempts" ]; then
+                echo "::error::Could not read version $number back from Modrinth (HTTP $code);"
+                echo "::error::the upload cannot be confirmed to have stored our jar."
+                exit 1
+              fi
+
+              echo "Modrinth is not serving $number yet (HTTP $code, attempt $attempt of $read_attempts); retrying in ${read_retry_seconds}s. The upload is only reported as published once the read-back matches."
+              sleep "$read_retry_seconds"
+            done
 
             got_sha1="$(jq -r --arg f "$filename" \
               'first(.files[] | select(.filename == $f) | .hashes.sha1) // ""' "$TMP/stored.json")"
