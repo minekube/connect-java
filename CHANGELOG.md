@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.13](https://github.com/minekube/connect-java/compare/0.15.12...0.15.13) (2026-09-14)
+
+
+### Bug Fixes
+
+* **release:** retry the Modrinth read-back instead of reding a released tag ([#164](https://github.com/minekube/connect-java/issues/164)) ([cb9cb85](https://github.com/minekube/connect-java/commit/cb9cb85d28d4fa2690ab31eceb91d80d0c8ecb1a))
+
 ## [0.15.12](https://github.com/minekube/connect-java/compare/0.15.11...0.15.12) (2026-09-13)
 
 
