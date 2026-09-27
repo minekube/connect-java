@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.15](https://github.com/minekube/connect-java/compare/0.15.14...0.15.15) (2026-09-27)
+
+
+### Bug Fixes
+
+* **spigot:** resolve the chat packet constructor from the runtime signature type (26.3 drift) ([#170](https://github.com/minekube/connect-java/issues/170)) ([36697da](https://github.com/minekube/connect-java/commit/36697daecebaab4018a6e631bbfb5cb94b97f6c8))
+
 ## [0.15.14](https://github.com/minekube/connect-java/compare/0.15.13...0.15.14) (2026-09-27)
 
 
