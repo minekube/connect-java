@@ -33,14 +33,45 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.BitSet;
+import java.util.Optional;
 import net.minecraft.network.chat.LastSeenMessages;
 import net.minecraft.network.chat.MessageSignature;
 import net.minecraft.network.protocol.game.ServerboundChatPacket;
 import org.junit.jupiter.api.Test;
 
+/**
+ * The rewrite has to resolve {@code ServerboundChatPacket}'s constructor from the shape the running
+ * server actually uses. Minecraft moved the {@code signature} component from a raw
+ * {@link MessageSignature} to an {@link Optional} of it (verified on Paper 26.3:
+ * {@code ServerboundChatPacket(String, Instant, long, Optional<MessageSignature>,
+ * LastSeenMessages$Update)}), and a hard-coded raw-type lookup turns every plain chat message from
+ * such a client into a reflective failure inside the Netty pipeline.
+ */
 class SpigotChatSessionPacketFilterTest {
     @Test
-    void rewritesChatPacketWhenLastSeenUpdateHasNoChecksumConstructor() throws Exception {
+    void rewritesChatPacketWhenSignatureComponentIsOptional() throws Exception {
+        MessageSignature signature = new MessageSignature(new byte[256]);
+        ServerboundChatPacket packet = new ServerboundChatPacket(
+                "hello",
+                Instant.EPOCH,
+                1L,
+                Optional.of(signature),
+                new LastSeenMessages.Update(4, new BitSet(), (byte) 7)
+        );
+
+        ServerboundChatPacket rewritten = (ServerboundChatPacket) rewrite(packet);
+
+        assertNotSame(packet, rewritten);
+        assertEquals("hello", rewritten.message());
+        assertEquals(Instant.EPOCH, rewritten.timeStamp());
+        assertEquals(1L, rewritten.salt());
+        assertEquals(Optional.of(signature), rewritten.signature());
+        assertEquals(0, rewritten.lastSeenMessages().offset());
+        assertTrue(rewritten.lastSeenMessages().acknowledged().isEmpty());
+    }
+
+    @Test
+    void rewritesChatPacketWhenSignatureComponentIsRaw() throws Exception {
         MessageSignature signature = new MessageSignature();
         ServerboundChatPacket packet = new ServerboundChatPacket(
                 "hello",

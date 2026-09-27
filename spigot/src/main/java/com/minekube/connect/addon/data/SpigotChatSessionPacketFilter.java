@@ -25,13 +25,17 @@
 
 package com.minekube.connect.addon.data;
 
+import com.minekube.connect.util.NmsDiagnostics;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.util.ReferenceCountUtil;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.BitSet;
+import java.util.Comparator;
+import java.util.Optional;
 
 final class SpigotChatSessionPacketFilter extends ChannelInboundHandlerAdapter {
     static final String HANDLER_NAME = "connect_chat_session_filter";
@@ -50,6 +54,7 @@ final class SpigotChatSessionPacketFilter extends ChannelInboundHandlerAdapter {
             "net.minecraft.network.chat.MessageSignature";
     private static final String LAST_SEEN_UPDATE =
             "net.minecraft.network.chat.LastSeenMessages$Update";
+    private static final String OPTIONAL = Optional.class.getName();
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
@@ -82,31 +87,109 @@ final class SpigotChatSessionPacketFilter extends ChannelInboundHandlerAdapter {
     }
 
     private static Object rewriteChatLastSeen(Object packet) throws Exception {
-        Constructor<?> constructor = classForName(CHAT_PACKET).getConstructor(
-                String.class,
-                Instant.class,
-                long.class,
-                classForName(MESSAGE_SIGNATURE),
-                classForName(LAST_SEEN_UPDATE)
-        );
+        Object lastSeenMessages = invoke(packet, "lastSeenMessages");
+        Object emptyLastSeen = emptyLastSeenUpdate();
+        Class<?> chatPacket = classForName(CHAT_PACKET);
+        // The signature component is a raw MessageSignature on 1.20.x and below and an
+        // Optional<MessageSignature> from the 1.21.x line onwards (Paper 26.3 verified), so the
+        // constructor has to be resolved from the runtime value instead of a hard-coded type.
+        Object signature = invoke(packet, "signature");
+        Constructor<?> constructor = chatConstructor(chatPacket, signature, emptyLastSeen);
+        if (constructor == null) {
+            throw NmsDiagnostics.missingAccessor(
+                    CHAT_PACKET + ".<init>(String, Instant, long, <signature>, " + LAST_SEEN_UPDATE + ")",
+                    "Tried: signature=" + describe(signature) + ", lastSeenMessages=" + describe(lastSeenMessages)
+                            + ".");
+        }
+        Class<?>[] parameterTypes = constructor.getParameterTypes();
         return constructor.newInstance(
                 invoke(packet, "message"),
                 invoke(packet, "timeStamp"),
                 invoke(packet, "salt"),
-                invoke(packet, "signature"),
-                emptyLastSeenUpdate()
+                coerceSignature(parameterTypes[3], signature),
+                emptyLastSeen
         );
     }
 
+    /**
+     * Picks the {@code (String, Instant, long, signature, LastSeenMessages.Update)} constructor whose
+     * signature parameter accepts the packet's own signature value.
+     */
+    static Constructor<?> chatConstructor(Class<?> chatPacket, Object signature, Object lastSeenMessages) {
+        for (Constructor<?> constructor : chatPacket.getConstructors()) {
+            Class<?>[] parameterTypes = constructor.getParameterTypes();
+            if (parameterTypes.length != 5) {
+                continue;
+            }
+            if (parameterTypes[0] != String.class
+                    || parameterTypes[1] != Instant.class
+                    || parameterTypes[2] != long.class) {
+                continue;
+            }
+            if (!parameterTypes[4].isInstance(lastSeenMessages)) {
+                continue;
+            }
+            if (acceptsSignature(parameterTypes[3], signature)) {
+                return constructor;
+            }
+        }
+        return null;
+    }
+
+    private static boolean acceptsSignature(Class<?> parameterType, Object signature) {
+        if (signature == null) {
+            // A null signature is assignable to both shapes; prefer the historical raw component so
+            // the older servers keep the rewrite they had before.
+            return parameterType.getName().equals(MESSAGE_SIGNATURE);
+        }
+        return parameterType.isInstance(signature);
+    }
+
+    private static Object coerceSignature(Class<?> parameterType, Object signature) {
+        if (signature != null && parameterType.isInstance(signature)) {
+            return signature;
+        }
+        if (parameterType.getName().equals(OPTIONAL)) {
+            return Optional.ofNullable(signature);
+        }
+        return signature;
+    }
+
+    private static String describe(Object value) {
+        return value == null ? "null" : value.getClass().getName();
+    }
+
+    /**
+     * Builds an empty last-seen update for whichever shape the running server provides
+     * ({@code (int, BitSet)} or {@code (int, BitSet, byte)}), preferring the newest one.
+     */
     private static Object emptyLastSeenUpdate() throws Exception {
         Class<?> lastSeenUpdate = classForName(LAST_SEEN_UPDATE);
-        try {
-            Constructor<?> constructor = lastSeenUpdate.getConstructor(int.class, BitSet.class, byte.class);
-            return constructor.newInstance(0, new BitSet(), (byte) 0);
-        } catch (NoSuchMethodException ignored) {
-            Constructor<?> constructor = lastSeenUpdate.getConstructor(int.class, BitSet.class);
-            return constructor.newInstance(0, new BitSet());
+        Constructor<?>[] constructors = lastSeenUpdate.getConstructors();
+        Arrays.sort(constructors, Comparator.comparingInt((Constructor<?> it) -> it.getParameterCount()).reversed());
+        for (Constructor<?> constructor : constructors) {
+            Class<?>[] parameterTypes = constructor.getParameterTypes();
+            Object[] arguments = new Object[parameterTypes.length];
+            boolean supported = true;
+            for (int i = 0; i < parameterTypes.length; i++) {
+                if (parameterTypes[i] == int.class) {
+                    arguments[i] = 0;
+                } else if (parameterTypes[i] == BitSet.class) {
+                    arguments[i] = new BitSet();
+                } else if (parameterTypes[i] == byte.class) {
+                    arguments[i] = (byte) 0;
+                } else {
+                    supported = false;
+                    break;
+                }
+            }
+            if (supported) {
+                return constructor.newInstance(arguments);
+            }
         }
+        throw NmsDiagnostics.missingAccessor(
+                LAST_SEEN_UPDATE + ".<init>(int, BitSet[, byte])",
+                "Tried: " + constructors.length + " constructors.");
     }
 
     private static Object invoke(Object target, String methodName) throws Exception {
