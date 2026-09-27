@@ -36,6 +36,14 @@ jobs:
       # author. For the same reason no expression is interpolated into any `run:` block in this
       # workflow; the runner's own environment ($GITHUB_REPOSITORY, $GITHUB_REF_NAME) is used
       # instead. Pinned by core/.../release/ReleasePleasePayloadTest.
+      # The release branch is validated here rather than through the check the pull request page
+      # shows for it: GitHub creates an approval-gated run of pullrequest.yml for any
+      # GITHUB_TOKEN-created pull request, which never gets approved and therefore resolves to
+      # `failure` with 0 jobs on every release PR. That run is the accepted red check documented
+      # above the `on:` block of pullrequest.yml; the check runs this step audits are the native
+      # `build (17)` / `build (21)` ones of the run dispatched below. Nothing is mirrored into
+      # branch protection for a release PR (ReleasePleaseCheckAuditTest / the contract test
+      # ReleaseBranchCheckContractTest).
       - name: Validate and merge release PR
         if: ${{ steps.rp.outputs.pr }}
         env:

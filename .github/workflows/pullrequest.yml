@@ -1,5 +1,37 @@
 name: Build Pull Request
 
+# The red `Build Pull Request` check on every release PR is NOT a broken job and NOT the trigger
+# filter - it is GitHub's approval gate for pull requests created with GITHUB_TOKEN: `pull_request`
+# events with the opened/synchronize/reopened activity types from GITHUB_TOKEN "create workflow
+# runs that require approval" (docs: Events that trigger workflows -> pull_request). Nobody
+# approves them, so the run is created with 0 jobs and resolves to `failure` once the release PR
+# is merged: it never executes, so it can never go green (0.15.14: run 36324298904,
+# event=pull_request, actor=github-actions[bot], 0 jobs, on the release-please branch - the same
+# shape on 0.15.13, 0.15.12, 0.15.11, 0.15.10 and 0.15.7).
+#
+# This workflow declares no `paths:` filter, so it matches *every* pull request - the release PR
+# included, on purpose. That is why the run exists at all: a workflow whose trigger does not match
+# gets no run whatsoever, so a filter that skipped the release PR's own files
+# (.release-please-manifest.json, CHANGELOG.md) would only turn an accepted red check into a
+# missing one. Do not "fix" the phantom that way.
+#
+# The one release-PR run of this workflow that ever executed is 0.15.7 (run 32509901978): it
+# carries run_attempt=2 and triggering_actor=robinbraemer, i.e. a human with write access approved
+# it from the pull request page, which is the documented manual remedy. No release PR run executes
+# without that approval - and that approved attempt is what built `build (17)` / `build (21)` for
+# the head that merged.
+#
+# Consequence, and the reason this note sits above the `on:` block: never add `Build Pull Request`
+# (or any `Build Pull Request / ...`) context to main's required status checks. The gated run
+# reports no check run at all, so a release PR would sit in "Expected - waiting for status to be
+# reported" while release-please.yml retries its merge and finally reds the release job. The only
+# contexts a release PR can satisfy are the native matrix check runs of the build release-please.yml
+# dispatches for it with `workflow_dispatch` (exempt from the gate): `build (17)` and
+# `build (21)`. Nothing is mirrored into branch protection to paper over the gate
+# (ReleasePleaseCheckAuditTest), and main is currently unprotected. Making the check real would
+# require release-please to open its PR with a GitHub App/PAT token instead of GITHUB_TOKEN - a
+# credential change, not a workflow edit.
+# ReleaseBranchCheckContractTest pins all of the above.
 on:
   pull_request:
   workflow_dispatch:
