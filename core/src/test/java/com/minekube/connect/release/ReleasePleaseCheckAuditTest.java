@@ -113,4 +113,42 @@ class ReleasePleaseCheckAuditTest {
                         "if [ \"$STATE\" != \"MERGED\" ] || [ \"$CURRENT_HEAD_SHA\" != \"$HEAD_SHA\" ]; then"),
                 "release-please does not verify the final merged head");
     }
+
+    /**
+     * A release PR is validated through the checks of the run release-please.yml dispatches for it,
+     * never through a context of the approval-gated run GitHub creates on its own. That run has no
+     * approval, no jobs and no check runs (it resolves to {@code failure} with 0 jobs once the PR
+     * is merged - the accepted red check documented above {@code pullrequest.yml}'s {@code on:}
+     * block), so a merge step that waited for a context named after that workflow would deadlock
+     * every release instead of merging it.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void releasePrIsValidatedThroughTheDispatchedRunNotThroughTheGatedWorkflowContext()
+            throws Exception {
+        Map<String, Object> workflow = workflow();
+        assumeTrue(!workflow.isEmpty());
+
+        Map<String, Object> jobs = (Map<String, Object>) workflow.get("jobs");
+        Map<String, Object> releasePlease = (Map<String, Object>) jobs.get("release-please");
+        List<Map<String, Object>> steps =
+                (List<Map<String, Object>>) releasePlease.get("steps");
+        String script = steps.stream()
+                .filter(step -> "Validate and merge release PR".equals(step.get("name")))
+                .map(step -> String.valueOf(step.get("run")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "release-please is missing its release PR validation step"));
+
+        assertTrue(script.contains("gh workflow run pullrequest.yml \\"),
+                "release-please no longer dispatches the PR build for the release branch, so the "
+                        + "release PR carries no executed check at all");
+        assertTrue(script.contains("--event workflow_dispatch"),
+                "release-please must look up the run it dispatched: a pull_request-triggered run of "
+                        + "pullrequest.yml is the approval-gated one and never executes");
+        assertFalse(script.contains("Build Pull Request"),
+                "release-please now waits for or requires the workflow-level context "
+                        + "\"Build Pull Request\"; the approval-gated run reports no check run, so "
+                        + "no release PR can ever satisfy it");
+    }
 }
