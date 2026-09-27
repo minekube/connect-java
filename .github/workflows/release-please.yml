@@ -25,29 +25,41 @@ jobs:
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
 
+      # Trust boundary: steps.rp.outputs.pr is GitHub's JSON for the generated release PR
+      # *including its body*, and that body repeats the merged commit subjects verbatim. The
+      # payload therefore reaches the shell as DATA (the RP_PR env entry below, read back with jq)
+      # and never as script text. A step that builds a command out of it lets any apostrophe in a
+      # merged subject (`don't`, `Operator's`) close the quoted shell literal, after which the rest
+      # of the payload is parsed as shell code: the step dies (`syntax error near unexpected token
+      # `('`, or the leaked words reach jq as file names), the release PR is never merged and no
+      # tag or asset appears - while `ci` on the same merge commit is green, so nothing tells the
+      # author. For the same reason no expression is interpolated into any `run:` block in this
+      # workflow; the runner's own environment ($GITHUB_REPOSITORY, $GITHUB_REF_NAME) is used
+      # instead. Pinned by core/.../release/ReleasePleasePayloadTest.
       - name: Validate and merge release PR
         if: ${{ steps.rp.outputs.pr }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RP_PR: ${{ steps.rp.outputs.pr }}
         run: |
           set -euo pipefail
 
-          PR_NUMBER=$(jq -r '.number' <<< '${{ steps.rp.outputs.pr }}')
+          PR_NUMBER=$(printf '%s' "$RP_PR" | jq -r '.number')
           PR_JSON=$(gh pr view "$PR_NUMBER" \
-            --repo "${{ github.repository }}" \
+            --repo "$GITHUB_REPOSITORY" \
             --json headRefName,headRefOid)
           HEAD_REF=$(jq -r '.headRefName' <<< "$PR_JSON")
           HEAD_SHA=$(jq -r '.headRefOid' <<< "$PR_JSON")
 
           echo "Dispatching PR build for release PR #$PR_NUMBER at $HEAD_REF ($HEAD_SHA)"
           gh workflow run pullrequest.yml \
-            --repo "${{ github.repository }}" \
+            --repo "$GITHUB_REPOSITORY" \
             --ref "$HEAD_REF"
 
           RUN_ID=""
           for _ in $(seq 1 60); do
             RUN_ID=$(gh run list \
-              --repo "${{ github.repository }}" \
+              --repo "$GITHUB_REPOSITORY" \
               --workflow pullrequest.yml \
               --branch "$HEAD_REF" \
               --event workflow_dispatch \
@@ -70,7 +82,7 @@ jobs:
           RUN_URL=""
           for _ in $(seq 1 180); do
             RUN_JSON=$(gh run view "$RUN_ID" \
-              --repo "${{ github.repository }}" \
+              --repo "$GITHUB_REPOSITORY" \
               --json status,conclusion,url)
             STATUS=$(jq -r '.status' <<< "$RUN_JSON")
             CONCLUSION=$(jq -r '.conclusion // ""' <<< "$RUN_JSON")
@@ -87,7 +99,7 @@ jobs:
           fi
 
           CHECKS_JSON=$(gh api \
-            "repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs?per_page=100")
+            "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100")
           RUN_CHECKS=$(jq --arg run_url "$RUN_URL" '
             [
               .check_runs[]
@@ -121,7 +133,7 @@ jobs:
           fi
 
           CURRENT_HEAD_SHA=$(gh pr view "$PR_NUMBER" \
-            --repo "${{ github.repository }}" \
+            --repo "$GITHUB_REPOSITORY" \
             --json headRefOid \
             --jq '.headRefOid')
           if [ "$CURRENT_HEAD_SHA" != "$HEAD_SHA" ]; then
@@ -129,16 +141,19 @@ jobs:
             exit 1
           fi
 
+          # The merge stays synchronous (--merge, never --auto): release-please must re-read main
+          # only after GitHub actually merged the release PR, and the rerun dispatch below depends
+          # on that order.
           echo "Merging release PR #$PR_NUMBER"
           for _ in $(seq 1 30); do
             if gh pr merge "$PR_NUMBER" \
-              --repo "${{ github.repository }}" \
+              --repo "$GITHUB_REPOSITORY" \
               --match-head-commit "$HEAD_SHA" \
               --merge; then
               break
             fi
             PR_STATE_JSON=$(gh pr view "$PR_NUMBER" \
-              --repo "${{ github.repository }}" \
+              --repo "$GITHUB_REPOSITORY" \
               --json state,headRefOid)
             STATE=$(jq -r '.state' <<< "$PR_STATE_JSON")
             if [ "$STATE" = "MERGED" ]; then
@@ -153,7 +168,7 @@ jobs:
           done
 
           PR_STATE_JSON=$(gh pr view "$PR_NUMBER" \
-            --repo "${{ github.repository }}" \
+            --repo "$GITHUB_REPOSITORY" \
             --json state,headRefOid)
           STATE=$(jq -r '.state' <<< "$PR_STATE_JSON")
           CURRENT_HEAD_SHA=$(jq -r '.headRefOid' <<< "$PR_STATE_JSON")
@@ -163,8 +178,8 @@ jobs:
           fi
 
           gh workflow run release-please.yml \
-            --repo "${{ github.repository }}" \
-            --ref "${{ github.ref_name }}"
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME"
 
   trigger-release:
     needs: release-please
@@ -174,8 +189,9 @@ jobs:
       - name: Dispatch release.yml on the new tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           gh workflow run release.yml \
-            --repo "${{ github.repository }}" \
-            --ref "${{ needs.release-please.outputs.tag_name }}" \
-            -f release_tag="${{ needs.release-please.outputs.tag_name }}"
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$RELEASE_TAG" \
+            -f release_tag="$RELEASE_TAG"

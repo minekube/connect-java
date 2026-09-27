@@ -14,6 +14,19 @@ Commit-prefix rules and the `release-please.yml` to `release.yml` handoff live i
   audited on the captured head before merge. Do not mirror those checks into
   synthetic check runs or legacy statuses; the boundary is pinned by
   `core/.../release/ReleasePleaseCheckAuditTest`.
+- Never interpolate an expression into a `run:` block of `release-please.yml`; use the runner's
+  own environment (`$GITHUB_REPOSITORY`, `$GITHUB_REF_NAME`) instead. The release-PR payload
+  (`steps.rp.outputs.pr`) is GitHub's JSON for the generated PR *including its body*, which repeats
+  the merged commit subjects verbatim: a step that builds a command out of it lets any apostrophe
+  in a subject (`don't`, `Operator's`) close the quoted shell literal, and the rest of the payload
+  is then parsed as shell code. The step dies before merging, so the release PR stays
+  `autorelease: pending` and no tag or asset appears - while `ci` on the same merge commit is
+  green. The payload therefore travels in the step's `RP_PR` env and is read as data
+  (`PR_NUMBER=$(printf '%s' "$RP_PR" | jq -r '.number')`). Pinned by
+  `core/.../release/ReleasePleasePayloadTest`, which also executes the step's own shell with a
+  stub `gh` against a payload whose body carries apostrophes, and rejects 11 weakening mutations of
+  the step (`--auto` among them: the merge stays synchronous so the rerun dispatch lands after
+  GitHub actually merged the release PR).
 - After creating a release, verify the release is not draft/prerelease unless
   intentionally so, and verify the asset digest/availability:
 
