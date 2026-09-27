@@ -455,24 +455,11 @@ class ReleasePleasePayloadTest {
     // ---------------------------------------------------------------------------------------
 
     private static List<String> policyViolations(Map<String, Object> workflow) {
-        List<String> violations = new ArrayList<>();
-
-        for (Map.Entry<String, Object> job : jobs(workflow).entrySet()) {
-            for (Map<String, Object> step : steps(job.getValue())) {
-                Object run = step.get("run");
-                if (!(run instanceof String)) {
-                    continue;
-                }
-                for (String line : ((String) run).split("\n")) {
-                    if (line.contains("${{")) {
-                        violations.add(POLICY + ": job \"" + job.getKey() + "\" step \""
-                                + step.get("name") + "\" interpolates an expression into its shell "
-                                + "script, so a value containing a quote becomes shell code: "
-                                + line.trim());
-                    }
-                }
-            }
-        }
+        // The repo-wide form of this scan lives in WorkflowRunBlockPolicy, which
+        // ReleaseWorkflowShellBoundaryTest asserts over every workflow file: one implementation,
+        // so a workflow added later cannot be covered here and missed there.
+        List<String> violations = new ArrayList<>(
+                WorkflowRunBlockPolicy.violations(workflow, POLICY, "release-please.yml"));
 
         Map<String, Object> merge = findStep(workflow, MERGE_STEP);
         if (merge == null) {

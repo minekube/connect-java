@@ -53,14 +53,28 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Building version: $VERSION"
 
+      # The tag reaches the script as DATA (the RELEASE_TAG env entry below), never as script text.
+      # `inputs.release_tag` is caller-supplied on workflow_dispatch, and
+      # `github.event.release.tag_name` comes from a release object - and a git ref may legally
+      # contain a `"`, a `$` or a backtick. The runner expands an expression inside a `run:` body as
+      # text before bash parses it, so an interpolated value stops being data: a `"` in it closes the
+      # quoted literal and the rest is parsed as shell code, inside a job that holds
+      # `contents: write`. Values reach a script through env; the script reads them as variables.
+      # Keep this step's name and id - the steps below read steps.release-tag.outputs.tag.
+      # Pinned by core/.../release/ReleaseWorkflowShellBoundaryTest.
       - name: Resolve release tag
         id: release-tag
         if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        env:
+          # A dispatch input wins, a published release supplies its own tag name, and the ref this
+          # run was dispatched on is the last resort (resolved by the script, from the runner's own
+          # environment).
+          RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
         run: |
-          TAG="${{ inputs.release_tag }}"
-          if [ -z "$TAG" ]; then
-            TAG="${{ github.event.release.tag_name }}"
-          fi
+          # set -u: a missing env entry fails the step instead of silently publishing the run's ref.
+          set -euo pipefail
+
+          TAG="$RELEASE_TAG"
           if [ -z "$TAG" ]; then
             TAG="${GITHUB_REF_NAME}"
           fi

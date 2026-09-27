@@ -55,6 +55,16 @@ tasks.test {
     inputs.file(rootProject.file(".github/workflows/release-repair.yml"))
         .withPropertyName("releaseRepairWorkflow")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    // The shell trust boundary is asserted over every workflow file, not just the three release
+    // ones above (ReleaseWorkflowShellBoundaryTest sweeps .github/workflows). Without this input a
+    // change to any of the other workflows would be served from Gradle's cache and the sweep would
+    // assert on a stale copy.
+    inputs.files(rootProject.fileTree(".github/workflows") {
+        include("*.yml")
+        include("*.yaml")
+    })
+        .withPropertyName("workflowShellBoundary")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 relocate("org.bstats")

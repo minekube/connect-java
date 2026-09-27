@@ -14,8 +14,10 @@ Commit-prefix rules and the `release-please.yml` to `release.yml` handoff live i
   audited on the captured head before merge. Do not mirror those checks into
   synthetic check runs or legacy statuses; the boundary is pinned by
   `core/.../release/ReleasePleaseCheckAuditTest`.
-- Never interpolate an expression into a `run:` block of `release-please.yml`; use the runner's
-  own environment (`$GITHUB_REPOSITORY`, `$GITHUB_REF_NAME`) instead. The release-PR payload
+- Never interpolate an expression into a `run:` block of **any** workflow (the invariant is
+  repo-wide, not per file); use the runner's own environment (`$GITHUB_REPOSITORY`,
+  `$GITHUB_REF_NAME`) or the step's `env:` block - a value reaches a script as data only that way.
+  The release-PR payload
   (`steps.rp.outputs.pr`) is GitHub's JSON for the generated PR *including its body*, which repeats
   the merged commit subjects verbatim: a step that builds a command out of it lets any apostrophe
   in a subject (`don't`, `Operator's`) close the quoted shell literal, and the rest of the payload
@@ -27,6 +29,21 @@ Commit-prefix rules and the `release-please.yml` to `release.yml` handoff live i
   stub `gh` against a payload whose body carries apostrophes, and rejects 11 weakening mutations of
   the step (`--auto` among them: the merge stays synchronous so the rerun dispatch lands after
   GitHub actually merged the release PR).
+- `release.yml`'s "Resolve release tag" step carries the tag as data too: its `RELEASE_TAG` env is
+  `${{ inputs.release_tag || github.event.release.tag_name }}` and the script reads `$RELEASE_TAG`,
+  falling back to the runner's `$GITHUB_REF_NAME`. Both values are attacker-shaped rather than
+  merely user-shaped - `inputs.release_tag` is caller-supplied on `workflow_dispatch`, and a git ref
+  may legally contain `"`, `$` or backticks - and the step runs in the job that holds
+  `contents: write`. A `"` in a value closes the quoted shell literal, so the historical
+  double-quoted interpolation both **ran the injected command** and reported a truncated tag while
+  the step stayed green. Double quotes stop an apostrophe, not a quote character. Keep the step's
+  name and `id: release-tag`; the step's env/`run` contract, the resolution order (input, then the
+  release's tag name, then the ref) and byte-identical `steps.release-tag.outputs.tag` output for
+  both trigger paths are pinned by `core/.../release/ReleaseWorkflowShellBoundaryTest`, which also
+  sweeps **every** `.github/workflows/*.y[a]ml` for the invariant (both release tests assert on the
+  one shared scan, `WorkflowRunBlockPolicy`). Adding a workflow file is therefore covered
+  automatically - and `core/build.gradle.kts` declares the whole workflow directory as a
+  `tasks.test` input, so a workflow edit re-runs the suite instead of being served from cache.
 - After creating a release, verify the release is not draft/prerelease unless
   intentionally so, and verify the asset digest/availability:
 
