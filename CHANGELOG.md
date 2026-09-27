@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.14](https://github.com/minekube/connect-java/compare/0.15.13...0.15.14) (2026-09-27)
+
+
+### Bug Fixes
+
+* **release:** don't let a merged commit's apostrophe stall the release-please auto-merge step ([#166](https://github.com/minekube/connect-java/issues/166)) ([b265ea3](https://github.com/minekube/connect-java/commit/b265ea3a493a7bc80069d6e58407d4da39d02359))
+
 ## [0.15.13](https://github.com/minekube/connect-java/compare/0.15.12...0.15.13) (2026-09-14)
 
 
