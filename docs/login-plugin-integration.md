@@ -229,9 +229,13 @@ build.
   restore. On Paper and Spigot the connector completes its own login only when its data handler
   receives the login start packet, and a packet-level listener runs upstream of that handler,
   so a plugin that consumes the packet leaves the login pending and the player is dropped by
-  the server's own login timeout (`Took too long to log in`). Such a plugin needs its
-  premium/online-mode mode disabled for Connect traffic, or a login path that does not start a
-  second handshake. Operator-facing rule:
+  the server's own login timeout (`Took too long to log in`). On connect-spigot **0.15.16 and
+  newer** the connector logs one named line for this stall about ten seconds after the handshake
+  (`Connect tunneled login stalled: no LOGIN_START reached the connector within 10000 ms`, with the
+  player, session and endpoint), so the stall can be attributed instead of guessed at — the line
+  makes the stall visible, it does not end it and it does not complete the login. Such a plugin
+  needs its premium/online-mode mode disabled for Connect traffic, or a login path that does not
+  start a second handshake. Operator-facing rule:
   [connect.minekube.com/guide/login-plugins](https://connect.minekube.com/guide/login-plugins).
 - **Compatible by design** if it only ever acts on offline-mode connections and never
   forces online mode.
