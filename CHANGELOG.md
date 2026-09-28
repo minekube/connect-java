@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.16](https://github.com/minekube/connect-java/compare/0.15.15...0.15.16) (2026-09-28)
+
+
+### Bug Fixes
+
+* **spigot:** attribute a tunneled login whose LOGIN_START a packet plugin consumed ([#175](https://github.com/minekube/connect-java/issues/175)) ([c031768](https://github.com/minekube/connect-java/commit/c031768b9da12085a1ad5c609284d1951f94be4d))
+
 ## [0.15.15](https://github.com/minekube/connect-java/compare/0.15.14...0.15.15) (2026-09-27)
 
 
