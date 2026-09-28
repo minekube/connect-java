@@ -52,13 +52,23 @@ public final class SpigotDataAddon implements InjectorAddon {
         LocalSession.context(channel, ctx -> {
             // we have to add the packet blocker in the data handler, otherwise ProtocolSupport breaks
             channel.pipeline().addBefore(
-                    packetHandlerName, "connect_data_handler",
+                    packetHandlerName, SpigotDataHandler.HANDLER_NAME,
                     new SpigotDataHandler(ctx,
                             packetHandlerName,
                             config,
                             logger,
                             bedrockIdentityEnforcer)
             );
+            // Only a session where Connect owns the login (i.e. not passthrough) is injected here
+            // at all, which is exactly the case the stall watchdog can attribute.
+            if (channel.pipeline().get(SpigotLoginStallWatchdog.HANDLER_NAME) == null) {
+                SpigotLoginStallWatchdog.install(channel.pipeline(), new SpigotLoginStallWatchdog(
+                        logger,
+                        playerName(ctx),
+                        sessionId(ctx),
+                        ctx.getEndpointId()
+                ));
+            }
             if (channel.pipeline().get(SpigotChatSessionPacketFilter.HANDLER_NAME) == null) {
                 channel.pipeline().addBefore(
                         packetHandlerName,
@@ -67,6 +77,19 @@ public final class SpigotDataAddon implements InjectorAddon {
                 );
             }
         });
+    }
+
+    /**
+     * The identity the connector logs for a session: the signed Bedrock principal is never rendered.
+     */
+    private static String playerName(LocalSession.Context ctx) {
+        return ctx.getSessionProposal().hasBedrockPrincipalV2()
+                ? "<bedrock-principal-v2>"
+                : ctx.getPlayer().getUsername();
+    }
+
+    private static String sessionId(LocalSession.Context ctx) {
+        return ctx.getSessionProposal().getSessionId();
     }
 
     @Override

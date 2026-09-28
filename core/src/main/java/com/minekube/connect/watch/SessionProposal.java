@@ -105,6 +105,17 @@ public class SessionProposal {
         return bedrockPrincipalV2;
     }
 
+    /**
+     * The id of the proposed session, as a plain string.
+     *
+     * <p>Protobuf is an {@code implementation} dependency of this module, so platform modules
+     * (Spigot, Velocity, ...) cannot resolve the generated types at compile time. Anything they need
+     * to log or correlate has to be exposed here rather than through {@link #getSession()}.
+     */
+    public String getSessionId() {
+        return session == null ? "" : session.getId();
+    }
+
     @Override
     public String toString() {
         return "SessionProposal[sessionId=" + (session == null ? "" : session.getId())

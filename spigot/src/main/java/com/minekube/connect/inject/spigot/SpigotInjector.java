@@ -169,6 +169,17 @@ public final class SpigotInjector extends CommonPlatformInjector {
         return false;
     }
 
+    /**
+     * Whether Connect injects its addons for - and so owns the login of - the given session.
+     *
+     * <p>Passthrough (offline-mode) endpoints are deliberately left alone: Connect owns no login
+     * decision there, so nothing it adds (including the login-stall watchdog) can observe such a
+     * session, and the {@code connect-player} channel attribute is never set for it either.
+     */
+    static boolean injectsAddons(LocalSession.Context context) {
+        return !context.getPlayer().getAuth().isPassthrough();
+    }
+
     public void injectClient(ChannelFuture future) {
         try { // fix for reloads
             future.channel().pipeline().remove("connect-init");
@@ -185,7 +196,7 @@ public final class SpigotInjector extends CommonPlatformInjector {
                                     @Override
                                     public void channelActive(ChannelHandlerContext childCtx)
                                             throws Exception {
-                                        if (context.getPlayer().getAuth().isPassthrough()) {
+                                        if (!injectsAddons(context)) {
                                             if (bedrockIdentityEnforcer != null && packetHandlerName != null) {
                                                 addPassthroughAdmissionHandler(childCtx.channel(), context);
                                                 trackPassthroughClient(childCtx.channel());
