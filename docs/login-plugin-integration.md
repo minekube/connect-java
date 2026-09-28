@@ -10,6 +10,11 @@ connection — the `connect-player` Netty channel attribute — so your plugin c
 Connect-tunneled player and skip its own login flow. This is exactly the pattern many
 plugins already implement for Floodgate's `floodgate-player` attribute.
 
+> **Published copy:** plugin authors can read this contract on the public docs site at
+> [connect.minekube.com/guide/login-plugin-integration](https://connect.minekube.com/guide/login-plugin-integration)
+> (*Login and Auth Plugins* → *Login Plugin Integration*). Keep the two copies in step when either
+> changes.
+
 ## Why the marker exists
 
 Connect terminates the real client connection at the Minekube edge, performs the Mojang
