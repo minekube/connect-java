@@ -221,6 +221,18 @@ build.
   Connect has set it. Connect's own re-assert (above) keeps such a plugin from breaking
   logins, but exempting Connect explicitly is still the better fix — it keeps the plugin's own
   state consistent instead of having its decision quietly reverted.
+- **Conflicts with Connect** if it hooks the login **packet** and runs its own authentication
+  handshake (a premium/online-mode autologin that cancels `LoginStart`, sends its own
+  `EncryptionRequest` and checks the Mojang sessionserver). The client's login was already
+  finished at the Connect edge, so that handshake has no peer to answer it, and the re-assert
+  above cannot help — it restores Connect's own login *decision*, and there is no decision to
+  restore. On Paper and Spigot the connector completes its own login only when its data handler
+  receives the login start packet, and a packet-level listener runs upstream of that handler,
+  so a plugin that consumes the packet leaves the login pending and the player is dropped by
+  the server's own login timeout (`Took too long to log in`). Such a plugin needs its
+  premium/online-mode mode disabled for Connect traffic, or a login path that does not start a
+  second handshake. Operator-facing rule:
+  [connect.minekube.com/guide/login-plugins](https://connect.minekube.com/guide/login-plugins).
 - **Compatible by design** if it only ever acts on offline-mode connections and never
   forces online mode.
 - **If it has a Floodgate exemption**, ask its author to extend that exemption to
