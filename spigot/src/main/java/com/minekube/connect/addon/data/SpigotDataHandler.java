@@ -48,6 +48,9 @@ import java.util.function.UnaryOperator;
 import javax.annotation.Nullable;
 
 public final class SpigotDataHandler extends CommonDataHandler {
+    /** Pipeline name the connector injects this handler under. */
+    static final String HANDLER_NAME = "connect_data_handler";
+
     private final Context sessionCtx;
     private final String packetHandlerName;
     private final ConnectLogger logger;
