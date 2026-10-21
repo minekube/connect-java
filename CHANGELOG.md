@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.17](https://github.com/minekube/connect-java/compare/0.15.16...0.15.17) (2026-10-21)
+
+
+### Bug Fixes
+
+* **config:** warn when restore-full-profile cannot run while login-reassert is disabled ([#178](https://github.com/minekube/connect-java/issues/178)) ([9e619f2](https://github.com/minekube/connect-java/commit/9e619f286ac74e215664a9660580d6702fe1ecda))
+
 ## [0.15.16](https://github.com/minekube/connect-java/compare/0.15.15...0.15.16) (2026-09-28)
 
 
