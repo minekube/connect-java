@@ -23,6 +23,12 @@ The root `AGENTS.md` still applies; this file adds Velocity-specific guidance.
 - Default profile scope is properties-only (skin) deliberately; restoring Connect's UUID breaks
   login plugins that key their storage on the proxy UUID, so it is opt-in with its
   `new-uuid-creator: MOJANG` prerequisite documented next to the option.
+- `restore-full-profile` is inert while `login-reassert.enabled` is false, because every late
+  handler returns before it reads the option. Keep that combination operator-visible: one startup
+  WARN from `ConfigLoader` (pinned by `ConfigLoaderTest`), the dependency stated in the
+  `proxy-config.yml` comment, and the Velocity game-profile re-assert logging Connect's UUID vs
+  the event's UUID at DEBUG so a "right player, wrong UUID - only through the tunnel" report is
+  diagnosable from the endpoint log alone.
 - `:velocity:eventOrderTest` is a separate source set running the **real** `VelocityEventManager`
   and `PluginDependencyUtils` against a Velocity proxy jar pinned by sha256 (ivy repo in
   `settings.gradle.kts`; PaperMC publishes no proxy artifact to Maven). Separate because that

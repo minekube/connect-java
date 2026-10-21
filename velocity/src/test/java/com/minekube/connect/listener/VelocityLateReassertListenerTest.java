@@ -24,6 +24,7 @@ import com.velocitypowered.api.util.GameProfile;
 import com.velocitypowered.api.util.GameProfile.Property;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -177,6 +178,45 @@ class VelocityLateReassertListenerTest {
         assertSame(before, event.getGameProfile());
     }
 
+    /**
+     * The {@code servermc4321} report was "right player, wrong UUID - but only through the
+     * tunnel": the endpoint log showed a join and never named either UUID, so the two sides had
+     * to be compared out of band. DEBUG now carries both, which is what makes that class of
+     * report diagnosable from the proxy's own log.
+     */
+    @Test
+    void gameProfileLogsConnectAndEventUuidsAtDebugWhenALoginPluginLeftItsOwn() throws Exception {
+        RecordingLogger logger = new RecordingLogger();
+        Fixture fixture = Fixture.connectSession(true, false, logger);
+        GameProfileRequestEvent event = fixture.gameProfileRequest();
+
+        fixture.listener.onGameProfileRequestLate(event);
+
+        assertTrue(logger.debugMessages.stream().anyMatch(message ->
+                        message.contains(CONNECT_UUID.toString())
+                                && message.contains(PROXY_UUID.toString())),
+                "DEBUG must name Connect's UUID and the UUID the game profile event carried: "
+                        + logger.debugMessages);
+    }
+
+    /** No mismatch, no line: the normal case with no conflicting plugin installed stays quiet. */
+    @Test
+    void gameProfileDoesNotLogUuidsWhenTheProfileAlreadyMatches() throws Exception {
+        RecordingLogger logger = new RecordingLogger();
+        Fixture fixture = Fixture.connectSession(true, false, logger);
+        GameProfileRequestEvent event = fixture.gameProfileRequest();
+        // What VelocityListener#onGameProfileRequest already did at PostOrder.EARLY.
+        event.setGameProfile(
+                VelocityGameProfiles.fromConnectPlayer(event.getGameProfile(), connectPlayer()));
+
+        fixture.listener.onGameProfileRequestLate(event);
+
+        assertFalse(logger.debugMessages.stream().anyMatch(message ->
+                        message.contains(CONNECT_UUID.toString())
+                                && message.contains(PROXY_UUID.toString())),
+                "an unchanged profile needs no UUID diagnostic: " + logger.debugMessages);
+    }
+
     @Test
     void partialRegistrationRollsBackOnlyTheHandlerThatWasRegistered() {
         PartialFailureEventManager eventManager = new PartialFailureEventManager();
@@ -204,16 +244,26 @@ class VelocityLateReassertListenerTest {
 
         private Fixture(boolean enabled, boolean restoreFullProfile, boolean connectSession)
                 throws Exception {
+            this(enabled, restoreFullProfile, connectSession, mock(ConnectLogger.class));
+        }
+
+        private Fixture(boolean enabled, boolean restoreFullProfile, boolean connectSession,
+                ConnectLogger logger) throws Exception {
             VelocityConnectPlayers players = new VelocityConnectPlayers();
             if (connectSession) {
                 players.remember(connection, connectPlayer());
             }
             listener = new VelocityLateReassertListener(
-                    players, config(enabled, restoreFullProfile), mock(ConnectLogger.class));
+                    players, config(enabled, restoreFullProfile), logger);
         }
 
         static Fixture connectSession(boolean enabled, boolean restoreFullProfile) throws Exception {
             return new Fixture(enabled, restoreFullProfile, true);
+        }
+
+        static Fixture connectSession(boolean enabled, boolean restoreFullProfile,
+                ConnectLogger logger) throws Exception {
+            return new Fixture(enabled, restoreFullProfile, true, logger);
         }
 
         static Fixture foreignSession(boolean enabled, boolean restoreFullProfile) throws Exception {
@@ -302,6 +352,56 @@ class VelocityLateReassertListenerTest {
         @Override
         public <E> void unregister(Object plugin, EventHandler<E> handler) {
             unregisteredHandlers.add(handler);
+        }
+    }
+
+    /**
+     * Captures DEBUG lines as {@code message + args}, so a test can assert on the values a log
+     * line actually carries instead of on Mockito's varargs matching.
+     */
+    private static final class RecordingLogger implements ConnectLogger {
+        final List<String> debugMessages = new ArrayList<>();
+
+        @Override
+        public void error(String message, Object... args) {
+        }
+
+        @Override
+        public void error(String message, Throwable throwable, Object... args) {
+        }
+
+        @Override
+        public void warn(String message, Object... args) {
+        }
+
+        @Override
+        public void info(String message, Object... args) {
+        }
+
+        @Override
+        public void translatedInfo(String message, Object... args) {
+        }
+
+        @Override
+        public void debug(String message, Object... args) {
+            debugMessages.add(message + " " + Arrays.toString(args));
+        }
+
+        @Override
+        public void trace(String message, Object... args) {
+        }
+
+        @Override
+        public void enableDebug() {
+        }
+
+        @Override
+        public void disableDebug() {
+        }
+
+        @Override
+        public boolean isDebug() {
+            return true;
         }
     }
 }

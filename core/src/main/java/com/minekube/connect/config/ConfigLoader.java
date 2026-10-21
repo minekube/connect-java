@@ -61,6 +61,33 @@ public final class ConfigLoader {
 
     private final ConnectLogger logger;
 
+    /**
+     * {@code login-reassert.restore-full-profile} is read only from inside the late pre-login and
+     * game-profile handlers, and every one of them returns early while
+     * {@code login-reassert.enabled} is off. An operator who flips only the second key therefore
+     * keeps the UUID they were trying to replace while every log line still looks healthy.
+     */
+    static final String INERT_RESTORE_FULL_PROFILE_WARNING =
+            "login-reassert.restore-full-profile has no effect while login-reassert is disabled "
+                    + "(login-reassert.enabled: false). Set login-reassert.enabled: true to restore"
+                    + " the full game profile, or leave restore-full-profile: false if another"
+                    + " plugin is meant to keep changing Connect's login decision.";
+
+    /**
+     * One startup warning for the combination that looks configured but cannot act on a proxy.
+     * Spigot has no proxy config at all, so this stays silent there.
+     */
+    private void warnAboutInertLoginReassert(ConnectConfig loaded) {
+        if (!(loaded instanceof ProxyConnectConfig)) {
+            return;
+        }
+        ProxyConnectConfig.LoginReassertConfig loginReassert =
+                ((ProxyConnectConfig) loaded).getLoginReassert();
+        if (!loginReassert.isEnabled() && loginReassert.isRestoreFullProfile()) {
+            logger.warn(INERT_RESTORE_FULL_PROFILE_WARNING);
+        }
+    }
+
     private static void fixPlaceholderIssue(Path path) throws IOException {
         Charset charset = StandardCharsets.UTF_8;
         String content = new String(Files.readAllBytes(path), charset)
@@ -122,6 +149,7 @@ public final class ConfigLoader {
             if (useMinekubeBedrockIdentityDefaults) {
                 loaded.getBedrockIdentity().useMinekubeDefaults();
             }
+            warnAboutInertLoginReassert(loaded);
             return loaded;
         } catch (Throwable throwable) {
             throw new RuntimeException(

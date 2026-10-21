@@ -176,6 +176,14 @@ public final class VelocityLateReassertListener {
         }
         GameProfile current = event.getGameProfile();
         GameProfile connectProfile = VelocityGameProfiles.fromConnectPlayer(current, player);
+        if (!current.getId().equals(connectProfile.getId())) {
+            // "Same player, wrong UUID - but only through the tunnel" is only diagnosable if the
+            // endpoint log names both UUIDs; comparing the two sides out of band took hours.
+            logger.debug("Connect supplied profile UUID {} but the game profile event carries {}"
+                            + " (login-reassert.restore-full-profile: {})",
+                    connectProfile.getId(), current.getId(),
+                    config.getLoginReassert().isRestoreFullProfile());
+        }
         GameProfile wanted = config.getLoginReassert().isRestoreFullProfile()
                 ? connectProfile
                 : current.withProperties(connectProfile.getProperties());

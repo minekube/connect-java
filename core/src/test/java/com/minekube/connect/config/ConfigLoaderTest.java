@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
+import static org.mockito.Mockito.verify;
 
 import com.minekube.connect.api.logger.ConnectLogger;
 import java.nio.file.Files;
@@ -201,11 +203,7 @@ class ConfigLoaderTest {
      */
     @Test
     void shippedProxyTemplateDocumentsTheFullProfilePrerequisite() throws Exception {
-        String template;
-        try (java.io.InputStream in =
-                     ConfigLoader.class.getResourceAsStream("/proxy-config.yml")) {
-            template = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        }
+        String template = shippedProxyTemplate();
 
         int optionAt = template.indexOf("restore-full-profile:");
         assertTrue(optionAt > 0, "proxy-config.yml must ship the restore-full-profile option");
@@ -214,11 +212,107 @@ class ConfigLoaderTest {
                 "the LibreLogin-side prerequisite must be documented next to the option");
     }
 
+    /**
+     * Field report 2026-10-21 (endpoint {@code servermc4321}): the operator ran
+     * {@code login-reassert.enabled: false} together with {@code restore-full-profile: true} and
+     * expected Mojang UUIDs. The second key is read only from inside the late handlers, which all
+     * return early while the first is off, so it was silently inert - nothing in either log named
+     * the combination and the join was diagnosed on both sides for hours. The config loader is the
+     * single startup path on every proxy platform, so exactly one warning belongs here.
+     */
+    @Test
+    void warnsWhenRestoreFullProfileCannotRunBecauseLoginReassertIsDisabled() throws Exception {
+        Files.writeString(tempDir.resolve("config.yml"),
+                proxyConfigWithLoginReassert("  enabled: false", "  restore-full-profile: true"));
+        ConnectLogger logger = mock(ConnectLogger.class);
+
+        load(ProxyConnectConfig.class, logger);
+
+        assertTrue(ConfigLoader.INERT_RESTORE_FULL_PROFILE_WARNING.contains(
+                        "restore-full-profile has no effect while login-reassert is disabled"),
+                "the warning must name the exact inert combination an operator has to undo");
+        verify(logger).warn(ConfigLoader.INERT_RESTORE_FULL_PROFILE_WARNING);
+    }
+
+    /** The shipped default (`enabled: true`, `restore-full-profile: false`) must stay quiet. */
+    @Test
+    void doesNotWarnForTheShippedLoginReassertDefaults() throws Exception {
+        Files.writeString(tempDir.resolve("config.yml"),
+                proxyConfigWithLoginReassert("  enabled: true", "  restore-full-profile: false"));
+        ConnectLogger logger = mock(ConnectLogger.class);
+
+        load(ProxyConnectConfig.class, logger);
+
+        assertNoWarnings(logger);
+    }
+
+    /**
+     * Either key alone is a valid configuration: turning the floor off without asking for the
+     * full profile is the documented way to let another plugin keep changing the decision.
+     */
+    @Test
+    void doesNotWarnWhenOnlyOneLoginReassertKeyIsSet() throws Exception {
+        Files.writeString(tempDir.resolve("config.yml"),
+                proxyConfigWithLoginReassert("  enabled: false", "  restore-full-profile: false"));
+        ConnectLogger logger = mock(ConnectLogger.class);
+
+        load(ProxyConnectConfig.class, logger);
+
+        assertNoWarnings(logger);
+    }
+
+    /**
+     * The template is where an operator reads the option before flipping it, and it used to
+     * present {@code restore-full-profile} as if it acted on its own. Pin that it states the
+     * dependency in the option's own comment, not only somewhere else in the file.
+     */
+    @Test
+    void shippedProxyTemplateMarksRestoreFullProfileAsConditionalOnEnabled() throws Exception {
+        String documentation = shippedProxyTemplate();
+
+        int optionAt = documentation.indexOf("restore-full-profile:");
+        assertTrue(optionAt > 0, "proxy-config.yml must ship the restore-full-profile option");
+        assertTrue(documentation.substring(0, optionAt)
+                        .contains("Only has an effect while `login-reassert.enabled` is true"),
+                "the option's comment must say it is inert while login-reassert is disabled");
+    }
+
+    private static String proxyConfigWithLoginReassert(String enabledLine, String restoreLine) {
+        return String.join("\n",
+                "endpoint: codexp2p3",
+                "allow-offline-mode-players: false",
+                "login-reassert:",
+                enabledLine,
+                restoreLine,
+                "metrics:",
+                "  disabled: true",
+                "  uuid: 00000000-0000-0000-0000-000000000000",
+                "config-version: 1",
+                "");
+    }
+
+    private static String shippedProxyTemplate() throws Exception {
+        try (java.io.InputStream in =
+                     ConfigLoader.class.getResourceAsStream("/proxy-config.yml")) {
+            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
+
+    private static void assertNoWarnings(ConnectLogger logger) {
+        boolean warned = mockingDetails(logger).getInvocations().stream()
+                .anyMatch(invocation -> invocation.getMethod().getName().equals("warn"));
+        assertFalse(warned, "a valid login-reassert combination must not warn");
+    }
+
     private <T extends ConnectConfig> T load(Class<T> configClass) {
+        return load(configClass, mock(ConnectLogger.class));
+    }
+
+    private <T extends ConnectConfig> T load(Class<T> configClass, ConnectLogger logger) {
         return new ConfigLoader(
                 tempDir,
                 configClass,
                 new ConfigLoader.EndpointNameGenerator(new OkHttpClient()),
-                mock(ConnectLogger.class)).load();
+                logger).load();
     }
 }
