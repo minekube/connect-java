@@ -34,6 +34,10 @@ login-reassert:
   # Also restore Connect's full game profile - the player's Mojang UUID and username - and
   # not just the skin properties.
   #
+  # Only has an effect while `login-reassert.enabled` is true above: with `enabled: false` the
+  # re-assert never runs, so this option changes nothing. Connect logs a warning at startup when
+  # both are set that way.
+  #
   # PREREQUISITE, read before enabling: only turn this on if every login plugin on this proxy
   # keys its own database on the player's Mojang UUID. For LibreLogin that means setting
   # `new-uuid-creator: MOJANG` in LibreLogin's config first. With its default `CRACKED` it

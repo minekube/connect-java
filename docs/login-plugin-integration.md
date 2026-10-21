@@ -154,6 +154,10 @@ able to change Connect's login decision. Off restores exactly the previous behav
 restores the player's **Mojang UUID and username**, which is what makes
 `ConnectApi.isConnectPlayer(uuid)` and `getPlayer(uuid)` resolve for these players.
 
+> **It only has an effect while `enabled` is `true`.** With `login-reassert.enabled: false` the
+> re-assert never runs, so `restore-full-profile` changes nothing — players keep the UUID the
+> login plugin set. Connect logs one startup warning when both are set that way.
+
 If late-handler registration fails, Connect logs the failure, skips the re-assert floor, and
 continues with its pre-existing handlers. Ordinary listener registration is unaffected.
 
