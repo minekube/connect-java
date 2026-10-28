@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.15.18](https://github.com/minekube/connect-java/compare/0.15.17...0.15.18) (2026-10-28)
+
+
+### Bug Fixes
+
+* **core:** record both debug directions when the platform renames its encoder ([7e3183d](https://github.com/minekube/connect-java/commit/7e3183de79c736e5785c3d08ab7acc0903ff9f92))
+* honour Paper's login-phase refusal in the fake login cycle; record both debug directions ([3d2e5c3](https://github.com/minekube/connect-java/commit/3d2e5c3fcb4702cfd71fc82ed6452b91cb9dd81f))
+* **spigot:** stop driving Paper's verification after a login-phase refusal ([40f47a2](https://github.com/minekube/connect-java/commit/40f47a2e4cc0281299abd665691fe4af53957bd1))
+
 ## [0.15.17](https://github.com/minekube/connect-java/compare/0.15.16...0.15.17) (2026-10-21)
 
 
