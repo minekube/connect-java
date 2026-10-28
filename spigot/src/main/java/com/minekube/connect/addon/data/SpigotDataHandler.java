@@ -44,6 +44,7 @@ import com.mojang.authlib.GameProfile;
 import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.function.BooleanSupplier;
 import java.util.function.UnaryOperator;
 import javax.annotation.Nullable;
 
@@ -229,21 +230,86 @@ public final class SpigotDataHandler extends CommonDataHandler {
 
                 // LoginListener#callPlayerPreLoginEvents(GameProfile) returns modified GameProfile
                 // LoginListener#startClientVerification(GameProfile)
-                Object returnedProfile = ClassNames.CALL_PLAYER_PRE_LOGIN_EVENTS.invoke(packetListener, gameProfile);
-                GameProfile profileToUse = returnedProfile != null ? (GameProfile) returnedProfile : gameProfile;
-
-                if (config.isDebug()) {
-                    debug("callPlayerPreLoginEvents returned a profile for " + logPlayer());
+                boolean handedOver = runPostLoginInjection(
+                        new ReflectivePostLoginListener(packetListener),
+                        gameProfile,
+                        () -> ctx.channel().isActive());
+                if (!handedOver) {
+                    debug("Paper ended the login during the pre-login events; not continuing the injection");
+                } else {
+                    debug("startClientVerification completed");
                 }
-
-                ClassNames.START_CLIENT_VERIFICATION.invoke(packetListener, profileToUse);
-                debug("startClientVerification completed");
             }
 
             removeSelf();
             return false;
         }
         return true;
+    }
+
+    /**
+     * Paper's post-1.20.4 fake login cycle, as the connector drives it.
+     *
+     * <p>{@link #callPlayerPreLoginEvents} fires {@code AsyncPlayerPreLoginEvent} /
+     * {@code PlayerLoginEvent} and lets Paper issue its own {@code Disconnect}; the event result decides
+     * whether the connection survives that call. {@link #startClientVerification} then hands the
+     * (possibly rewritten) profile to Paper's verification step, which is what eventually sends
+     * {@code LoginSuccess}.
+     */
+    interface PostLoginListener {
+        @Nullable
+        GameProfile callPlayerPreLoginEvents(GameProfile requested) throws Exception;
+
+        void startClientVerification(GameProfile profile) throws Exception;
+    }
+
+    /**
+     * Drives Paper's post-1.20.4 fake login cycle and reports whether the login was handed over.
+     *
+     * <p>{@code callPlayerPreLoginEvents} can end the login itself: {@code PlayerPreLoginEvent} /
+     * {@code PlayerLoginEvent} denials and the Velocity-forwarding refusal all make Paper send its own
+     * {@code ClientboundLoginDisconnectPacket} and close the connection - and Paper still returns the
+     * profile in those cases (see {@code ServerLoginPacketListenerImpl#callPlayerPreLoginEvents} in
+     * Paper, which only ever returns {@code null} for its own "no profile" error path). Continuing with
+     * {@code startClientVerification} would therefore push {@code LoginSuccess} onto a refused
+     * connection and race the kick the player is supposed to see. So the decision is taken on the
+     * connection state rather than on the return value alone, and nothing is invoked once Paper has
+     * ended the login; the disconnect packet stays Paper's own, unmodified.
+     */
+    static boolean runPostLoginInjection(
+            PostLoginListener listener,
+            GameProfile requestedProfile,
+            BooleanSupplier connectionOpen) throws Exception {
+        GameProfile returnedProfile = listener.callPlayerPreLoginEvents(requestedProfile);
+        if (returnedProfile == null || !connectionOpen.getAsBoolean()) {
+            return false;
+        }
+        listener.startClientVerification(returnedProfile);
+        return true;
+    }
+
+    /** Adapts the reflected Paper login listener to {@link PostLoginListener}. */
+    private final class ReflectivePostLoginListener implements PostLoginListener {
+        private final Object packetListener;
+
+        private ReflectivePostLoginListener(Object packetListener) {
+            this.packetListener = packetListener;
+        }
+
+        @Override
+        public GameProfile callPlayerPreLoginEvents(GameProfile requested) throws Exception {
+            GameProfile returned =
+                    (GameProfile) ClassNames.CALL_PLAYER_PRE_LOGIN_EVENTS.invoke(packetListener, requested);
+            if (config.isDebug()) {
+                debug("callPlayerPreLoginEvents returned a profile for " + logPlayer());
+            }
+            return returned;
+        }
+
+        @Override
+        public void startClientVerification(GameProfile profile) throws Exception {
+            ClassNames.START_CLIENT_VERIFICATION.invoke(packetListener, profile);
+        }
     }
 
     private String logPlayer() {
