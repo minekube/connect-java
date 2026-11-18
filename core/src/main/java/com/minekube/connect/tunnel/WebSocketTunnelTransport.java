@@ -100,6 +100,14 @@ public class WebSocketTunnelTransport implements TunnelClientTransport {
             @Override
             public void onFailure(@NotNull WebSocket webSocket, @NotNull Throwable t,
                                   @Nullable Response response) {
+                if (isSessionAbandoned(response)) {
+                    // The tunnel service answered the upgrade with "session not found": the
+                    // session's pending entry is gone for good, so this is not a transport
+                    // failure and must not be retried or logged as an internal error.
+                    handler.onSessionAbandoned(response.code());
+                    handlerOnClose.run();
+                    return;
+                }
                 if (!(t instanceof EOFException)) {
                     handler.onError(t);
                 }
@@ -152,6 +160,21 @@ public class WebSocketTunnelTransport implements TunnelClientTransport {
                 return opened.get();
             }
         };
+    }
+
+    /**
+     * The tunnel service answers a tunnel request whose pending session is gone with
+     * {@code 404 session <id> not found on tunnel service} (moxy's missing-session path, which also
+     * reports the pending state, e.g. {@code released}); {@code 410 Gone} is the protocol-level
+     * form of the same answer. Both mean "this session id will never be dialable again", which is
+     * categorically different from a transport failure.
+     */
+    private static boolean isSessionAbandoned(@Nullable Response response) {
+        if (response == null) {
+            return false;
+        }
+        int code = response.code();
+        return code == 404 || code == 410;
     }
 
     @Override
