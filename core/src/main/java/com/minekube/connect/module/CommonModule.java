@@ -50,6 +50,7 @@ import com.minekube.connect.config.ConnectConfig;
 import com.minekube.connect.inject.CommonPlatformInjector;
 import com.minekube.connect.packet.PacketHandlersImpl;
 import com.minekube.connect.platform.util.PlatformUtils;
+import com.minekube.connect.tunnel.SessionDialGuard;
 import com.minekube.connect.tunnel.TunnelClientTransport;
 import com.minekube.connect.tunnel.WebSocketTunnelTransport;
 import com.minekube.connect.tunnel.p2p.Libp2pTunnelTransport;
@@ -88,6 +89,10 @@ public class CommonModule extends AbstractModule {
         // make WatchClient mint an admission on one coordinator while WatcherRegister stages it on
         // another. Explicit parent bindings are inherited by every child injector.
         bind(BedrockAdmissionCoordinator.class).in(Singleton.class);
+
+        // Explicit parent binding: WatcherRegister claims a session id before it opens a local
+        // session and Tunneler refuses to dial an abandoned one, so both must see the same state.
+        bind(SessionDialGuard.class).in(Singleton.class);
 
         Multibinder<TunnelClientTransport> transports =
                 Multibinder.newSetBinder(binder(), TunnelClientTransport.class);

@@ -34,6 +34,20 @@ public abstract class TunnelConn {
 
         default void onClose() {
         }
+
+        /**
+         * Called instead of {@link #onError(Throwable)} when the tunnel service refused the
+         * upgrade because it no longer knows this session (its pending entry was released,
+         * expired, or claimed by another request), i.e. the player can never be served on it.
+         *
+         * <p>This is a permanent, expected outcome for that session id, not a transport failure:
+         * implementations should tear the local session down without retrying and without
+         * reporting an internal error.
+         *
+         * @param httpStatus the refusal status the tunnel service answered with
+         */
+        default void onSessionAbandoned(int httpStatus) {
+        }
     }
 
     public abstract void write(byte[] data);
