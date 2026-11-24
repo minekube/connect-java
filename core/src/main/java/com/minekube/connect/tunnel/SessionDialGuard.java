@@ -26,6 +26,7 @@
 package com.minekube.connect.tunnel;
 
 import java.time.Duration;
+import com.google.inject.Inject;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -42,9 +43,11 @@ import java.util.function.LongSupplier;
  *       watch fail-over re-publish, or a transport-level retry). Every delivery used to open its
  *       own {@code LocalSession} and therefore its own tunnel. The edge's invariant allows one
  *       tunnel per session, so the repeats must be absorbed. {@link #tryAcceptDelivery(String)}
- *       claims the id; a repeat delivery is dropped instead of dialled.</li>
+ *       claims the id; a repeat delivery is dropped instead of dialled. The claim is released by
+ *       {@link #release(String)} when the delivery is rejected or fails, so a redelivery after a
+ *       transient failure is served instead of silently dropped.</li>
  *   <li><b>Dialling after the edge gave up.</b> When the tunnel service answers the dial with
- *       "session not found" (its pending entry was released, expired, or claimed elsewhere) the
+ *       "session gone" (410, or a 404 saying its pending entry was released) the
  *       session is gone for good - the edge never re-arms a released entry - so every later dial
  *       for that id is guaranteed to fail. {@link #abandon(String)} latches that, and
  *       {@link #isAbandoned(String)} is what {@link Tunneler} refuses to dial through.</li>
@@ -65,8 +68,13 @@ public final class SessionDialGuard {
     private final long retentionMillis;
     private final int maxEntries;
     private final LongSupplier clock;
+    /**
+     * Insertion-ordered; every entry is re-inserted on write and has the same retention, so the
+     * head is always the entry that expires first.
+     */
     private final Map<String, Entry> entries = new LinkedHashMap<>();
 
+    @Inject
     public SessionDialGuard() {
         this(DEFAULT_RETENTION, DEFAULT_MAX_ENTRIES, System::currentTimeMillis);
     }
@@ -88,8 +96,9 @@ public final class SessionDialGuard {
      *
      * @param sessionId the proposed session id
      * @return {@code true} when this delivery owns the session (it may dial), {@code false} when a
-     *         delivery is already in flight or the session was abandoned and the delivery must be
-     *         dropped without dialling
+     *         delivery is already in flight and this one must be dropped. An abandoned session is
+     *         accepted without changing the latch: {@link Tunneler} refuses to dial it and the
+     *         caller rejects the delivery, so the edge gets an answer.
      */
     public synchronized boolean tryAcceptDelivery(String sessionId) {
         if (sessionId == null || sessionId.isEmpty()) {
@@ -97,11 +106,26 @@ public final class SessionDialGuard {
             return true;
         }
         long now = clock.getAsLong();
-        if (live(sessionId, now) != null) {
-            return false;
+        Entry entry = live(sessionId, now);
+        if (entry != null) {
+            return entry.state == Entry.State.ABANDONED;
         }
         put(sessionId, Entry.State.IN_FLIGHT, now);
         return true;
+    }
+
+    /**
+     * Releases the in-flight claim of a delivery that was rejected or failed, so a redelivery of
+     * the same session id is served. An abandoned session stays latched.
+     */
+    public synchronized void release(String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) {
+            return;
+        }
+        Entry entry = entries.get(sessionId);
+        if (entry != null && entry.state == Entry.State.IN_FLIGHT) {
+            entries.remove(sessionId);
+        }
     }
 
     /**
@@ -126,7 +150,7 @@ public final class SessionDialGuard {
 
     /** Number of live entries. Bounded by {@link #DEFAULT_MAX_ENTRIES}; exposed for tests. */
     synchronized int trackedSessions() {
-        entries.values().removeIf(entry -> entry.isExpired(clock.getAsLong()));
+        pruneExpired(clock.getAsLong());
         return entries.size();
     }
 
@@ -143,6 +167,8 @@ public final class SessionDialGuard {
     }
 
     private void put(String sessionId, Entry.State state, long now) {
+        // Remove first: re-putting an existing key would keep its old position in the order.
+        entries.remove(sessionId);
         entries.put(sessionId, new Entry(state, now + retentionMillis));
         pruneExpired(now);
         if (entries.size() > maxEntries) {
@@ -155,8 +181,12 @@ public final class SessionDialGuard {
         }
     }
 
+    /** Stops at the first live entry: later entries were inserted later and expire later. */
     private void pruneExpired(long now) {
-        entries.values().removeIf(entry -> entry.isExpired(now));
+        Iterator<Entry> iterator = entries.values().iterator();
+        while (iterator.hasNext() && iterator.next().isExpired(now)) {
+            iterator.remove();
+        }
     }
 
     private static final class Entry {

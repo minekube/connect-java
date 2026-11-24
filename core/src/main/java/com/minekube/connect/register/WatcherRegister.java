@@ -35,7 +35,6 @@ import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness;
 import com.minekube.connect.bedrock.BedrockIdentityReadiness.Transport;
 import com.minekube.connect.network.netty.LocalSession;
-import com.minekube.connect.tunnel.SessionDialGuard;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.tunnel.p2p.Libp2pEndpoint;
 import com.minekube.connect.util.Utils;
@@ -63,13 +62,6 @@ import okhttp3.WebSocket;
 public class WatcherRegister {
     @Inject private WatchClient watchClient;
     @Inject private Tunneler tunneler;
-    /**
-     * Claims one dial per session id and remembers sessions the tunnel service abandoned. Guice
-     * injects the singleton bound in {@code CommonModule} (the same instance {@link Tunneler}
-     * consults before dialling); the initializer only keeps the register functional when it is
-     * exercised without an injector.
-     */
-    @Inject private SessionDialGuard sessionDialGuard = new SessionDialGuard();
     @Inject private PlatformInjector platformInjector;
     @Inject private ConnectLogger logger;
     @Inject private SimpleConnectApi api;
@@ -311,29 +303,6 @@ public class WatcherRegister {
             }
 
             if (proposal.getState() != State.ACCEPTED) {
-                return;
-            }
-
-            String sessionId = proposal.getSession().getId();
-            if (sessionDialGuard.isAbandoned(sessionId)) {
-                // The tunnel service already answered this session's dial with "not found": its
-                // pending entry is released and it is never re-armed, so dialling again could only
-                // 404. Reject locally with a player-safe status instead of dialling.
-                logger.info("Refusing session proposal for session {} because the tunnel service "
-                        + "already abandoned it", sessionId);
-                reject(proposal, Status.newBuilder()
-                        .setCode(Code.UNAVAILABLE_VALUE)
-                        .setMessage("session is no longer available at the tunnel service")
-                        .build());
-                return;
-            }
-            if (!sessionDialGuard.tryAcceptDelivery(sessionId)) {
-                // The same session id is already being set up (the edge re-proposes it every
-                // proposalAnswerTimeout and a watch fail-over re-publishes it). One session id may
-                // only ever carry one local session and one tunnel: absorb the repeat silently so
-                // the dial already in flight still decides the session.
-                logger.info("Ignoring repeat session proposal for session {} while a delivery of "
-                        + "the same session is already in flight", sessionId);
                 return;
             }
 

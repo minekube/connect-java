@@ -33,8 +33,10 @@ import com.google.inject.name.Named;
 import com.minekube.connect.tunnel.TunnelConn.Handler;
 import com.minekube.connect.util.ReflectionUtils;
 import java.io.EOFException;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.Collection;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport.Type;
@@ -51,6 +53,7 @@ import org.jetbrains.annotations.Nullable;
 public class WebSocketTunnelTransport implements TunnelClientTransport {
 
     private static final String SESSION_HEADER = "Connect-Session";
+    private static final long MAX_REFUSAL_BODY_BYTES = 1024;
     private static final Field DATA = ReflectionUtils.getField(ByteString.class, "data");
     private final OkHttpClient httpClient;
 
@@ -101,7 +104,7 @@ public class WebSocketTunnelTransport implements TunnelClientTransport {
             public void onFailure(@NotNull WebSocket webSocket, @NotNull Throwable t,
                                   @Nullable Response response) {
                 if (isSessionAbandoned(response)) {
-                    // The tunnel service answered the upgrade with "session not found": the
+                    // The tunnel service answered the upgrade with "session gone": the
                     // session's pending entry is gone for good, so this is not a transport
                     // failure and must not be retried or logged as an internal error.
                     handler.onSessionAbandoned(response.code());
@@ -163,18 +166,31 @@ public class WebSocketTunnelTransport implements TunnelClientTransport {
     }
 
     /**
-     * The tunnel service answers a tunnel request whose pending session is gone with
-     * {@code 404 session <id> not found on tunnel service} (moxy's missing-session path, which also
-     * reports the pending state, e.g. {@code released}); {@code 410 Gone} is the protocol-level
-     * form of the same answer. Both mean "this session id will never be dialable again", which is
-     * categorically different from a transport failure.
+     * The tunnel service answers a tunnel request whose pending session is gone either with
+     * {@code 410 Gone} or with {@code 404 session <id> not found on tunnel service ... released}
+     * (moxy's missing-session path, which reports the pending state). Both mean "this session id
+     * will never be dialable again", which is categorically different from a transport failure.
+     *
+     * <p>A bare 404 is not that answer: a load balancer, a wrong route or a wrong instance also
+     * produces one, and latching on it would block a session that is still dialable elsewhere.
      */
     private static boolean isSessionAbandoned(@Nullable Response response) {
         if (response == null) {
             return false;
         }
         int code = response.code();
-        return code == 404 || code == 410;
+        if (code == 410) {
+            return true;
+        }
+        if (code != 404) {
+            return false;
+        }
+        try {
+            String body = response.peekBody(MAX_REFUSAL_BODY_BYTES).string().toLowerCase(Locale.ROOT);
+            return body.contains("not found") && body.contains("released");
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
     }
 
     @Override

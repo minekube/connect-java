@@ -36,6 +36,7 @@ import com.minekube.connect.bedrock.BedrockIdentityReadiness.Transport;
 import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.bedrock.BedrockPrincipalReadiness;
 import com.minekube.connect.config.ConnectConfig;
+import com.minekube.connect.tunnel.SessionDialGuard;
 import java.io.IOException;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionRejection;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.SessionRejection.Builder;
@@ -63,6 +64,7 @@ public class WatchClient {
     private final BedrockIdentityReadiness bedrockIdentityReadiness;
     private final BedrockAdmissionCoordinator admissionCoordinator;
     private final BedrockPrincipalReadiness bedrockPrincipalReadiness;
+    private final SessionDialGuard dialGuard;
 
     @Inject
     public WatchClient(
@@ -70,27 +72,33 @@ public class WatchClient {
             ConnectConfig config,
             BedrockIdentityReadiness bedrockIdentityReadiness,
             BedrockPrincipalReadiness bedrockPrincipalReadiness,
-            BedrockAdmissionCoordinator admissionCoordinator) {
+            BedrockAdmissionCoordinator admissionCoordinator,
+            SessionDialGuard dialGuard) {
         this.httpClient = httpClient;
         this.config = config;
         this.bedrockIdentityReadiness = bedrockIdentityReadiness;
         this.bedrockPrincipalReadiness = bedrockPrincipalReadiness;
         this.admissionCoordinator = admissionCoordinator;
+        this.dialGuard = dialGuard;
     }
 
     public WatchClient(
             @Named("watchHttpClient") OkHttpClient httpClient,
             ConnectConfig config,
             BedrockIdentityReadiness bedrockIdentityReadiness,
-            BedrockAdmissionCoordinator admissionCoordinator) {
+            BedrockAdmissionCoordinator admissionCoordinator,
+            SessionDialGuard dialGuard) {
         this(httpClient, config, bedrockIdentityReadiness,
-                new BedrockPrincipalReadiness(config), admissionCoordinator);
+                new BedrockPrincipalReadiness(config), admissionCoordinator, dialGuard);
     }
 
-    public WatchClient(@Named("watchHttpClient") OkHttpClient httpClient, ConnectConfig config) {
+    public WatchClient(
+            @Named("watchHttpClient") OkHttpClient httpClient,
+            ConnectConfig config,
+            SessionDialGuard dialGuard) {
         this(httpClient, config, new BedrockIdentityReadiness(
                 config, new BedrockIdentityKeyProvider(config, new OkHttpClient())),
-                new BedrockPrincipalReadiness(config), null);
+                new BedrockPrincipalReadiness(config), null, dialGuard);
     }
 
     public WebSocket watch(Watcher watcher) {
@@ -176,7 +184,10 @@ public class WatchClient {
                 }
 
                 String sessionId = res.getSession().getId();
+                // Every rejection (local failure, refused dial, closed coordinator) frees the claim
+                // below so the edge's redelivery of this session id is served instead of dropped.
                 java.util.function.Consumer<com.google.rpc.Status> rejectProposal = reason -> {
+                            dialGuard.release(sessionId);
                             Builder responseRejection = SessionRejection.newBuilder()
                                     .setId(sessionId);
                             if (reason != null) {
@@ -188,6 +199,14 @@ public class WatchClient {
                                     .toByteArray()
                             ));
                         };
+                // Claim the session id before the coordinator stages an admission: a staged
+                // admission supersedes the previous one for the same id, so a repeat delivery that
+                // is dropped must never reach the coordinator. The edge re-proposes an unanswered
+                // session and a watch fail-over re-publishes it; one session id carries one local
+                // session and one tunnel, and the delivery still in flight answers for it.
+                if (!dialGuard.tryAcceptDelivery(sessionId)) {
+                    return;
+                }
                 SessionProposal prop;
                 try {
                     prop = admissionCoordinator == null

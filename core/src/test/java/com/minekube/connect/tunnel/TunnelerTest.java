@@ -45,7 +45,7 @@ class TunnelerTest {
         };
         transport.next = expected;
         CapturingHandler handler = new CapturingHandler();
-        Tunneler tunneler = new Tunneler(transport);
+        Tunneler tunneler = new Tunneler(transport, new SessionDialGuard());
 
         TunnelConn actual = tunneler.tunnel("ws://connect.example/tunnel", "session-123", handler);
         tunneler.close();
@@ -82,7 +82,7 @@ class TunnelerTest {
         };
         libp2p.next = expected;
         CapturingHandler handler = new CapturingHandler();
-        Tunneler tunneler = new Tunneler(new HashSet<>(Arrays.asList(websocket, libp2p)));
+        Tunneler tunneler = new Tunneler(new HashSet<>(Arrays.asList(websocket, libp2p)), new SessionDialGuard());
 
         TunnelConn actual = tunneler.tunnel(session(
                 "session-456",
@@ -112,7 +112,7 @@ class TunnelerTest {
             }
         };
         websocket.next = expected;
-        Tunneler tunneler = new Tunneler(websocket);
+        Tunneler tunneler = new Tunneler(websocket, new SessionDialGuard());
 
         TunnelConn actual = tunneler.tunnel(session(
                 "session-789",
@@ -129,7 +129,7 @@ class TunnelerTest {
     void preparesSelectedTransports() {
         RecordingTransport websocket = new RecordingTransport(Type.TYPE_WEBSOCKET);
         RecordingTransport libp2p = new RecordingTransport(Type.TYPE_LIBP2P);
-        Tunneler tunneler = new Tunneler(new HashSet<>(Arrays.asList(websocket, libp2p)));
+        Tunneler tunneler = new Tunneler(new HashSet<>(Arrays.asList(websocket, libp2p)), new SessionDialGuard());
 
         tunneler.prepare(session(
                 "session-prepare",
@@ -157,7 +157,7 @@ class TunnelerTest {
             }
         };
         websocket.next = expected;
-        Tunneler tunneler = new Tunneler(new HashSet<>(Arrays.asList(websocket, libp2p)));
+        Tunneler tunneler = new Tunneler(new HashSet<>(Arrays.asList(websocket, libp2p)), new SessionDialGuard());
         Session session = session(
                 "session-prepare-fallback",
                 "ws://connect.example/fallback",
@@ -210,7 +210,7 @@ class TunnelerTest {
             server.start();
 
             String tunnelUrl = webSocketUrl(server) + "?fi=machine-123&cid=";
-            conn = new Tunneler(new WebSocketTunnelTransport(client))
+            conn = new Tunneler(new WebSocketTunnelTransport(client), new SessionDialGuard())
                     .tunnel(tunnelUrl, "session-123", new CapturingHandler());
             RecordedRequest request = server.takeRequest(5, SECONDS);
 
@@ -238,7 +238,7 @@ class TunnelerTest {
             }));
             server.start();
 
-            conn = new Tunneler(new WebSocketTunnelTransport(client))
+            conn = new Tunneler(new WebSocketTunnelTransport(client), new SessionDialGuard())
                     .tunnel(webSocketUrl(server), "session-456", new CapturingHandler());
             RecordedRequest request = server.takeRequest(5, SECONDS);
 
@@ -269,7 +269,7 @@ class TunnelerTest {
             }));
             server.start();
 
-            conn = new Tunneler(new WebSocketTunnelTransport(client))
+            conn = new Tunneler(new WebSocketTunnelTransport(client), new SessionDialGuard())
                     .tunnel(webSocketUrl(server), "test-session", handler);
 
             return handler.awaitReceived();

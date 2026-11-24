@@ -17,6 +17,9 @@ import com.minekube.connect.bedrock.BedrockIdentityReadiness;
 import com.minekube.connect.bedrock.BedrockPrincipalReadiness;
 import com.minekube.connect.bedrock.VerifiedBedrockIdentityRegistry;
 import com.minekube.connect.config.ConnectConfig;
+import com.minekube.connect.tunnel.SessionDialGuard;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.Authentication;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.GameProfile;
@@ -49,7 +52,8 @@ class WatchClientTest {
                 new BedrockIdentityReadiness(
                         config,
                         new BedrockIdentityKeyProvider(config, new OkHttpClient())),
-                coordinator);
+                coordinator,
+                new SessionDialGuard());
         AtomicReference<SessionProposal> proposalRef = new AtomicReference<>();
         Watcher watcher = new Watcher() {
             @Override public void onOpen(WatchBootstrap bootstrap) { }
@@ -93,6 +97,111 @@ class WatchClientTest {
         }
     }
 
+    /**
+     * The edge re-proposes an unanswered session and a watch fail-over re-publishes it. A repeat
+     * delivery that is dropped must not stage a new admission: the coordinator supersedes the
+     * previous admission of a session id, which would invalidate the first delivery's token while
+     * it is still being set up.
+     */
+    @Test
+    void repeatDeliveryIsDroppedWithoutSupersedingTheFirstAdmission() {
+        ConnectConfig config = new ConnectConfig();
+        OkHttpClient httpClient = mock(OkHttpClient.class);
+        BedrockAdmissionCoordinator coordinator =
+                new BedrockAdmissionCoordinator(new VerifiedBedrockIdentityRegistry());
+        WatchClient client = new WatchClient(
+                httpClient,
+                config,
+                new BedrockIdentityReadiness(
+                        config,
+                        new BedrockIdentityKeyProvider(config, new OkHttpClient())),
+                coordinator,
+                new SessionDialGuard());
+        List<SessionProposal> proposals = new ArrayList<>();
+        Watcher watcher = new Watcher() {
+            @Override public void onOpen(WatchBootstrap bootstrap) { }
+            @Override public void onProposal(SessionProposal proposal) { proposals.add(proposal); }
+            @Override public void onCompleted() { }
+            @Override public void onError(Throwable throwable) { }
+        };
+
+        try {
+            client.watch(watcher);
+            ArgumentCaptor<WebSocketListener> listener = ArgumentCaptor.forClass(WebSocketListener.class);
+            verify(httpClient).newWebSocket(any(Request.class), listener.capture());
+            WebSocket socket = mock(WebSocket.class);
+            ByteString delivery = ByteString.of(WatchResponse.newBuilder()
+                    .setSession(rawSession("session-repeat")).build().toByteArray());
+
+            listener.getValue().onMessage(socket, delivery);
+            listener.getValue().onMessage(socket, delivery);
+
+            assertEquals(1, proposals.size(), "the repeat delivery must be dropped");
+            assertDoesNotThrow(() -> coordinator.stage(proposals.get(0)),
+                    "the repeat delivery must not supersede the first delivery's admission");
+            verify(socket, org.mockito.Mockito.never()).send(any(ByteString.class));
+        } finally {
+            coordinator.close();
+        }
+    }
+
+    /**
+     * A claim only dedupes deliveries while the first one is alive. Once the first delivery is
+     * rejected (a transient local failure, a failed dial) the edge's redelivery must be served.
+     */
+    @Test
+    void rejectedDeliveryReleasesTheClaimSoTheRedeliveryIsServed() {
+        ConnectConfig config = new ConnectConfig();
+        OkHttpClient httpClient = mock(OkHttpClient.class);
+        BedrockAdmissionCoordinator coordinator =
+                new BedrockAdmissionCoordinator(new VerifiedBedrockIdentityRegistry());
+        WatchClient client = new WatchClient(
+                httpClient,
+                config,
+                new BedrockIdentityReadiness(
+                        config,
+                        new BedrockIdentityKeyProvider(config, new OkHttpClient())),
+                coordinator,
+                new SessionDialGuard());
+        List<SessionProposal> proposals = new ArrayList<>();
+        Watcher watcher = new Watcher() {
+            @Override public void onOpen(WatchBootstrap bootstrap) { }
+            @Override public void onProposal(SessionProposal proposal) { proposals.add(proposal); }
+            @Override public void onCompleted() { }
+            @Override public void onError(Throwable throwable) { }
+        };
+
+        try {
+            client.watch(watcher);
+            ArgumentCaptor<WebSocketListener> listener = ArgumentCaptor.forClass(WebSocketListener.class);
+            verify(httpClient).newWebSocket(any(Request.class), listener.capture());
+            WebSocket socket = mock(WebSocket.class);
+            ByteString delivery = ByteString.of(WatchResponse.newBuilder()
+                    .setSession(rawSession("session-retry")).build().toByteArray());
+
+            listener.getValue().onMessage(socket, delivery);
+            coordinator.reject(proposals.get(0), com.google.rpc.Status.newBuilder()
+                    .setCode(com.google.rpc.Code.UNAVAILABLE_VALUE).build());
+            listener.getValue().onMessage(socket, delivery);
+
+            assertEquals(2, proposals.size(), "a redelivery after a rejection must be served");
+            assertDoesNotThrow(() -> coordinator.stage(proposals.get(1)));
+        } finally {
+            coordinator.close();
+        }
+    }
+
+    private static Session rawSession(String id) {
+        return Session.newBuilder()
+                .setId(id)
+                .setPlayer(Player.newBuilder()
+                        .setAddr("127.0.0.1")
+                        .setProfile(GameProfile.newBuilder()
+                                .setId("f912bf90-8349-565f-9dc0-9891923c0cc3")
+                                .setName("Player")))
+                .build();
+    }
+
     @Test
     void closedCoordinatorRejectsProposalInsteadOfFailingTheWatch() throws Exception {
         ConnectConfig config = new ConnectConfig();
@@ -105,7 +214,8 @@ class WatchClientTest {
                 new BedrockIdentityReadiness(
                         config,
                         new BedrockIdentityKeyProvider(config, new OkHttpClient())),
-                coordinator);
+                coordinator,
+                new SessionDialGuard());
         java.util.concurrent.atomic.AtomicReference<SessionProposal> proposalRef =
                 new java.util.concurrent.atomic.AtomicReference<>();
         java.util.concurrent.atomic.AtomicReference<Throwable> errorRef =
@@ -154,7 +264,7 @@ class WatchClientTest {
     @Test
     void defaultDisabledConfigurationDoesNotAdvertiseBedrockIdentity() {
         OkHttpClient httpClient = mock(OkHttpClient.class);
-        WatchClient client = new WatchClient(httpClient, new ConnectConfig());
+        WatchClient client = new WatchClient(httpClient, new ConnectConfig(), new SessionDialGuard());
 
         client.watch(new Watcher() {
             @Override public void onOpen(WatchBootstrap bootstrap) { }
@@ -173,7 +283,7 @@ class WatchClientTest {
     void readinessChallengeIsAnsweredAndNeverDeliveredAsSession() {
         ConnectConfig config = new ConnectConfig();
         OkHttpClient httpClient = mock(OkHttpClient.class);
-        WatchClient client = new WatchClient(httpClient, config);
+        WatchClient client = new WatchClient(httpClient, config, new SessionDialGuard());
         Watcher watcher = mock(Watcher.class);
         WebSocket socket = mock(WebSocket.class);
 

@@ -52,12 +52,8 @@ public class Tunneler implements Closeable {
         this.dialGuard = dialGuard;
     }
 
-    public Tunneler(Set<TunnelClientTransport> transports) {
-        this(transports, new SessionDialGuard());
-    }
-
-    public Tunneler(TunnelClientTransport transport) {
-        this(Collections.singleton(transport));
+    public Tunneler(TunnelClientTransport transport, SessionDialGuard dialGuard) {
+        this(Collections.singleton(transport), dialGuard);
     }
 
     /**

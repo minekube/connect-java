@@ -143,7 +143,9 @@ class BedrockIdentityDefaultConfigTest {
                 config,
                 new BedrockIdentityKeyProvider(config, metadataClient(metadataRequests), () -> FIXTURE_TIME));
         OkHttpClient watchHttpClient = mock(OkHttpClient.class);
-        WatchClient watchClient = new WatchClient(watchHttpClient, config, readiness, null);
+        WatchClient watchClient = new WatchClient(
+                watchHttpClient, config, readiness, null,
+                new com.minekube.connect.tunnel.SessionDialGuard());
 
         watchClient.watch(new Watcher() {
             @Override public void onOpen(com.minekube.connect.watch.WatchBootstrap bootstrap) { }
