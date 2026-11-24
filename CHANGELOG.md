@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.19](https://github.com/minekube/connect-java/compare/0.15.18...0.15.19) (2026-11-24)
+
+
+### Bug Fixes
+
+* **spigot:** keep handling LOGIN_START after stripping a handshake marker ([#183](https://github.com/minekube/connect-java/issues/183)) ([43f852f](https://github.com/minekube/connect-java/commit/43f852f73f5178dc3daf818185a2bdd276713632))
+
 ## [0.15.18](https://github.com/minekube/connect-java/compare/0.15.17...0.15.18) (2026-10-28)
 
 
