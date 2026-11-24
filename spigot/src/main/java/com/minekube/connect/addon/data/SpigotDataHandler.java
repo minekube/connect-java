@@ -85,81 +85,7 @@ public final class SpigotDataHandler extends CommonDataHandler {
     @Override
     public boolean channelRead(Object packet) throws Exception {
         if (ClassNames.HANDSHAKE_PACKET.isInstance(packet)) {
-            if (ProxyUtils.isBungeeData()) {
-                // Server has bungee enabled and expects to receive player data in hostname of handshake packet.
-                // See https://hub.spigotmc.org/stash/projects/SPIGOT/repos/spigot/browse/CraftBukkit-Patches/0031-BungeeCord-Support.patch#70
-                String hostname = getCastedValue(packet, ClassNames.HANDSHAKE_HOST);
-
-                // Strip any pre-existing BungeeCord data from hostname (moxy may have added it)
-                // BungeeCord data is separated by \0, so get just the virtual host part
-                if (hostname.contains("\0")) {
-                    hostname = hostname.split("\0")[0];
-                    debug("Stripped pre-existing BungeeCord data from hostname");
-                }
-
-                String newHostname = createBungeeForwardingAddress(hostname);
-
-                if (ClassNames.IS_PRE_1_20_2) {
-                    // 1.20.1 and below - can modify final field directly
-                    setValue(packet, ClassNames.HANDSHAKE_HOST, newHostname);
-                } else {
-                    // 1.20.2+ - final fields cannot be modified, create new packet instead
-                    try {
-                        Object[] components = new Object[]{
-                                getCastedValue(packet, ClassNames.HANDSHAKE_PROTOCOL),
-                                newHostname, // new hostname
-                                getCastedValue(packet, ClassNames.HANDSHAKE_PORT),
-                                getCastedValue(packet, ClassNames.HANDSHAKE_INTENTION)
-                        };
-                        Object newPacket = ClassNames.HANDSHAKE_PACKET_CONSTRUCTOR.newInstance(components);
-                        // Replace the packet in the pipeline
-                        ctx.fireChannelRead(newPacket);
-                        if (!SpigotPlugin.isProtocolSupport()) {
-                            removeSelf();
-                        }
-                        return false; // Don't pass the original packet
-                    } catch (Exception e) {
-                        throw new IllegalStateException("Failed to create new Handshake packet", e);
-                    }
-                }
-
-                if (!SpigotPlugin.isProtocolSupport()) { // if we don't check this the player would be kicked with "unexpected hello packet"
-                    removeSelf();
-                }
-                return true;
-            } else {
-                // BungeeCord mode is disabled, but moxy might have sent BungeeCord data anyway
-                // Strip it to prevent Paper from rejecting with "Unknown data in login hostname"
-                String hostname = getCastedValue(packet, ClassNames.HANDSHAKE_HOST);
-                if (hostname.contains("\0")) {
-                    hostname = hostname.split("\0")[0];
-                    debug("BungeeCord mode disabled but hostname contained forwarding data, stripped it");
-
-                    if (ClassNames.IS_PRE_1_20_2) {
-                        setValue(packet, ClassNames.HANDSHAKE_HOST, hostname);
-                    } else {
-                        // 1.20.2+ - final fields cannot be modified, create new packet instead
-                        try {
-                            Object[] components = new Object[]{
-                                    getCastedValue(packet, ClassNames.HANDSHAKE_PROTOCOL),
-                                    hostname, // stripped hostname
-                                    getCastedValue(packet, ClassNames.HANDSHAKE_PORT),
-                                    getCastedValue(packet, ClassNames.HANDSHAKE_INTENTION)
-                            };
-                            Object newPacket = ClassNames.HANDSHAKE_PACKET_CONSTRUCTOR.newInstance(components);
-                            ctx.fireChannelRead(newPacket);
-                            if (!SpigotPlugin.isProtocolSupport()) {
-                                removeSelf();
-                            }
-                            return false; // Don't pass the original packet
-                        } catch (Exception e) {
-                            throw new IllegalStateException("Failed to create new Handshake packet", e);
-                        }
-                    }
-                }
-            }
-            // When BungeeCord mode is disabled, don't remove self - we need to handle LOGIN_START_PACKET
-            return true; // next is LOGIN_START_PACKET
+            return handleHandshake(new ReflectiveHandshake(packet));
         }
         if (ClassNames.LOGIN_START_PACKET.isInstance(packet)) {
             debug("Processing LOGIN_START_PACKET for " + logPlayer());
@@ -245,6 +171,123 @@ public final class SpigotDataHandler extends CommonDataHandler {
             return false;
         }
         return true;
+    }
+
+    /** Handshake handling with the connector's live server state. */
+    boolean handleHandshake(HandshakeView handshake) {
+        return handleHandshake(handshake, ProxyUtils.isBungeeData(), SpigotPlugin.isProtocolSupport());
+    }
+
+    /**
+     * Decides what happens to the client's handshake - and to the connector's own pipeline slot.
+     *
+     * <p><b>BungeeCord forwarding enabled</b> (the server expects the player data in the hostname,
+     * see the CraftBukkit BungeeCord patch): the player data is injected into the hostname and, the
+     * server now owning the login, the connector leaves the pipeline - unless ProtocolSupport is
+     * installed, which needs it to stay or the player is kicked with "unexpected hello packet".
+     *
+     * <p><b>BungeeCord forwarding disabled</b>: forwarding data in the hostname (data a proxy added,
+     * or a client marker such as Forge's {@code \0FORGE}) is stripped, because the server would
+     * otherwise reject the hostname ("Unknown data in login hostname"). The connector MUST stay in
+     * the pipeline on this path: Connect owns the login here and injects the fake offline login
+     * cycle when {@code LOGIN_START} arrives - the packet AFTER the handshake. A connector that
+     * removed itself here never saw {@code LOGIN_START}, so no profile was injected and an
+     * online-mode server was free to start its own encryption handshake into the tunnel, which the
+     * edge cannot answer: the backend session died as {@code backend_connect} ~20 ms after the
+     * tunnel opened and the player fell back to the hub (connect-spigot 0.15.18, Paper 26.3,
+     * case t_117be469).
+     *
+     * @return true when the original packet may continue downstream
+     */
+    boolean handleHandshake(HandshakeView handshake, boolean bungeeForwarding, boolean protocolSupport) {
+        String hostname = handshake.hostname();
+        if (bungeeForwarding) {
+            String virtualHost = stripForwardingData(hostname);
+            if (!virtualHost.equals(hostname)) {
+                debug("Stripped pre-existing BungeeCord data from hostname");
+            }
+            boolean rewrittenInPlace = handshake.replaceHostname(createBungeeForwardingAddress(virtualHost));
+            if (!protocolSupport) {
+                handshake.stopAfterHandshake();
+            }
+            return rewrittenInPlace;
+        }
+        String strippedHostname = stripForwardingData(hostname);
+        if (strippedHostname.equals(hostname)) {
+            return true; // next is LOGIN_START_PACKET
+        }
+        debug("BungeeCord mode disabled but hostname contained forwarding data, stripped it");
+        // Keep handling: the fake login cycle that serves this session runs on LOGIN_START_PACKET.
+        return handshake.replaceHostname(strippedHostname);
+    }
+
+    /** Drops forwarding data (everything after the first {@code \0}) from a handshake hostname. */
+    static String stripForwardingData(String hostname) {
+        int end = hostname.indexOf('\0');
+        return end == -1 ? hostname : hostname.substring(0, end);
+    }
+
+    /**
+     * The handshake packet surface the connector needs: its hostname, a way to rewrite it, and the
+     * connector's own pipeline slot. Production reads it reflectively from the server's packet
+     * ({@link ClassNames} needs a live server), which is why it is an interface at all.
+     */
+    interface HandshakeView {
+        String hostname();
+
+        /**
+         * Sends the handshake downstream with the given hostname.
+         *
+         * @return true when the packet was rewritten in place, so the original continues downstream;
+         *         false when a rebuilt packet was fired and the original must be dropped
+         */
+        boolean replaceHostname(String hostname);
+
+        /** Removes the connector from the pipeline: this session no longer needs it. */
+        void stopAfterHandshake();
+    }
+
+    /** Adapts the reflected server handshake packet to {@link HandshakeView}. */
+    private final class ReflectiveHandshake implements HandshakeView {
+        private final Object packet;
+
+        private ReflectiveHandshake(Object packet) {
+            this.packet = packet;
+        }
+
+        @Override
+        public String hostname() {
+            return getCastedValue(packet, ClassNames.HANDSHAKE_HOST);
+        }
+
+        @Override
+        public boolean replaceHostname(String hostname) {
+            if (ClassNames.IS_PRE_1_20_2) {
+                // 1.20.1 and below - can modify final field directly
+                setValue(packet, ClassNames.HANDSHAKE_HOST, hostname);
+                return true;
+            }
+            // 1.20.2+ - final fields cannot be modified, create new packet instead
+            try {
+                Object[] components = new Object[]{
+                        getCastedValue(packet, ClassNames.HANDSHAKE_PROTOCOL),
+                        hostname, // new hostname
+                        getCastedValue(packet, ClassNames.HANDSHAKE_PORT),
+                        getCastedValue(packet, ClassNames.HANDSHAKE_INTENTION)
+                };
+                Object newPacket = ClassNames.HANDSHAKE_PACKET_CONSTRUCTOR.newInstance(components);
+                // Replace the packet in the pipeline
+                ctx.fireChannelRead(newPacket);
+                return false; // Don't pass the original packet
+            } catch (Exception e) {
+                throw new IllegalStateException("Failed to create new Handshake packet", e);
+            }
+        }
+
+        @Override
+        public void stopAfterHandshake() {
+            removeSelf();
+        }
     }
 
     /**
