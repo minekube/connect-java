@@ -138,8 +138,7 @@ class TunnelDialAfterAbandonTest {
         tunnelService = new MockWebServer();
         tunnelService.enqueue(new MockResponse()
                 .setResponseCode(404)
-                .setBody("session " + SESSION_ID + " not found on tunnel service; pendingState=released "
-                        + "endpoint=example request_kind=join"));
+                .setBody("tunnel session not found; connector version 0.15.18; requested Fly instance a; current Fly instance b; pending metadata released request_kind=join protocol=java age=4.1s released_ago=30ms; likely causes: expired session, released session (the dial ended before this request arrived), duplicate tunnel, stale connector, or tunnel request reached the wrong instance"));
         tunnelService.start();
         String tunnelAddress = "ws://" + tunnelService.getHostName() + ":" + tunnelService.getPort() + "/";
         start(new WebSocketTunnelTransport(new OkHttpClient()));

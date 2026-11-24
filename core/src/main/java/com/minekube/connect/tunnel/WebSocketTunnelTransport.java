@@ -167,13 +167,20 @@ public class WebSocketTunnelTransport implements TunnelClientTransport {
 
     /**
      * The tunnel service answers a tunnel request whose pending session is gone either with
-     * {@code 410 Gone} or with {@code 404 session <id> not found on tunnel service ... released}
-     * (moxy's missing-session path, which reports the pending state). Both mean "this session id
-     * will never be dialable again", which is categorically different from a transport failure.
+     * {@code 410 Gone} or with a {@code 404} whose body reports {@code pending metadata released}
+     * (moxy's missing-session path: "tunnel session not found; ...; pending metadata released
+     * request_kind=...; likely causes: ..."). Both mean "this session id will never be dialable
+     * again", which is categorically different from a transport failure.
      *
-     * <p>A bare 404 is not that answer: a load balancer, a wrong route or a wrong instance also
-     * produces one, and latching on it would block a session that is still dialable elsewhere.
+     * <p>The body's trailing "likely causes" list always mentions "released session", so only the
+     * {@code pending metadata <state>} field is authoritative: {@code absent}, {@code pending} and
+     * {@code consumed} (wrong instance, expired, duplicate tunnel) must not latch, and neither must
+     * a bare 404 from a load balancer or a wrong route, which could block a session that is still
+     * dialable elsewhere.
      */
+    private static final java.util.regex.Pattern RELEASED_PENDING_METADATA =
+            java.util.regex.Pattern.compile("pending metadata released(\\s|;|$)");
+
     private static boolean isSessionAbandoned(@Nullable Response response) {
         if (response == null) {
             return false;
@@ -187,7 +194,8 @@ public class WebSocketTunnelTransport implements TunnelClientTransport {
         }
         try {
             String body = response.peekBody(MAX_REFUSAL_BODY_BYTES).string().toLowerCase(Locale.ROOT);
-            return body.contains("not found") && body.contains("released");
+            return body.contains("tunnel session not found")
+                    && RELEASED_PENDING_METADATA.matcher(body).find();
         } catch (IOException | RuntimeException e) {
             return false;
         }

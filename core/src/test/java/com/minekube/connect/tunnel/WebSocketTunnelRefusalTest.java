@@ -27,10 +27,22 @@ class WebSocketTunnelRefusalTest {
     void notFoundReportingAReleasedPendingEntryIsAnAbandonedSession() throws Exception {
         Outcome outcome = refuse(new MockResponse()
                 .setResponseCode(404)
-                .setBody("session s-1 not found on tunnel service pendingState=released"));
+                .setBody("tunnel session not found; connector version 0.15.18; requested Fly instance a; current Fly instance b; pending metadata released request_kind=join protocol=java age=4.1s released_ago=30ms; likely causes: expired session, released session (the dial ended before this request arrived), duplicate tunnel, stale connector, or tunnel request reached the wrong instance"));
 
         assertEquals(404, outcome.abandonedStatus.get());
         assertNull(outcome.error.get());
+    }
+
+    @Test
+    void notFoundWithAnyOtherPendingStateNeverLatchesDespiteTheStaticCausesText() throws Exception {
+        for (String state : new String[] {"absent", "pending", "consumed"}) {
+            Outcome outcome = refuse(new MockResponse()
+                    .setResponseCode(404)
+                    .setBody("tunnel session not found; connector version 0.15.18; requested Fly instance a; current Fly instance b; pending metadata "+state+" request_kind=join protocol=java age=4.1s released_ago=30ms; likely causes: expired session, released session (the dial ended before this request arrived), duplicate tunnel, stale connector, or tunnel request reached the wrong instance"));
+
+            assertNotNull(outcome.error.get(), "pending metadata " + state + " is an ordinary dial failure");
+            assertEquals(0, outcome.abandonedStatus.get(), "pending metadata " + state + " must not latch");
+        }
     }
 
     @Test
