@@ -33,8 +33,10 @@ import com.google.inject.name.Named;
 import com.minekube.connect.tunnel.TunnelConn.Handler;
 import com.minekube.connect.util.ReflectionUtils;
 import java.io.EOFException;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.Collection;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport.Type;
@@ -51,6 +53,7 @@ import org.jetbrains.annotations.Nullable;
 public class WebSocketTunnelTransport implements TunnelClientTransport {
 
     private static final String SESSION_HEADER = "Connect-Session";
+    private static final long MAX_REFUSAL_BODY_BYTES = 1024;
     private static final Field DATA = ReflectionUtils.getField(ByteString.class, "data");
     private final OkHttpClient httpClient;
 
@@ -100,6 +103,14 @@ public class WebSocketTunnelTransport implements TunnelClientTransport {
             @Override
             public void onFailure(@NotNull WebSocket webSocket, @NotNull Throwable t,
                                   @Nullable Response response) {
+                if (isSessionAbandoned(response)) {
+                    // The tunnel service answered the upgrade with "session gone": the
+                    // session's pending entry is gone for good, so this is not a transport
+                    // failure and must not be retried or logged as an internal error.
+                    handler.onSessionAbandoned(response.code());
+                    handlerOnClose.run();
+                    return;
+                }
                 if (!(t instanceof EOFException)) {
                     handler.onError(t);
                 }
@@ -152,6 +163,42 @@ public class WebSocketTunnelTransport implements TunnelClientTransport {
                 return opened.get();
             }
         };
+    }
+
+    /**
+     * The tunnel service answers a tunnel request whose pending session is gone either with
+     * {@code 410 Gone} or with a {@code 404} whose body reports {@code pending metadata released}
+     * (moxy's missing-session path: "tunnel session not found; ...; pending metadata released
+     * request_kind=...; likely causes: ..."). Both mean "this session id will never be dialable
+     * again", which is categorically different from a transport failure.
+     *
+     * <p>The body's trailing "likely causes" list always mentions "released session", so only the
+     * {@code pending metadata <state>} field is authoritative: {@code absent}, {@code pending} and
+     * {@code consumed} (wrong instance, expired, duplicate tunnel) must not latch, and neither must
+     * a bare 404 from a load balancer or a wrong route, which could block a session that is still
+     * dialable elsewhere.
+     */
+    private static final java.util.regex.Pattern RELEASED_PENDING_METADATA =
+            java.util.regex.Pattern.compile("pending metadata released(\\s|;|$)");
+
+    private static boolean isSessionAbandoned(@Nullable Response response) {
+        if (response == null) {
+            return false;
+        }
+        int code = response.code();
+        if (code == 410) {
+            return true;
+        }
+        if (code != 404) {
+            return false;
+        }
+        try {
+            String body = response.peekBody(MAX_REFUSAL_BODY_BYTES).string().toLowerCase(Locale.ROOT);
+            return body.contains("tunnel session not found")
+                    && RELEASED_PENDING_METADATA.matcher(body).find();
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
     }
 
     @Override

@@ -36,6 +36,7 @@ import com.minekube.connect.tunnel.Tunneler;
 import io.grpc.protobuf.StatusProto;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import java.util.concurrent.atomic.AtomicLong;
@@ -44,6 +45,11 @@ import org.jetbrains.annotations.NotNull;
 public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<ByteBuf> {
     private static final String FORCE_TUNNEL_SERVICE_ADDR = System.getenv(
             "CONNECT_FORCE_TUNNEL_SERVICE_ADDR");
+    /** Player-safe rejection for a session the tunnel service already abandoned. */
+    private static final Status SESSION_ABANDONED_STATUS = Status.newBuilder()
+            .setCode(Code.UNAVAILABLE_VALUE)
+            .setMessage("session is no longer available at the tunnel service")
+            .build();
 
     private final Context context;
     private final ConnectLogger logger;
@@ -154,21 +160,54 @@ public class LocalChannelInboundHandler extends SimpleChannelInboundHandler<Byte
     public void channelActive(@NotNull ChannelHandlerContext ctx) throws Exception {
         logger.debug("Connect local backend channel active player={} session={} local={} remote={}",
                 playerName(), sessionId(), ctx.channel().localAddress(), ctx.channel().remoteAddress());
-        // Start tunnel from downstream server -> upstream TunnelService
-        if (FORCE_TUNNEL_SERVICE_ADDR != null && !FORCE_TUNNEL_SERVICE_ADDR.isEmpty()) {
-            tunnelConn = tunneler.tunnel(
-                    tunnelSvcAddr(),
-                    context.getSessionProposal().getSession().getId(),
-                    new TunnelHandler(logger, ctx.channel(), playerName(), sessionId())
-            );
-        } else {
-            tunnelConn = tunneler.tunnel(
-                    context.getSessionProposal().getSession(),
-                    new TunnelHandler(logger, ctx.channel(), playerName(), sessionId())
-            );
+        SessionAwareTunnelHandler handler = new SessionAwareTunnelHandler(ctx.channel());
+        try {
+            // Start tunnel from downstream server -> upstream TunnelService
+            if (FORCE_TUNNEL_SERVICE_ADDR != null && !FORCE_TUNNEL_SERVICE_ADDR.isEmpty()) {
+                tunnelConn = tunneler.tunnel(
+                        tunnelSvcAddr(),
+                        context.getSessionProposal().getSession().getId(),
+                        handler
+                );
+            } else {
+                tunnelConn = tunneler.tunnel(
+                        context.getSessionProposal().getSession(),
+                        handler
+                );
+            }
+        } catch (Tunneler.SessionAbandonedException e) {
+            // The tunnel service already gave up on this session (its pending entry was released
+            // and is never re-armed), so the dial could only be answered with "not found" again.
+            // Reject locally with a player-safe status instead of leaving the player hanging.
+            logger.info("Skipping tunnel dial for player={} session={} because the tunnel service "
+                            + "already abandoned the session",
+                    playerName(), sessionId());
+            rejectProposal(context, SESSION_ABANDONED_STATUS);
+            ctx.close();
+            return;
         }
         context.tunnelConn.set(tunnelConn);
         super.channelActive(ctx);
+    }
+
+    /**
+     * Latches the session as abandoned when the tunnel service refuses the upgrade because it no
+     * longer knows the session, so no later delivery of the same session id dials again, and the
+     * local session is torn down with a player-safe status instead of an internal error.
+     */
+    private final class SessionAwareTunnelHandler extends TunnelHandler {
+        private SessionAwareTunnelHandler(Channel downstreamServerConn) {
+            super(logger, downstreamServerConn, playerName(), sessionId());
+        }
+
+        @Override
+        public void onSessionAbandoned(int httpStatus) {
+            tunneler.dialGuard().abandon(sessionId());
+            rejectProposal(context, SESSION_ABANDONED_STATUS);
+            logger.info("Tunnel service no longer knows player={} session={} (status={}); "
+                    + "not retrying the dial", playerName(), sessionId(), httpStatus);
+            super.onClose();
+        }
     }
 
     @Override

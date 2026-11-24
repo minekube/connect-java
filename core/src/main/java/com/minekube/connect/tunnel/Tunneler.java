@@ -41,17 +41,27 @@ import minekube.connect.v1alpha1.WatchServiceOuterClass.TunnelTransport.Type;
 public class Tunneler implements Closeable {
 
     private final Map<Type, TunnelClientTransport> transports;
+    private final SessionDialGuard dialGuard;
 
     @Inject
-    public Tunneler(Set<TunnelClientTransport> transports) {
+    public Tunneler(Set<TunnelClientTransport> transports, SessionDialGuard dialGuard) {
         this.transports = new EnumMap<>(Type.class);
         for (TunnelClientTransport transport : transports) {
             this.transports.put(transport.type(), transport);
         }
+        this.dialGuard = dialGuard;
     }
 
-    public Tunneler(TunnelClientTransport transport) {
-        this(Collections.singleton(transport));
+    public Tunneler(TunnelClientTransport transport, SessionDialGuard dialGuard) {
+        this(Collections.singleton(transport), dialGuard);
+    }
+
+    /**
+     * Session ids this tunneler has already taken a proposal for and will not dial again once the
+     * tunnel service abandoned them.
+     */
+    public SessionDialGuard dialGuard() {
+        return dialGuard;
     }
 
     public void prepare(Session session) {
@@ -65,6 +75,7 @@ public class Tunneler implements Closeable {
     }
 
     public TunnelConn tunnel(final String tunnelServiceAddr, String sessionId, Handler handler) {
+        checkNotAbandoned(sessionId);
         TunnelClientTransport transport = transports.get(Type.TYPE_WEBSOCKET);
         if (transport == null) {
             throw new IllegalStateException("no websocket tunnel transport configured");
@@ -73,6 +84,7 @@ public class Tunneler implements Closeable {
     }
 
     public TunnelConn tunnel(Session session, Handler handler) {
+        checkNotAbandoned(session.getId());
         RuntimeException lastFailure = null;
         for (SelectedTransport selected : select(session)) {
             try {
@@ -85,6 +97,12 @@ public class Tunneler implements Closeable {
             throw lastFailure;
         }
         throw new IllegalStateException("no compatible tunnel transport configured");
+    }
+
+    private void checkNotAbandoned(String sessionId) {
+        if (dialGuard.isAbandoned(sessionId)) {
+            throw new SessionAbandonedException(sessionId);
+        }
     }
 
     @Override
@@ -119,6 +137,27 @@ public class Tunneler implements Closeable {
             if (tunnelTransport.getType() == type && !tunnelTransport.getAddress().isEmpty()) {
                 selected.add(new SelectedTransport(transport, tunnelTransport.getAddress()));
             }
+        }
+    }
+
+    /**
+     * Thrown instead of dialling when the tunnel service already abandoned the session.
+     *
+     * <p>The edge never re-arms a released pending entry, so the dial could only ever produce a
+     * tunnel that is upgraded and closed again. Callers reject the proposal with a player-safe
+     * status rather than reporting an internal error.
+     */
+    public static final class SessionAbandonedException extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+        private final String sessionId;
+
+        SessionAbandonedException(String sessionId) {
+            super("session " + sessionId + " was abandoned by the tunnel service");
+            this.sessionId = sessionId;
+        }
+
+        public String sessionId() {
+            return sessionId;
         }
     }
 

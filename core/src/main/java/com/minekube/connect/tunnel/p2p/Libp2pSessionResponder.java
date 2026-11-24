@@ -27,6 +27,7 @@ package com.minekube.connect.tunnel.p2p;
 
 import com.google.rpc.Code;
 import com.google.rpc.Status;
+import com.minekube.connect.tunnel.SessionDialGuard;
 import com.minekube.connect.tunnel.Tunneler;
 import com.minekube.connect.bedrock.BedrockAdmissionCoordinator;
 import com.minekube.connect.watch.SessionProposal;
@@ -122,11 +123,12 @@ final class Libp2pSessionResponder {
                 ? new SessionProposal(raw, rejectProposal, endpointId, endpointOrgId)
                 : admissionCoordinator.proposal(raw, rejectProposal, endpointId, endpointOrgId);
         try {
+            // One stream carries one session, so there is no cross-offer abandonment to remember.
             Tunneler tunneler = new Tunneler(new SameStreamTunnelTransport(stream, acceptedSessionId ->
                     writeResponse(stream, SessionResponse.newBuilder()
                             .setSessionId(acceptedSessionId)
                             .setAccepted(SessionAccepted.newBuilder().setSameStreamData(true))
-                            .build())));
+                            .build())), new SessionDialGuard());
             starter.start(proposal, tunneler);
         } catch (RuntimeException e) {
             reject(proposal, Status.newBuilder()
