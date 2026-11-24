@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.20](https://github.com/minekube/connect-java/compare/0.15.19...0.15.20) (2026-11-24)
+
+
+### Bug Fixes
+
+* **core:** stop dialling a session the tunnel service abandoned ([#182](https://github.com/minekube/connect-java/issues/182)) ([b7c236c](https://github.com/minekube/connect-java/commit/b7c236c6ac82c69693e55fd654609b6c2c1be811))
+
 ## [0.15.19](https://github.com/minekube/connect-java/compare/0.15.18...0.15.19) (2026-11-24)
 
 
